@@ -1,0 +1,5 @@
+{
+  "name": "PrivyConnect",
+  "description": "A secure, subscription-based private social platform for discovering and connecting with others nearby.",
+  "requestFramePermissions": ["camera", "geolocation"]
+}
