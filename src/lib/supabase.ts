@@ -1,13 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
+import { APP_CONFIG } from '../config';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase URL and Anon Key are required. Please check your .env file.');
+// Check if Supabase is both enabled in config AND has valid credentials
+export const isSupabaseActive = APP_CONFIG.USE_SUPABASE && 
+  Boolean(supabaseUrl && supabaseAnonKey && supabaseUrl !== 'YOUR_SUPABASE_URL' && !supabaseUrl.includes('placeholder'));
+
+if (APP_CONFIG.USE_SUPABASE && !isSupabaseActive) {
+  console.warn('Supabase is enabled in config but credentials are missing. Falling back to mock data.');
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
+// Initialize Supabase client (even if not active, to prevent import errors)
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder-url.supabase.co', 
+  supabaseAnonKey || 'placeholder-key'
+);
 
 // Auth Helpers
 export const signIn = async () => {

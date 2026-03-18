@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, MoreVertical, CheckCircle, AlertCircle } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -24,6 +25,14 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   useEffect(() => {
     const fetchUser = async () => {
       if (!uid) return;
+
+      if (!isSupabaseActive) {
+        const mockUser = MOCK_USERS.find(u => u.id === uid) || MOCK_USERS[0];
+        setUser(mockUser);
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -45,6 +54,11 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     // Create or find chat
     const chatId = [uid, myProfile.id].sort().join('_');
     
+    if (!isSupabaseActive) {
+      navigate(`/chat/${chatId}`);
+      return;
+    }
+
     const { data: existingChat } = await supabase
       .from('chats')
       .select('*')
@@ -71,6 +85,12 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     const amount = parseFloat(tipAmount);
     const commission = amount * 0.25;
     
+    if (!isSupabaseActive) {
+      setShowTipModal(false);
+      alert('Tip sent successfully (Mock Mode)!');
+      return;
+    }
+
     const { error } = await supabase
       .from('transactions')
       .insert({
@@ -107,95 +127,99 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
       </div>
 
       {/* Profile Card */}
-      <div className="relative rounded-[40px] overflow-hidden bg-white/5 border border-white/10">
+      <div className="relative rounded-[48px] overflow-hidden bg-[#050505] border border-white/10 shadow-2xl">
         {/* Cover / Profile Image */}
-        <div className="aspect-[4/5] md:aspect-video relative">
+        <div className="aspect-[3/4] relative">
           <img 
-            src={user.photo_url || `https://picsum.photos/seed/${user.id}/1200/800`} 
+            src={user.photo_url || `https://picsum.photos/seed/${user.id}/1200/1600`} 
             className={cn(
               "w-full h-full object-cover transition-all duration-1000",
-              !isSubscribed && !isOwnProfile && "blur-2xl scale-110 grayscale"
+              !isSubscribed && !isOwnProfile && "blur-3xl scale-110 grayscale-[0.5]"
             )}
             referrerPolicy="no-referrer"
           />
           
           {/* Blur Overlay for non-subscribers */}
           {!isSubscribed && !isOwnProfile && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
-              <Lock className="w-12 h-12 text-white/50 mb-4" />
-              <p className="text-white font-display text-2xl uppercase tracking-widest mb-6">Upgrade to View</p>
-              <button className="px-8 py-3 bg-emerald-500 text-white font-bold uppercase tracking-widest rounded-full shadow-lg shadow-emerald-500/20 hover:scale-105 transition-transform">
-                Subscribe Now
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-[2px]">
+              <button className="px-10 py-4 bg-white/10 backdrop-blur-md border border-white/20 text-white font-bold uppercase tracking-[0.2em] rounded-2xl shadow-2xl hover:scale-105 transition-transform">
+                Upgrade to view
               </button>
             </div>
           )}
 
           {/* Gradient Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent opacity-90" />
         </div>
 
         {/* Profile Info */}
-        <div className="p-8 md:p-12 -mt-24 relative z-10">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h1 className="text-5xl md:text-7xl font-display uppercase tracking-tighter">{user.username}</h1>
-                {user.is_verified && (
-                  <div className="bg-emerald-500 rounded-full p-1 shadow-lg shadow-emerald-500/20">
-                    <Shield className="w-5 h-5 text-white" />
-                  </div>
-                )}
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-6 text-white/50 uppercase tracking-[0.2em] text-xs font-bold">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-500" />
-                  <span>Lagos, Nigeria &bull; 2km</span>
+        <div className="px-8 pb-12 -mt-32 relative z-10 space-y-8">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <h1 className="text-5xl md:text-6xl font-display uppercase tracking-tighter italic">{user.username}</h1>
+              {user.is_verified && (
+                <div className="bg-brand-blue rounded-full p-1 shadow-[0_0_15px_rgba(0,209,255,0.5)]">
+                  <Shield className="w-5 h-5 text-brand-dark" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-emerald-500">Active Now</span>
-                </div>
-              </div>
-
-              <p className="max-w-2xl text-white/60 text-lg font-light leading-relaxed">
-                {user.bio || "Bio/description and subscription integration, alors with, converting, and somvert... Read more"}
-              </p>
-
-              <div className="flex flex-wrap gap-3">
-                {['Interests', 'Rating', 'Subscription'].map(tag => (
-                  <span key={tag} className="px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest font-bold text-white/40">
-                    {tag}
-                  </span>
-                ))}
+              )}
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-6 text-white/40 uppercase tracking-[0.2em] text-[10px] font-bold">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-brand-blue" />
+                <span>Lagos, Nigeria &bull; 2km</span>
               </div>
             </div>
 
-            {!isOwnProfile && (
-              <div className="flex flex-col gap-4 w-full md:w-auto">
-                <div className="flex gap-3">
+            <p className="max-w-xl text-white/50 text-sm font-medium leading-relaxed">
+              {user.bio || "Bio/description and subscription integration, alors with, converting, and somvert... Read more"}
+            </p>
+
+            <div className="flex flex-wrap gap-3">
+              {['Interests', 'Rooting', 'Subscription'].map(tag => (
+                <span key={tag} className="px-5 py-2 rounded-xl bg-white/5 border border-white/10 text-[9px] uppercase tracking-[0.2em] font-bold text-white/40">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {!isOwnProfile && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-center gap-4">
+                <div className="h-px flex-1 bg-white/10" />
+                <span className="text-[9px] uppercase tracking-[0.3em] font-bold text-white/20">Subscribers Only</span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex gap-4">
                   <button 
                     onClick={handleStartChat}
-                    disabled={!isSubscribed}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 bg-white/10 border border-white/10 rounded-2xl hover:bg-white/20 transition-all disabled:opacity-50"
+                    className="flex-1 flex items-center justify-center gap-3 px-8 py-5 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
                   >
-                    <MessageSquare className="w-5 h-5" />
-                    <span className="uppercase tracking-widest text-xs font-bold">Chat</span>
+                    <MessageSquare className="w-5 h-5 text-white/30 group-hover:text-brand-blue transition-colors" />
+                    <span className="uppercase tracking-[0.2em] text-[10px] font-bold text-white/60">Start Chat</span>
                   </button>
                   <button 
                     onClick={() => setShowTipModal(true)}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-500/20 hover:scale-105 transition-all"
+                    className="flex-1 flex items-center justify-center gap-3 px-8 py-5 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
                   >
-                    <DollarSign className="w-5 h-5" />
-                    <span className="uppercase tracking-widest text-xs font-bold">Send Tip</span>
+                    <DollarSign className="w-5 h-5 text-white/30 group-hover:text-emerald-500 transition-colors" />
+                    <span className="uppercase tracking-[0.2em] text-[10px] font-bold text-white/60">Send Tip</span>
                   </button>
                 </div>
-                <button className="w-full flex items-center justify-center gap-2 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all">
-                  <Heart className="w-5 h-5 text-red-500" />
-                  <span className="uppercase tracking-widest text-xs font-bold">Like Profile</span>
+                <button className="w-full flex items-center justify-center gap-3 px-8 py-5 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group">
+                  <Heart className="w-5 h-5 text-white/30 group-hover:text-red-500 transition-colors" />
+                  <span className="uppercase tracking-[0.2em] text-[10px] font-bold text-white/60">Like Profile</span>
                 </button>
               </div>
-            )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-center gap-3 pt-4">
+            <div className="w-2 h-2 rounded-full bg-white/20" />
+            <span className="text-[9px] uppercase tracking-[0.3em] font-bold text-white/20">Private / Public / Incognito</span>
           </div>
         </div>
       </div>
@@ -209,6 +233,11 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
               <button
                 key={mode}
                 onClick={async () => {
+                  if (!isSupabaseActive) {
+                    setUser({ ...user, profile_mode: mode });
+                    return;
+                  }
+
                   const { error } = await supabase
                     .from('profiles')
                     .update({ profile_mode: mode })

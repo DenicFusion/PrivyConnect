@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MOCK_CHATS } from '../lib/mockData';
 import { motion } from 'motion/react';
 import { MessageSquare, Shield, Zap, Search, MoreVertical, CheckCircle, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -20,6 +21,20 @@ export default function ChatListPage({ profile }: { profile: any }) {
 
     const fetchChats = async () => {
       setLoading(true);
+
+      if (!isSupabaseActive) {
+        const chatsWithUsers = MOCK_CHATS.map(chat => {
+          const otherUser = chat.participants.find(p => p.id !== profile.id) || chat.participants[1];
+          return {
+            ...chat,
+            otherUser
+          };
+        });
+        setChats(chatsWithUsers);
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('chats')
         .select('*')
@@ -47,6 +62,8 @@ export default function ChatListPage({ profile }: { profile: any }) {
 
     fetchChats();
 
+    if (!isSupabaseActive) return;
+
     // Real-time subscription
     const channel = supabase
       .channel('chats-changes')
@@ -64,20 +81,20 @@ export default function ChatListPage({ profile }: { profile: any }) {
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-display uppercase tracking-tighter mb-2">Messages</h1>
-          <p className="text-white/40 font-light text-sm uppercase tracking-widest">End-to-end encrypted conversations</p>
+          <h1 className="text-4xl font-display uppercase tracking-tighter mb-2 italic">Messages</h1>
+          <p className="text-white/40 font-light text-[10px] uppercase tracking-[0.2em] font-bold">End-to-end <span className="text-brand-blue">encrypted</span> conversations</p>
         </div>
-        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-          <Shield className="w-6 h-6 text-emerald-500" />
+        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-[0_0_15px_rgba(0,209,255,0.2)]">
+          <Shield className="w-6 h-6 text-brand-blue" />
         </div>
       </div>
 
       <div className="relative group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-emerald-500 transition-colors" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-brand-blue transition-colors" />
         <input 
           type="text" 
           placeholder="Search conversations..."
-          className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-6 focus:outline-none focus:border-emerald-500/50 transition-all text-sm"
+          className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-6 focus:outline-none focus:border-brand-blue/50 transition-all text-sm font-bold"
         />
       </div>
 
@@ -104,26 +121,26 @@ export default function ChatListPage({ profile }: { profile: any }) {
                     className="w-16 h-16 rounded-2xl object-cover"
                     referrerPolicy="no-referrer"
                   />
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-4 border-[#050505]" />
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-4 border-[#050505] shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-lg tracking-tight truncate">{chat.otherUser.username}</span>
+                      <span className="font-bold text-lg tracking-tight truncate text-white">{chat.otherUser.username}</span>
                       {chat.otherUser.is_verified && (
-                        <div className="bg-emerald-500 rounded-full p-0.5">
-                          <Shield className="w-2.5 h-2.5 text-white" />
+                        <div className="bg-brand-blue rounded-full p-0.5 shadow-[0_0_10px_rgba(0,209,255,0.5)]">
+                          <Shield className="w-2.5 h-2.5 text-brand-dark" />
                         </div>
                       )}
                     </div>
-                    <span className="text-[10px] uppercase tracking-widest font-bold text-white/30">
+                    <span className="text-[9px] uppercase tracking-[0.2em] font-bold text-white/20">
                       {formatDistanceToNow(new Date(chat.last_timestamp), { addSuffix: true })}
                     </span>
                   </div>
                   
                   <div className="flex items-center justify-between">
-                    <p className="text-white/50 text-sm truncate max-w-[200px] md:max-w-md">
+                    <p className="text-white/40 text-sm truncate max-w-[200px] md:max-w-md font-medium">
                       {chat.last_message || "Start a conversation..."}
                     </p>
                   </div>

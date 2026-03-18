@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MOCK_CHATS, MOCK_MESSAGES, MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Send, ArrowLeft, MoreVertical, CheckCircle, Clock, Image, Mic, Paperclip, Lock, Eye, Zap, MoreHorizontal } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -24,6 +25,15 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
     if (!chatId || !profile?.id) return;
 
     const fetchChatData = async () => {
+      if (!isSupabaseActive) {
+        const mockChat = MOCK_CHATS.find(c => c.id === chatId) || MOCK_CHATS[0];
+        const otherUser = mockChat.participants.find(p => p.id !== profile.id) || mockChat.participants[1];
+        setOtherUser(otherUser);
+        setMessages(MOCK_MESSAGES.filter(m => m.chat_id === chatId));
+        setLoading(false);
+        return;
+      }
+
       // Get other user info
       const { data: chat } = await supabase
         .from('chats')
@@ -59,6 +69,8 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
 
     fetchChatData();
 
+    if (!isSupabaseActive) return;
+
     // Real-time messages
     const channel = supabase
       .channel(`chat-${chatId}`)
@@ -83,6 +95,18 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
 
     const messageText = newMessage.trim();
     setNewMessage('');
+
+    if (!isSupabaseActive) {
+      const newMsg = {
+        id: `msg-${Date.now()}`,
+        chat_id: chatId,
+        sender_id: profile.id,
+        text: messageText,
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, newMsg]);
+      return;
+    }
 
     const { error } = await supabase
       .from('messages')
@@ -121,14 +145,14 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
                 className="w-10 h-10 rounded-xl object-cover"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#050505]" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#050505] shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
             </div>
             <div>
               <div className="flex items-center gap-1">
-                <span className="font-bold text-sm tracking-tight">{otherUser?.username}</span>
-                {otherUser?.is_verified && <Shield className="w-3 h-3 text-emerald-500" />}
+                <span className="font-bold text-sm tracking-tight text-white">{otherUser?.username}</span>
+                {otherUser?.is_verified && <Shield className="w-3 h-3 text-brand-blue" />}
               </div>
-              <span className="text-[10px] uppercase tracking-widest font-bold text-emerald-500">Online</span>
+              <span className="text-[9px] uppercase tracking-widest font-bold text-emerald-500">Online</span>
             </div>
           </div>
         </div>
@@ -162,10 +186,10 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
               )}
             >
               <div className={cn(
-                "p-4 rounded-3xl text-sm leading-relaxed",
+                "p-4 rounded-[24px] text-sm leading-relaxed font-medium",
                 isMe 
-                  ? "bg-emerald-500 text-white rounded-tr-none shadow-lg shadow-emerald-500/10" 
-                  : "bg-white/10 text-white/90 rounded-tl-none border border-white/10"
+                  ? "bg-brand-blue text-brand-dark rounded-tr-none shadow-[0_0_20px_rgba(0,209,255,0.2)]" 
+                  : "bg-white/5 text-white/80 rounded-tl-none border border-white/10"
               )}>
                 {msg.text}
               </div>
@@ -196,9 +220,9 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder="Type a message..."
-              className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-emerald-500/50 transition-all text-sm"
+              className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-all text-sm font-bold"
             />
-            <button type="button" className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-emerald-500 transition-colors">
+            <button type="button" className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-brand-blue transition-colors">
               <Mic className="w-5 h-5" />
             </button>
           </div>
@@ -206,7 +230,7 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
           <button 
             type="submit"
             disabled={!newMessage.trim()}
-            className="p-4 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-500/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
+            className="p-4 bg-brand-blue text-brand-dark rounded-2xl shadow-[0_0_20px_rgba(0,209,255,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
           >
             <Send className="w-5 h-5" />
           </button>

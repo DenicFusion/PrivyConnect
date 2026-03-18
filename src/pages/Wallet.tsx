@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MOCK_TRANSACTIONS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Wallet, 
@@ -35,6 +36,12 @@ export default function WalletPage({ profile }: { profile: any }) {
     if (!profile?.id) return;
 
     const fetchTransactions = async () => {
+      if (!isSupabaseActive) {
+        setTransactions(MOCK_TRANSACTIONS);
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('transactions')
         .select('*')
@@ -48,6 +55,8 @@ export default function WalletPage({ profile }: { profile: any }) {
     };
 
     fetchTransactions();
+
+    if (!isSupabaseActive) return;
 
     // Real-time updates
     const channel = supabase
@@ -71,6 +80,21 @@ export default function WalletPage({ profile }: { profile: any }) {
     
     const amount = parseFloat(depositAmount);
     
+    if (!isSupabaseActive) {
+      const newTx = {
+        id: `tx-${Date.now()}`,
+        to_uid: profile.id,
+        amount: amount,
+        type: 'deposit',
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      };
+      setTransactions(prev => [newTx, ...prev]);
+      setShowDepositModal(false);
+      alert('Deposit successful (Mock Mode)!');
+      return;
+    }
+
     const { error } = await supabase
       .from('transactions')
       .insert({
