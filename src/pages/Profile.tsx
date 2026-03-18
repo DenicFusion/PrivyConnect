@@ -274,9 +274,12 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
 
       {/* Profile Mode Toggle (Own Profile) */}
       {isOwnProfile && (
-        <div className="p-8 rounded-[40px] bg-white/5 border border-white/10 space-y-6">
+        <div className="p-8 rounded-[40px] bg-white/5 border border-white/10 space-y-8">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-display uppercase tracking-[0.2em] font-bold text-white/60">Profile Mode</h3>
+            <div className="space-y-1">
+              <h3 className="text-sm font-display uppercase tracking-[0.2em] font-bold text-white/60">Profile Privacy</h3>
+              <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Control how others see you on the platform</p>
+            </div>
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-brand-blue/10 border border-brand-blue/20">
               <div className="w-1.5 h-1.5 rounded-full bg-brand-blue animate-pulse" />
               <span className="text-[8px] uppercase tracking-widest font-bold text-brand-blue">{user.profile_mode}</span>
@@ -284,33 +287,38 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           </div>
           
           <div className="grid grid-cols-3 gap-3">
-            {['public', 'private', 'incognito'].map(mode => (
+            {[
+              { id: 'public', icon: Eye, label: 'Public' },
+              { id: 'private', icon: Lock, label: 'Private' },
+              { id: 'incognito', icon: Shield, label: 'Ghost' }
+            ].map(mode => (
               <button
-                key={mode}
+                key={mode.id}
                 onClick={async () => {
                   if (!isSupabaseActive) {
-                    setUser({ ...user, profile_mode: mode });
+                    setUser({ ...user, profile_mode: mode.id });
                     return;
                   }
 
                   const { error } = await supabase
                     .from('profiles')
-                    .update({ profile_mode: mode })
+                    .update({ profile_mode: mode.id })
                     .eq('id', myProfile.id);
                   
                   if (!error) {
-                    setUser({ ...user, profile_mode: mode });
+                    setUser({ ...user, profile_mode: mode.id });
                   }
                 }}
                 className={cn(
-                  "py-4 rounded-2xl border transition-all text-center group relative overflow-hidden",
-                  user.profile_mode === mode 
+                  "py-5 rounded-2xl border transition-all text-center group relative overflow-hidden flex flex-col items-center gap-2",
+                  user.profile_mode === mode.id 
                     ? "bg-brand-blue/10 border-brand-blue text-brand-blue shadow-[0_0_20px_rgba(0,209,255,0.1)]" 
                     : "bg-white/5 border-white/10 text-white/30 hover:bg-white/10"
                 )}
               >
-                <div className="uppercase tracking-[0.2em] text-[9px] font-bold relative z-10">{mode}</div>
-                {user.profile_mode === mode && (
+                <mode.icon className={cn("w-4 h-4", user.profile_mode === mode.id ? "text-brand-blue" : "text-white/20 group-hover:text-white/40")} />
+                <div className="uppercase tracking-[0.2em] text-[9px] font-bold relative z-10">{mode.label}</div>
+                {user.profile_mode === mode.id && (
                   <motion.div 
                     layoutId="active-mode"
                     className="absolute inset-0 bg-brand-blue/5"
@@ -319,11 +327,15 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
               </button>
             ))}
           </div>
-          <p className="text-[9px] text-center text-white/20 uppercase tracking-widest font-medium">
-            {user.profile_mode === 'public' && "Your profile is visible to everyone in discovery"}
-            {user.profile_mode === 'private' && "Only approved connections can view your full profile"}
-            {user.profile_mode === 'incognito' && "Browse profiles without appearing in discovery or active lists"}
-          </p>
+          
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-4">
+            <AlertCircle className="w-4 h-4 text-brand-blue mt-0.5" />
+            <p className="text-[10px] text-white/40 uppercase tracking-widest font-medium leading-relaxed">
+              {user.profile_mode === 'public' && "Your profile is fully visible in discovery. You'll appear in 'Nearby' and 'Active Now' lists."}
+              {user.profile_mode === 'private' && "Only your basic info is visible. Full profile access requires a connection request."}
+              {user.profile_mode === 'incognito' && "You are completely hidden from discovery. You can browse others without being seen."}
+            </p>
+          </div>
         </div>
       )}
 

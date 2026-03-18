@@ -177,19 +177,77 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Router>
-        <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-emerald-500/30">
+        <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-brand-blue/30 overflow-x-hidden">
           <Routes>
-            <Route path="/" element={!session ? <LandingPage /> : <Navigate to="/discovery" />} />
-            <Route path="/discovery" element={session ? <Layout profile={profile}><DiscoveryPage profile={profile} /></Layout> : <Navigate to="/" />} />
-            <Route path="/profile/:uid" element={session ? <Layout profile={profile}><ProfilePage profile={profile} /></Layout> : <Navigate to="/" />} />
-            <Route path="/chats" element={session ? <Layout profile={profile}><ChatListPage profile={profile} /></Layout> : <Navigate to="/" />} />
-            <Route path="/chat/:chatId" element={session ? <Layout profile={profile}><ChatRoomPage profile={profile} /></Layout> : <Navigate to="/" />} />
-            <Route path="/wallet" element={session ? <Layout profile={profile}><WalletPage profile={profile} /></Layout> : <Navigate to="/" />} />
-            <Route path="/Myadmin" element={session && profile?.role === 'admin' ? <Layout profile={profile}><AdminGuard><AdminPage profile={profile} /></AdminGuard></Layout> : <Navigate to="/" />} />
+            {/* Website Experience: Landing page is public */}
+            <Route path="/" element={<LandingPage />} />
+            
+            {/* App Experience: Authentication required for these routes */}
+            <Route path="/discovery" element={session ? <Layout profile={profile}><DiscoveryPage profile={profile} /></Layout> : <AuthScreen />} />
+            <Route path="/profile/:uid" element={session ? <Layout profile={profile}><ProfilePage profile={profile} /></Layout> : <AuthScreen />} />
+            <Route path="/chats" element={session ? <Layout profile={profile}><ChatListPage profile={profile} /></Layout> : <AuthScreen />} />
+            <Route path="/chat/:chatId" element={session ? <Layout profile={profile}><ChatRoomPage profile={profile} /></Layout> : <AuthScreen />} />
+            <Route path="/wallet" element={session ? <Layout profile={profile}><WalletPage profile={profile} /></Layout> : <AuthScreen />} />
+            <Route path="/Myadmin" element={session && profile?.role === 'admin' ? <Layout profile={profile}><AdminGuard><AdminPage profile={profile} /></AdminGuard></Layout> : <AuthScreen />} />
           </Routes>
         </div>
       </Router>
     </ErrorBoundary>
+  );
+}
+
+function AuthScreen() {
+  return (
+    <div className="min-h-screen bg-brand-dark flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-brand-blue/10 blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-500/5 blur-[120px]" />
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md space-y-12 relative z-10 text-center"
+      >
+        <div className="space-y-6">
+          <div className="inline-flex items-center justify-center p-6 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl shadow-[0_0_50px_rgba(0,209,255,0.1)]">
+            <Logo className="w-20 h-20" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-5xl font-display font-black uppercase tracking-tighter italic leading-none">
+              Privy<span className="text-brand-blue">Connect</span>
+            </h1>
+            <p className="text-[10px] text-white/40 uppercase tracking-[0.5em] font-bold">Premium Social Infrastructure</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <button 
+            onClick={() => signIn()}
+            className="w-full py-5 bg-white text-black rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+          >
+            <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
+            Continue with Google
+          </button>
+          <div className="flex items-center gap-4 py-2">
+            <div className="h-px flex-1 bg-white/10" />
+            <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">or</span>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+          <button className="w-full py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all">
+            Login with Email
+          </button>
+          <button className="w-full py-5 text-brand-blue font-bold uppercase tracking-widest text-[10px] hover:underline">
+            Create an account
+          </button>
+        </div>
+
+        <p className="text-[9px] text-white/20 uppercase tracking-widest leading-relaxed">
+          By continuing, you agree to our <br />
+          <span className="text-white/40">Terms of Service</span> & <span className="text-white/40">Privacy Policy</span>
+        </p>
+      </motion.div>
+    </div>
   );
 }
 
@@ -372,18 +430,21 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 overflow-x-hidden">
       {/* Top Bar */}
-      <header className="h-16 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
+      <header className="h-20 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
         <Link to="/discovery">
-          <PrivyLogo className="scale-90 origin-left" />
+          <PrivyLogo className="scale-90 origin-left drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
         </Link>
         
-        <div className="flex items-center gap-4">
-          <button className="p-2 hover:bg-white/5 rounded-full transition-colors relative">
-            <Bell className="w-5 h-5 text-white/70" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-emerald-500 rounded-full border-2 border-[#050505]" />
+        <div className="flex items-center gap-3">
+          <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
+            <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+            <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
           </button>
-          <button onClick={() => logOut()} className="p-2 hover:bg-red-500/10 rounded-full transition-colors group">
-            <LogOut className="w-5 h-5 text-white/70 group-hover:text-red-500" />
+          <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
+            <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+          </button>
+          <button onClick={() => logOut()} className="p-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-colors group">
+            <LogOut className="w-5 h-5 text-red-500/70 group-hover:text-red-500" />
           </button>
         </div>
       </header>
@@ -404,13 +465,12 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
       </main>
 
       {/* Navigation - Mobile Bottom / Desktop Side */}
-      <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#050505]/95 backdrop-blur-xl border-t border-white/10 flex items-center justify-around px-4 z-50 md:top-0 md:bottom-0 md:right-auto md:w-20 md:flex-col md:border-t-0 md:border-r md:h-full">
+      <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#050505]/95 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around px-4 z-50 md:top-0 md:bottom-0 md:right-auto md:w-20 md:flex-col md:border-t-0 md:border-r md:h-full">
         <div className="hidden md:flex flex-col items-center py-8 gap-8">
-           {/* Logo for desktop sidebar */}
-           <PrivyLogo className="md:flex-col md:gap-1" />
+           <PrivyLogo className="md:flex-col md:gap-1 drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
         </div>
         
-        <div className="flex flex-1 justify-around md:flex-col md:justify-center md:gap-8">
+        <div className="flex flex-1 justify-around md:flex-col md:justify-center md:gap-10">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path || (item.path !== '/discovery' && location.pathname.startsWith(item.path));
             const Icon = item.icon;
@@ -420,26 +480,25 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  "flex flex-col items-center gap-1 p-2 transition-all group",
-                  isActive ? "text-brand-blue" : "text-white/50 hover:text-white"
+                  "flex flex-col items-center gap-1.5 p-2 transition-all group relative",
+                  isActive ? "text-brand-blue" : "text-white/30 hover:text-white"
                 )}
               >
                 <div className={cn(
-                  "p-2 rounded-xl transition-all",
-                  isActive ? "bg-brand-blue/10" : "group-hover:bg-white/5"
+                  "p-2.5 rounded-2xl transition-all duration-500",
+                  isActive ? "bg-brand-blue/10 shadow-[0_0_20px_rgba(0,209,255,0.15)]" : "group-hover:bg-white/5"
                 )}>
-                  <Icon className="w-6 h-6" />
+                  <Icon className={cn("w-6 h-6 transition-transform duration-500", isActive && "scale-110")} />
                 </div>
-                <span className="text-[10px] uppercase tracking-widest font-medium md:hidden">{item.label}</span>
+                {isActive && (
+                  <motion.div 
+                    layoutId="nav-glow"
+                    className="absolute -bottom-1 w-1 h-1 bg-brand-blue rounded-full shadow-[0_0_10px_rgba(0,209,255,1)]"
+                  />
+                )}
               </Link>
             );
           })}
-        </div>
-
-        <div className="hidden md:flex flex-col items-center py-8 gap-4">
-          <button className="p-3 text-white/30 hover:text-white transition-colors">
-            <Settings className="w-6 h-6" />
-          </button>
         </div>
       </nav>
     </div>

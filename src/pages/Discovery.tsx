@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_USERS } from '../lib/mockData';
-import { motion } from 'motion/react';
-import { MapPin, Shield, Zap, TrendingUp, Users, Filter, Search } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { MapPin, Shield, Zap, TrendingUp, Users, Filter, Search, Flame, Sparkles, Lock, X, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -13,39 +13,42 @@ function cn(...inputs: ClassValue[]) {
 
 export default function DiscoveryPage({ profile }: { profile: any }) {
   const [users, setUsers] = useState<any[]>([]);
-  const [filter, setFilter] = useState('nearby');
+  const [filter, setFilter] = useState('trending');
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [liveCount, setLiveCount] = useState(18);
+
+  const isSubscribed = profile?.is_subscribed || false;
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+
+    if (!isSupabaseActive) {
+      setUsers(MOCK_USERS.filter(u => u.id !== profile?.id));
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .neq('id', profile?.id)
+      .eq('profile_mode', 'public')
+      .limit(20);
+
+    if (!error) {
+      setUsers(data || []);
+    }
+    setLoading(false);
+  }, [profile?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
-
-    const fetchUsers = async () => {
-      setLoading(true);
-
-      if (!isSupabaseActive) {
-        // Filter out current user from mock data
-        setUsers(MOCK_USERS.filter(u => u.id !== profile.id));
-        setLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', profile.id)
-        .limit(20);
-
-      if (!error) {
-        setUsers(data || []);
-      }
-      setLoading(false);
-    };
-
     fetchUsers();
 
     if (!isSupabaseActive) return;
 
-    // Real-time subscription
     const channel = supabase
       .channel('profiles-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
@@ -56,16 +59,46 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile?.id]);
+  }, [profile?.id, fetchUsers]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLiveCount(prev => Math.max(12, Math.min(45, prev + (Math.random() > 0.5 ? 1 : -1))));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const [liveActivity, setLiveActivity] = useState('Someone just joined PrivyConnect');
+
+  // Live activity simulation
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const randomUser = MOCK_USERS[Math.floor(Math.random() * MOCK_USERS.length)];
+      const activities = [
+        `just joined PrivyConnect`,
+        `is now online nearby`,
+        `just updated their profile`,
+        `is looking for a connection`,
+        `just became verified`
+      ];
+      const randomActivity = activities[Math.floor(Math.random() * activities.length)];
+      setLiveActivity(`${randomUser.username} ${randomActivity}`);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const filteredUsers = users.filter(user => 
+    user.username.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const tabs = [
-    { id: 'trending', icon: TrendingUp, label: 'Trending' },
+    { id: 'trending', icon: Flame, label: 'Trending' },
     { id: 'nearby', icon: MapPin, label: 'Nearby' },
-    { id: 'active', icon: Users, label: 'Active Now' },
+    { id: 'active', icon: Zap, label: 'Active Now' },
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-20 relative">
       {/* Header & Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
@@ -74,11 +107,13 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </div>
         
         <div className="flex items-center gap-3">
-          <div className="relative group">
+          <div className="relative group flex-1 md:flex-none">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-brand-blue transition-colors" />
             <input 
               type="text" 
               placeholder="Search usernames..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-white/5 border border-white/10 rounded-2xl py-3 pl-12 pr-6 w-full md:w-64 focus:outline-none focus:border-brand-blue/50 transition-all text-sm font-bold"
             />
           </div>
@@ -99,11 +134,11 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
                 key={tab.id}
                 onClick={() => setFilter(tab.id)}
                 className={cn(
-                  "flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all whitespace-nowrap",
+                  "flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all whitespace-nowrap relative",
                   isActive ? "bg-brand-blue text-brand-dark shadow-lg shadow-brand-blue/20" : "text-white/40 hover:text-white/70"
                 )}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={cn("w-4 h-4", isActive && "animate-pulse")} />
                 {tab.label}
               </button>
             );
@@ -111,71 +146,181 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </div>
       </div>
 
+      {/* Live Activity Booster */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={liveActivity}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="flex items-center justify-center gap-3 py-3 px-6 bg-brand-blue/5 border border-brand-blue/10 rounded-2xl"
+        >
+          <div className="w-2 h-2 rounded-full bg-brand-blue animate-ping" />
+          <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-blue/80">
+            {liveActivity}
+          </p>
+        </motion.div>
+      </AnimatePresence>
+
       {/* Grid */}
       {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
           {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
             <div key={i} className="aspect-[3/4] rounded-3xl bg-white/5 animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {users.map((user, i) => (
-            <motion.div
-              key={user.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-            >
-              <Link to={`/profile/${user.id}`} className="group block relative aspect-[3/4] rounded-[32px] overflow-hidden bg-white/5 border border-white/10 shadow-2xl">
-                <img 
-                  src={user.photo_url || `https://picsum.photos/seed/${user.id}/400/600`} 
-                  className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
-                  referrerPolicy="no-referrer"
-                />
-                
-                {/* Gradient Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent opacity-90 group-hover:opacity-100 transition-opacity" />
-                
-                {/* Content */}
-                <div className="absolute bottom-0 left-0 right-0 p-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-bold text-lg tracking-tight truncate text-white">{user.username}</span>
-                    {user.is_verified && (
-                      <div className="bg-brand-blue rounded-full p-0.5 shadow-[0_0_10px_rgba(0,209,255,0.5)]">
-                        <Shield className="w-3 h-3 text-brand-dark" />
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] font-bold text-white/40">
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3 h-3 text-brand-blue" />
-                      <span>2km away</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
-                      <span className="text-emerald-500">Online</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Mode Badge */}
-                <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[8px] uppercase tracking-[0.2em] font-bold text-white/60">
-                  {user.profile_mode}
-                </div>
-              </Link>
-            </motion.div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+          {filteredUsers.map((user, i) => (
+            <UserCard 
+              key={user.id} 
+              user={user} 
+              index={i} 
+              isSubscribed={isSubscribed}
+              onLockedClick={() => setShowLockModal(true)}
+            />
           ))}
         </div>
       )}
 
-      {users.length === 0 && !loading && (
+      {filteredUsers.length === 0 && !loading && (
         <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
           <Users className="w-12 h-12 text-white/20 mx-auto mb-4" />
           <p className="text-white/40 uppercase tracking-widest text-sm">No users found nearby</p>
         </div>
       )}
+
+      {/* Subscription Lock Modal */}
+      <AnimatePresence>
+        {showLockModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLockModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 text-center"
+            >
+              <div className="absolute top-0 right-0 p-8">
+                <button onClick={() => setShowLockModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                  <X className="w-6 h-6 text-white/30" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="inline-flex items-center justify-center p-6 rounded-[32px] bg-brand-blue/10 border border-brand-blue/20">
+                  <Lock className="w-12 h-12 text-brand-blue" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-3xl font-display uppercase tracking-tighter italic">Unlock Full Access 🔒</h2>
+                  <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold leading-relaxed">
+                    Subscribe to view profiles and chat with users nearby.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <button className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all">
+                  Subscribe Now – ₦1500/week
+                </button>
+                <p className="text-[8px] text-white/20 uppercase tracking-widest font-bold">Cancel anytime • Secure payment</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function UserCard({ user, index, isSubscribed, onLockedClick }: { 
+  user: any, 
+  index: number, 
+  isSubscribed: boolean,
+  onLockedClick: () => void
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05 }}
+    >
+      <Link 
+        to={isSubscribed ? `/profile/${user.id}` : '#'} 
+        onClick={(e) => {
+          if (!isSubscribed) {
+            e.preventDefault();
+            onLockedClick();
+          }
+        }}
+        className="group block relative aspect-[3/4] rounded-[32px] overflow-hidden bg-white/5 border border-white/10 shadow-2xl"
+      >
+        <img 
+          src={user.photo_url || `https://picsum.photos/seed/${user.id}/400/600`} 
+          className={cn(
+            "w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110",
+            !isSubscribed && "blur-2xl scale-110"
+          )}
+          referrerPolicy="no-referrer"
+        />
+        
+        {/* Badges */}
+        <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+          {index < 3 && (
+            <div className="px-3 py-1 rounded-full bg-brand-blue text-brand-dark text-[8px] font-bold uppercase tracking-widest flex items-center gap-1 shadow-[0_0_15px_rgba(0,209,255,0.3)]">
+              <Flame className="w-2.5 h-2.5" />
+              Hot
+            </div>
+          )}
+          {index > 5 && (
+            <div className="px-3 py-1 rounded-full bg-purple-500 text-white text-[8px] font-bold uppercase tracking-widest flex items-center gap-1">
+              <Sparkles className="w-2.5 h-2.5" />
+              New
+            </div>
+          )}
+        </div>
+
+        {/* Gradient Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent opacity-90 group-hover:opacity-100 transition-opacity" />
+        
+        {/* Content */}
+        <div className="absolute bottom-0 left-0 right-0 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-bold text-lg tracking-tight truncate text-white">{user.username}</span>
+            {user.is_verified && (
+              <div className="bg-brand-blue rounded-full p-0.5 shadow-[0_0_10px_rgba(0,209,255,0.5)]">
+                <CheckCircle className="w-3 h-3 text-brand-dark" />
+              </div>
+            )}
+          </div>
+          
+          <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] font-bold text-white/40">
+            <div className="flex items-center gap-1.5">
+              <MapPin className="w-3 h-3 text-brand-blue" />
+              <span>2km away</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-brand-blue animate-pulse shadow-[0_0_5px_rgba(0,209,255,0.5)]" />
+              <span className="text-brand-blue">Online</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Lock Overlay for non-subscribers */}
+        {!isSubscribed && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="p-4 rounded-full bg-white/10 border border-white/20 backdrop-blur-xl">
+              <Lock className="w-6 h-6 text-white" />
+            </div>
+          </div>
+        )}
+      </Link>
+    </motion.div>
   );
 }
