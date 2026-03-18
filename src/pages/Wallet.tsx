@@ -116,41 +116,48 @@ export default function WalletPage({ profile }: { profile: any }) {
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-display uppercase tracking-tighter mb-2">Wallet</h1>
-          <p className="text-white/40 font-light text-sm uppercase tracking-widest">Manage your funds securely</p>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
+            <DollarSign className="w-6 h-6 text-brand-blue" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-display uppercase tracking-tighter italic">My Wallet</h1>
+            <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Manage your earnings & deposits</p>
+          </div>
         </div>
         <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-          <Shield className="w-6 h-6 text-emerald-500" />
+          <Shield className="w-6 h-6 text-brand-blue" />
         </div>
       </div>
 
       {/* Balance Card */}
-      <div className="relative rounded-[40px] bg-emerald-500 p-10 overflow-hidden group">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-32 -mt-32 group-hover:scale-110 transition-transform duration-1000" />
+      <div className="relative overflow-hidden rounded-[48px] bg-[#0a0a0a] border border-white/10 p-10">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-brand-blue/10 blur-[100px] -mr-32 -mt-32" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-brand-blue/5 blur-[100px] -ml-32 -mb-32" />
+        
         <div className="relative z-10 space-y-8">
-          <div className="flex items-start justify-between">
+          <div className="flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-white/60 text-xs font-bold uppercase tracking-[0.3em]">Available Balance</p>
-              <h2 className="text-6xl md:text-7xl font-display tracking-tighter text-white">
-                ₦{balance.toLocaleString()}
-              </h2>
+              <span className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/30">Total Balance</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-5xl font-display italic tracking-tighter">₦{balance.toLocaleString()}</span>
+                <span className="text-brand-blue text-xs font-bold">NGN</span>
+              </div>
             </div>
-            <div className="p-4 bg-white/20 backdrop-blur-md rounded-2xl">
-              <Wallet className="w-8 h-8 text-white" />
+            <div className="p-4 bg-white/5 rounded-3xl border border-white/10">
+              <Zap className="w-8 h-8 text-brand-blue" />
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <button 
               onClick={() => setShowDepositModal(true)}
-              className="flex items-center gap-2 px-8 py-4 bg-white text-emerald-500 rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl shadow-black/10"
+              className="py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
-              <Plus className="w-4 h-4" />
+              <Zap className="w-4 h-4" />
               Deposit
             </button>
-            <button className="flex items-center gap-2 px-8 py-4 bg-white/20 backdrop-blur-md text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/30 transition-all">
-              <ArrowUpRight className="w-4 h-4" />
+            <button className="py-5 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all flex items-center justify-center gap-2">
               Withdraw
             </button>
           </div>
@@ -161,7 +168,7 @@ export default function WalletPage({ profile }: { profile: any }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { label: 'Total Spent', value: '₦45,000', icon: ArrowUpRight, color: 'text-red-400' },
-          { label: 'Total Earned', value: '₦120,500', icon: ArrowDownLeft, color: 'text-emerald-400' },
+          { label: 'Total Earned', value: '₦120,500', icon: ArrowDownLeft, color: 'text-brand-blue' },
           { label: 'Pending', value: '₦12,000', icon: Clock, color: 'text-amber-400' },
         ].map((stat, i) => (
           <div key={i} className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-4">
@@ -183,7 +190,7 @@ export default function WalletPage({ profile }: { profile: any }) {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-display uppercase tracking-widest">Transaction History</h3>
-          <button className="text-[10px] uppercase tracking-widest font-bold text-emerald-500 hover:underline">View All</button>
+          <button className="text-[10px] uppercase tracking-widest font-bold text-brand-blue hover:underline">View All</button>
         </div>
 
         <div className="space-y-2">
@@ -205,8 +212,8 @@ export default function WalletPage({ profile }: { profile: any }) {
                   <div className="flex items-center gap-4">
                     <div className={cn(
                       "w-12 h-12 rounded-xl flex items-center justify-center",
-                      tx.type === 'deposit' ? "bg-emerald-500/10 text-emerald-500" :
-                      isOutgoing ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                      tx.type === 'deposit' ? "bg-brand-blue/10 text-brand-blue" :
+                      isOutgoing ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
                     )}>
                       {tx.type === 'deposit' ? <Plus className="w-6 h-6" /> :
                        isOutgoing ? <ArrowUpRight className="w-6 h-6" /> : <ArrowDownLeft className="w-6 h-6" />}
@@ -224,12 +231,12 @@ export default function WalletPage({ profile }: { profile: any }) {
                   <div className="text-right">
                     <p className={cn(
                       "font-display text-lg",
-                      isOutgoing && tx.type !== 'deposit' ? "text-red-400" : "text-emerald-400"
+                      isOutgoing && tx.type !== 'deposit' ? "text-red-400" : "text-brand-blue"
                     )}>
                       {isOutgoing && tx.type !== 'deposit' ? '-' : '+'}₦{tx.amount.toLocaleString()}
                     </p>
                     <div className="flex items-center justify-end gap-1">
-                      <CheckCircle className="w-3 h-3 text-emerald-500" />
+                      <CheckCircle className="w-3 h-3 text-brand-blue" />
                       <span className="text-[8px] uppercase tracking-widest font-bold text-white/20">Completed</span>
                     </div>
                   </div>
@@ -263,11 +270,11 @@ export default function WalletPage({ profile }: { profile: any }) {
               className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[40px] p-10 space-y-8"
             >
               <div className="text-center space-y-2">
-                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
-                  <Plus className="w-8 h-8 text-emerald-500" />
+                <div className="w-16 h-16 rounded-2xl bg-brand-blue/10 flex items-center justify-center mx-auto mb-4">
+                  <Plus className="w-8 h-8 text-brand-blue" />
                 </div>
-                <h2 className="text-3xl font-display uppercase tracking-tighter">Add Funds</h2>
-                <p className="text-white/40 text-xs uppercase tracking-widest">Secure deposit via Kora Pay</p>
+                <h2 className="text-3xl font-display uppercase tracking-tighter italic">Add Funds</h2>
+                <p className="text-white/40 text-xs uppercase tracking-widest">Secure deposit via <span className="text-brand-blue">Kora Pay</span></p>
               </div>
 
               <div className="space-y-4">
@@ -277,7 +284,7 @@ export default function WalletPage({ profile }: { profile: any }) {
                     type="number" 
                     value={depositAmount}
                     onChange={(e) => setDepositAmount(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-6 pl-12 pr-6 text-3xl font-bold focus:outline-none focus:border-emerald-500/50 transition-all"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-6 pl-12 pr-6 text-3xl font-bold focus:outline-none focus:border-brand-blue/50 transition-all"
                   />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
@@ -287,7 +294,7 @@ export default function WalletPage({ profile }: { profile: any }) {
                       onClick={() => setDepositAmount(amount)}
                       className={cn(
                         "py-3 rounded-xl border text-xs font-bold uppercase tracking-widest transition-all",
-                        depositAmount === amount ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                        depositAmount === amount ? "bg-brand-blue border-brand-blue text-brand-dark" : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
                       )}
                     >
                       ₦{amount}
@@ -299,7 +306,7 @@ export default function WalletPage({ profile }: { profile: any }) {
               <div className="space-y-4">
                 <button 
                   onClick={handleDeposit}
-                  className="w-full py-5 bg-emerald-500 text-white font-bold uppercase tracking-widest rounded-2xl shadow-lg shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest rounded-2xl shadow-lg shadow-brand-blue/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
                   Proceed to Payment
                 </button>
