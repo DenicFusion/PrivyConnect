@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users } from 'lucide-react';
-import { signIn } from '../lib/supabase';
+import { Link } from 'react-router-dom';
 
 export default function LandingPage() {
   return (
@@ -18,12 +18,12 @@ export default function LandingPage() {
           <a href="#app" className="hover:text-brand-blue transition-colors">Mobile App</a>
           <a href="#safety" className="hover:text-brand-blue transition-colors">Safety</a>
         </div>
-        <button 
-          onClick={() => signIn()}
+        <Link 
+          to="/discovery"
           className="px-6 py-2.5 bg-white text-brand-dark text-[10px] uppercase tracking-widest font-bold rounded-full hover:bg-brand-blue transition-all hover:scale-105 active:scale-95"
         >
           Login
-        </button>
+        </Link>
       </nav>
 
       {/* Hero Section */}
@@ -43,31 +43,40 @@ export default function LandingPage() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-12 backdrop-blur-xl"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8 backdrop-blur-xl"
           >
             <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
-            <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/60">The Future of Private Socializing</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/60">The Future of Socializing</span>
           </motion.div>
 
-          <h1 className="font-display text-6xl md:text-8xl lg:text-[10rem] uppercase leading-[0.82] tracking-tighter mb-12 italic">
+          <h1 className="font-display text-5xl md:text-7xl lg:text-8xl uppercase leading-[0.9] tracking-tighter mb-8 italic">
             Premium<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-blue to-blue-400">Private</span><br />
-            Connections
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-blue to-blue-400">Private</span> Connections
           </h1>
 
-          <p className="max-w-2xl mx-auto text-white/40 text-lg md:text-xl mb-16 font-light leading-relaxed uppercase tracking-widest font-bold">
-            The exclusive social platform for <span className="text-brand-blue">verified</span> connections. Discover people nearby with total privacy and control.
+          <div className="relative w-full max-w-4xl mx-auto mb-12 rounded-[40px] overflow-hidden border border-white/10 shadow-2xl">
+            <img 
+              src="https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&q=80&w=1600" 
+              alt="Premium Connections"
+              className="w-full h-[300px] md:h-[400px] object-cover opacity-60"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
+          </div>
+
+          <p className="max-w-xl mx-auto text-white/40 text-base md:text-lg mb-12 font-light leading-relaxed uppercase tracking-widest font-bold">
+            The exclusive social platform for <span className="text-brand-blue">verified</span> connections.
           </p>
 
           <div className="flex flex-col md:flex-row items-center justify-center gap-8">
-            <button
-              onClick={() => signIn()}
-              className="group relative px-12 py-6 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_40px_rgba(0,209,255,0.3)]"
+            <Link
+              to="/discovery"
+              className="group relative px-10 py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_40px_rgba(0,209,255,0.3)]"
             >
-              <span className="relative z-10 flex items-center gap-3 text-sm">
-                Get Started Now <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <span className="relative z-10 flex items-center gap-3 text-xs">
+                Get Started <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </span>
-            </button>
+            </Link>
             
             <div className="flex items-center gap-4 text-white/30 text-[10px] uppercase tracking-widest font-bold">
               <div className="flex -space-x-3">
@@ -221,12 +230,12 @@ export default function LandingPage() {
             <p className="max-w-xl mx-auto text-white/40 text-lg font-light leading-relaxed">
               Join the most exclusive social network today. Your privacy is our priority.
             </p>
-            <button 
-              onClick={() => signIn()}
+            <Link 
+              to="/discovery"
               className="px-12 py-6 bg-white text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-2xl"
             >
               Get Started Now
-            </button>
+            </Link>
           </div>
         </div>
       </section>
