@@ -133,6 +133,7 @@ function AppContent() {
 
   const fetchProfile = async (uid: string) => {
     try {
+      console.log('Fetching profile for:', uid);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -140,13 +141,16 @@ function AppContent() {
         .single();
 
       if (error && error.code === 'PGRST116') {
+        console.log('Profile not found, creating one...');
         // Profile doesn't exist, create it
-        const { data: user } = await supabase.auth.getUser();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('No auth user found during profile creation');
+
         const newProfile = {
           id: uid,
-          username: user.user?.email?.split('@')[0] || 'user_' + Math.random().toString(36).slice(2, 7),
-          display_name: user.user?.user_metadata?.full_name || '',
-          photo_url: user.user?.user_metadata?.avatar_url || '',
+          username: user.email?.split('@')[0] || 'user_' + Math.random().toString(36).slice(2, 7),
+          display_name: user.user_metadata?.full_name || '',
+          photo_url: user.user_metadata?.avatar_url || '',
           role: 'user',
           is_verified: false,
           profile_mode: 'public',
@@ -154,21 +158,29 @@ function AppContent() {
           preferences: { gender: '', interests: [], availability: '' },
           location: { lat: 0, lng: 0, city: 'Unknown' }
         };
+        
         const { data: createdProfile, error: createError } = await supabase
           .from('profiles')
           .insert(newProfile)
           .select()
           .single();
         
-        if (createError) throw createError;
+        if (createError) {
+          console.error('Error creating profile:', createError);
+          throw createError;
+        }
+        console.log('Profile created successfully:', createdProfile);
         setProfile(createdProfile);
       } else if (error) {
+        console.error('Supabase error fetching profile:', error);
         throw error;
       } else {
+        console.log('Profile fetched successfully:', data);
         setProfile(data);
       }
     } catch (err) {
-      console.error('Error fetching profile:', err);
+      console.error('Error in fetchProfile:', err);
+      toast('Failed to load profile. Please try refreshing.', 'error');
     } finally {
       setLoading(false);
     }
@@ -625,7 +637,7 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
     { icon: Home, label: 'Home', path: '/discovery' },
     { icon: Wallet, label: 'Wallet', path: '/wallet' },
     { icon: MessageSquare, label: 'Chats', path: '/chats' },
-    { icon: User, label: 'Profile', path: `/profile/${profile?.id}` },
+    { icon: User, label: 'Profile', path: profile?.id ? `/profile/${profile.id}` : '/discovery' },
   ];
 
   return (

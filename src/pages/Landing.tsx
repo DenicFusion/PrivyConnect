@@ -72,12 +72,12 @@ export default function LandingPage() {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
         </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-6 text-center">
+        <div className="relative z-10 max-w-7xl mx-auto px-6 py-20 text-center">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="space-y-12"
+            className="space-y-8 md:space-y-12"
           >
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
@@ -89,13 +89,13 @@ export default function LandingPage() {
             </motion.div>
 
             <div className="space-y-6">
-              <h1 className="font-display text-6xl md:text-8xl lg:text-[10rem] uppercase leading-[0.8] tracking-tighter italic drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+              <h1 className="font-display text-5xl md:text-8xl lg:text-[10rem] uppercase leading-[0.9] md:leading-[0.8] tracking-tighter italic drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
                 The Elite<br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-blue via-blue-400 to-brand-blue bg-[length:200%_auto] animate-gradient">Social</span><br />
                 Infrastructure
               </h1>
 
-              <p className="max-w-2xl mx-auto text-white/80 text-lg md:text-xl font-light leading-relaxed uppercase tracking-[0.3em] font-bold drop-shadow-lg">
+              <p className="max-w-2xl mx-auto text-white/80 text-base md:text-xl font-light leading-relaxed uppercase tracking-[0.2em] md:tracking-[0.3em] font-bold drop-shadow-lg">
                 Secure. Verified. <span className="text-brand-blue">Uncompromisingly Private.</span>
               </p>
             </div>
@@ -262,20 +262,20 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-32 px-6">
-        <div className="max-w-5xl mx-auto p-16 md:p-24 rounded-[60px] bg-gradient-to-br from-brand-blue/20 to-blue-600/20 border border-brand-blue/30 relative overflow-hidden text-center">
+      <section className="py-20 md:py-32 px-6">
+        <div className="max-w-5xl mx-auto p-10 md:p-24 rounded-[40px] md:rounded-[60px] bg-gradient-to-br from-brand-blue/20 to-blue-600/20 border border-brand-blue/30 relative overflow-hidden text-center">
           <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(0,209,255,0.1),transparent)] pointer-events-none" />
-          <div className="relative z-10 space-y-12">
-            <h2 className="text-5xl md:text-8xl font-display uppercase tracking-tighter italic leading-none">
+          <div className="relative z-10 space-y-8 md:space-y-12">
+            <h2 className="text-4xl md:text-8xl font-display uppercase tracking-tighter italic leading-none">
               Ready to<br />
               <span className="text-brand-blue">Connect?</span>
             </h2>
-            <p className="max-w-xl mx-auto text-white/40 text-lg font-light leading-relaxed">
+            <p className="max-w-xl mx-auto text-white/40 text-base md:text-lg font-light leading-relaxed">
               Join the most exclusive social network today. Your privacy is our priority.
             </p>
             <Link 
               to="/discovery"
-              className="px-12 py-6 bg-white text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-2xl"
+              className="inline-block px-10 py-5 md:px-12 md:py-6 bg-white text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-2xl text-xs md:text-sm"
             >
               Get Started Now
             </Link>

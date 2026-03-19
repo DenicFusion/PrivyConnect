@@ -32,7 +32,13 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (!uid) return;
+      if (!uid || uid === 'undefined') {
+        console.error('Invalid UID provided to ProfilePage:', uid);
+        setLoading(false);
+        return;
+      }
+
+      console.log('ProfilePage: Fetching user for UID:', uid);
 
       if (!isSupabaseActive) {
         const mockUser = MOCK_USERS.find(u => u.id === uid) || MOCK_USERS[0];
@@ -46,21 +52,29 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', uid)
-        .single();
-      
-      if (!error && data) {
-        setUser(data);
-        setEditForm({
-          username: data.username,
-          bio: data.bio || '',
-          photo_url: data.photo_url || ''
-        });
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', uid)
+          .single();
+        
+        if (error) {
+          console.error('ProfilePage: Error fetching user:', error);
+        } else if (data) {
+          console.log('ProfilePage: User fetched successfully:', data);
+          setUser(data);
+          setEditForm({
+            username: data.username,
+            bio: data.bio || '',
+            photo_url: data.photo_url || ''
+          });
+        }
+      } catch (err) {
+        console.error('ProfilePage: Unexpected error:', err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchUser();
