@@ -36,7 +36,7 @@ export const signUpWithEmail = async (email: string, password: string, metadata:
     password,
     options: {
       data: metadata,
-      emailRedirectTo: window.location.origin + '/discovery'
+      emailRedirectTo: window.location.origin + '/verify-success'
     }
   });
   return { data, error };

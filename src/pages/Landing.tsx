@@ -1,106 +1,149 @@
 import { motion } from 'motion/react';
-import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users } from 'lucide-react';
+import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users, Bell, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Logo } from '../components/Logo';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#050505] text-white overflow-x-hidden selection:bg-brand-blue/30">
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-8 flex items-center justify-between backdrop-blur-md bg-black/20 border-b border-white/5">
+      {/* Navigation - Matching Dashboard Header Exactly */}
+      <nav className="fixed top-0 left-0 right-0 z-50 h-20 border-b border-white/10 flex items-center justify-between px-6 backdrop-blur-xl bg-[#050505]/80">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-blue to-blue-600 flex items-center justify-center shadow-lg shadow-brand-blue/20">
-            <Shield className="w-5 h-5 text-brand-dark" />
-          </div>
-          <span className="font-display text-xl uppercase tracking-[0.2em] font-bold italic">PrivyConnect</span>
-        </div>
-        <div className="hidden md:flex items-center gap-8 text-[10px] uppercase tracking-widest font-bold text-white/40">
-          <a href="#features" className="hover:text-brand-blue transition-colors">Features</a>
-          <a href="#app" className="hover:text-brand-blue transition-colors">Mobile App</a>
-          <a href="#safety" className="hover:text-brand-blue transition-colors">Safety</a>
-        </div>
-        <Link 
-          to="/discovery"
-          className="px-6 py-2.5 bg-white text-brand-dark text-[10px] uppercase tracking-widest font-bold rounded-full hover:bg-brand-blue transition-all hover:scale-105 active:scale-95"
-        >
-          Login
-        </Link>
-      </nav>
-
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-32 pb-20">
-        {/* Background Accents */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-blue/10 blur-[150px] rounded-full" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 blur-[150px] rounded-full" />
-        </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="text-center z-10 max-w-5xl"
-        >
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8 backdrop-blur-xl"
-          >
-            <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
-            <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/60">The Future of Socializing</span>
-          </motion.div>
-
-          <h1 className="font-display text-5xl md:text-7xl lg:text-8xl uppercase leading-[0.9] tracking-tighter mb-8 italic">
-            Premium<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-blue to-blue-400">Private</span> Connections
-          </h1>
-
-          <div className="relative w-full max-w-4xl mx-auto mb-12 rounded-[40px] overflow-hidden border border-white/10 shadow-2xl">
-            <img 
-              src="https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&q=80&w=1600" 
-              alt="Premium Connections"
-              className="w-full h-[300px] md:h-[400px] object-cover opacity-60"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
-          </div>
-
-          <p className="max-w-xl mx-auto text-white/40 text-base md:text-lg mb-12 font-light leading-relaxed uppercase tracking-widest font-bold">
-            The exclusive social platform for <span className="text-brand-blue">verified</span> connections.
-          </p>
-
-          <div className="flex flex-col md:flex-row items-center justify-center gap-8">
-            <Link
-              to="/discovery"
-              className="group relative px-10 py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_40px_rgba(0,209,255,0.3)]"
-            >
-              <span className="relative z-10 flex items-center gap-3 text-xs">
-                Get Started <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </span>
-            </Link>
-            
-            <div className="flex items-center gap-4 text-white/30 text-[10px] uppercase tracking-widest font-bold">
-              <div className="flex -space-x-3">
-                {[1, 2, 3, 4].map(i => (
-                  <img 
-                    key={i}
-                    src={`https://picsum.photos/seed/user${i}/100/100`} 
-                    className="w-10 h-10 rounded-full border-2 border-[#050505] grayscale hover:grayscale-0 transition-all"
-                    referrerPolicy="no-referrer"
-                  />
-                ))}
-              </div>
-              <div className="flex flex-col items-start">
-                <div className="flex items-center gap-1 text-brand-blue mb-0.5">
-                  <Star className="w-3 h-3 fill-current" />
-                  <Star className="w-3 h-3 fill-current" />
-                  <Star className="w-3 h-3 fill-current" />
-                  <Star className="w-3 h-3 fill-current" />
-                  <Star className="w-3 h-3 fill-current" />
-                </div>
-                <span>10k+ Verified Users</span>
+          <Link to="/" className="flex items-center gap-3 group">
+            <div className="relative">
+              <img 
+                src="/privylogo.png" 
+                alt="PrivyConnect" 
+                className="w-10 h-10 drop-shadow-[0_0_10px_rgba(0,209,255,0.3)] group-hover:scale-110 transition-transform" 
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                }}
+              />
+              <div className="hidden">
+                <Logo className="w-10 h-10" />
               </div>
             </div>
+            <span className="text-2xl font-display font-bold tracking-tighter">
+              Privy<span className="text-brand-blue">Connect</span>
+            </span>
+          </Link>
+        </div>
+
+        <div className="hidden lg:flex items-center gap-12 text-[10px] uppercase tracking-[0.3em] font-bold text-white/40">
+          <a href="#features" className="hover:text-brand-blue transition-colors">Infrastructure</a>
+          <a href="#app" className="hover:text-brand-blue transition-colors">Ecosystem</a>
+          <a href="#safety" className="hover:text-brand-blue transition-colors">Security</a>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
+            <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
+              <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+              <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+            </button>
+            <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
+              <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+            </button>
           </div>
+          <Link 
+            to="/discovery"
+            className="px-8 py-3 bg-brand-blue text-brand-dark text-[10px] uppercase tracking-widest font-bold rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,209,255,0.3)]"
+          >
+            Access Portal
+          </Link>
+        </div>
+      </nav>
+
+      {/* Hero Section - Full Width Banner with Overlaid Text */}
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+        {/* Full Width Banner Background */}
+        <div className="absolute inset-0 z-0">
+          <img 
+            src="https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=2000" 
+            alt="Premium Infrastructure"
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+          {/* Dark Overlays for Readability - Multi-layered for depth */}
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/90 via-transparent to-[#050505]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/80 via-transparent to-[#050505]/80" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
+        </div>
+
+        <div className="relative z-10 max-w-7xl mx-auto px-6 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            className="space-y-12"
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="inline-flex items-center gap-3 px-6 py-2 rounded-full bg-brand-blue/10 border border-brand-blue/20 backdrop-blur-xl"
+            >
+              <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse shadow-[0_0_10px_rgba(0,209,255,1)]" />
+              <span className="text-[10px] uppercase tracking-[0.4em] font-bold text-brand-blue">System Status: Optimal</span>
+            </motion.div>
+
+            <div className="space-y-6">
+              <h1 className="font-display text-6xl md:text-8xl lg:text-[10rem] uppercase leading-[0.8] tracking-tighter italic drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+                The Elite<br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-blue via-blue-400 to-brand-blue bg-[length:200%_auto] animate-gradient">Social</span><br />
+                Infrastructure
+              </h1>
+
+              <p className="max-w-2xl mx-auto text-white/80 text-lg md:text-xl font-light leading-relaxed uppercase tracking-[0.3em] font-bold drop-shadow-lg">
+                Secure. Verified. <span className="text-brand-blue">Uncompromisingly Private.</span>
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-8">
+              <Link
+                to="/discovery"
+                className="group relative px-12 py-6 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.3em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(0,209,255,0.4)]"
+              >
+                <span className="relative z-10 flex items-center gap-3 text-xs">
+                  Initialize Connection <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </span>
+              </Link>
+              
+              <div className="flex items-center gap-4 px-8 py-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl hover:bg-white/10 transition-all">
+                <div className="flex -space-x-3">
+                  {[1, 2, 3].map(i => (
+                    <img 
+                      key={i}
+                      src={`https://picsum.photos/seed/user${i}/100/100`} 
+                      className="w-10 h-10 rounded-full border-2 border-brand-dark grayscale group-hover:grayscale-0 transition-all"
+                      referrerPolicy="no-referrer"
+                    />
+                  ))}
+                </div>
+                <div className="text-left">
+                  <div className="flex items-center gap-1 text-brand-blue mb-0.5">
+                    <Star className="w-3 h-3 fill-current" />
+                    <Star className="w-3 h-3 fill-current" />
+                    <Star className="w-3 h-3 fill-current" />
+                    <Star className="w-3 h-3 fill-current" />
+                    <Star className="w-3 h-3 fill-current" />
+                  </div>
+                  <span className="text-[10px] uppercase tracking-widest font-bold text-white/40">10k+ Verified Nodes</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Scroll Indicator */}
+        <motion.div 
+          animate={{ y: [0, 10, 0] }}
+          transition={{ duration: 2, repeat: Infinity }}
+          className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 opacity-20"
+        >
+          <div className="w-px h-12 bg-gradient-to-b from-brand-blue to-transparent" />
+          <span className="text-[10px] uppercase tracking-[0.5em] font-bold">Scroll</span>
         </motion.div>
       </section>
 

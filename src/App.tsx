@@ -14,6 +14,7 @@ function cn(...inputs: ClassValue[]) {
 
 // Components
 import { Logo, PrivyLogo } from './components/Logo';
+import { ToastProvider, useToast } from './components/Toaster';
 
 // Pages
 import LandingPage from './pages/Landing';
@@ -23,6 +24,8 @@ import ChatListPage from './pages/ChatList';
 import ChatRoomPage from './pages/ChatRoom';
 import WalletPage from './pages/Wallet';
 import AdminPage from './pages/Admin';
+import VerifySuccessPage from './pages/VerifySuccess';
+import EmailPreviewPage from './pages/EmailPreview';
 
 // Error Boundary Component
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
@@ -84,9 +87,20 @@ const MOCK_SESSION = {
 };
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!isSupabaseActive) {
@@ -181,6 +195,8 @@ export default function App() {
           <Routes>
             {/* Website Experience: Landing page is public */}
             <Route path="/" element={<LandingPage />} />
+            <Route path="/verify-success" element={<VerifySuccessPage />} />
+            <Route path="/dev/emails" element={<EmailPreviewPage />} />
             
             {/* App Experience: Authentication required for these routes */}
             <Route path="/discovery" element={session ? <Layout profile={profile}><DiscoveryPage profile={profile} /></Layout> : <AuthScreen />} />
@@ -204,6 +220,8 @@ function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
+  const { toast } = useToast();
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,17 +232,71 @@ function AuthScreen() {
       if (mode === 'signup') {
         const { error } = await signUpWithEmail(email, password, { username });
         if (error) throw error;
-        alert('Check your email for the confirmation link!');
+        setVerificationSent(true);
+        toast('Verification email sent! Please check your inbox.', 'success');
       } else {
         const { error } = await signInWithEmail(email, password);
         if (error) throw error;
+        toast('Welcome back!', 'success');
       }
     } catch (err: any) {
       setError(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
   };
+
+  if (verificationSent) {
+    return (
+      <div className="min-h-screen bg-brand-dark flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-brand-blue/10 blur-[120px]" />
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md p-12 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl text-center space-y-8"
+        >
+          <div className="w-20 h-20 rounded-3xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mx-auto">
+            <Mail className="w-10 h-10 text-brand-blue" />
+          </div>
+          <div className="space-y-4">
+            <h2 className="text-3xl font-display uppercase italic">Check your inbox</h2>
+            <p className="text-white/40 text-sm font-light leading-relaxed">
+              We've sent a verification link to <span className="text-white font-medium">{email}</span>. 
+              Please click the link to activate your account.
+            </p>
+          </div>
+          <div className="pt-4">
+            <button 
+              onClick={() => {
+                // Check session again
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                  if (session) {
+                    toast('Email verified! Redirecting...', 'success');
+                    window.location.href = '/discovery';
+                  } else {
+                    toast('Please verify your email first.', 'info');
+                  }
+                });
+              }}
+              className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)]"
+            >
+              I've verified my email
+            </button>
+            <button 
+              onClick={() => setVerificationSent(false)}
+              className="mt-4 text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-white transition-colors"
+            >
+              Back to login
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-brand-dark flex flex-col items-center justify-center p-6 relative overflow-hidden">
