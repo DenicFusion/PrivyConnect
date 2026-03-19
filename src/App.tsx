@@ -153,7 +153,11 @@ function AppContent() {
           photo_url: user.user_metadata?.avatar_url || '',
           role: 'user',
           is_verified: false,
+          is_subscribed: false,
           profile_mode: 'public',
+          is_public: true,
+          hide_online_status: false,
+          is_online: true,
           last_active: new Date().toISOString(),
           preferences: { gender: '', interests: [], availability: '' },
           location: { lat: 0, lng: 0, city: 'Unknown' }
@@ -227,30 +231,45 @@ function AppContent() {
 function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'signup' | 'select'>('select');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [verificationSent, setVerificationSent] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [resendTimer, setResendTimer] = useState(0);
+  const [resendAttempts, setResendAttempts] = useState(0);
   const { toast } = useToast();
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  useEffect(() => {
+    let timer: any;
+    if (resendTimer > 0) {
+      timer = setInterval(() => setResendTimer(prev => prev - 1), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [resendTimer]);
+
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (resendAttempts >= 5) {
+      toast('Too many attempts. Please try again later.', 'error');
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
-      if (mode === 'signup') {
-        const { error } = await signUpWithEmail(email, password, { username });
-        if (error) throw error;
-        setVerificationSent(true);
-        toast('Verification email sent! Please check your inbox.', 'success');
-      } else {
-        const { error } = await signInWithEmail(email, password);
-        if (error) throw error;
-        toast('Welcome back!', 'success');
-      }
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: mode === 'signup',
+          data: mode === 'signup' ? { username } : undefined
+        }
+      });
+      if (error) throw error;
+      setOtpSent(true);
+      setResendTimer(30);
+      setResendAttempts(prev => prev + 1);
+      toast('OTP sent to your email!', 'success');
     } catch (err: any) {
       setError(err.message);
       toast(err.message, 'error');
@@ -259,7 +278,56 @@ function AuthScreen() {
     }
   };
 
-  if (verificationSent) {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = otp.join('');
+    if (token.length !== 6) {
+      toast('Please enter the 6-digit code.', 'error');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'email'
+      });
+      if (error) throw error;
+      toast('Verified successfully!', 'success');
+      window.location.href = '/discovery';
+    } catch (err: any) {
+      setError(err.message);
+      toast('Invalid or expired code. Try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOtpChange = (index: number, value: string) => {
+    if (value.length > 1) value = value[0];
+    if (!/^\d*$/.test(value)) return;
+
+    const newOtp = [...otp];
+    newOtp[index] = value;
+    setOtp(newOtp);
+
+    // Auto-focus next input
+    if (value && index < 5) {
+      const nextInput = document.getElementById(`otp-${index + 1}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-${index - 1}`);
+      prevInput?.focus();
+    }
+  };
+
+  if (otpSent) {
     return (
       <div className="min-h-screen bg-brand-dark flex flex-col items-center justify-center p-6 relative overflow-hidden">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -272,39 +340,59 @@ function AuthScreen() {
           className="w-full max-w-md p-12 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl text-center space-y-8"
         >
           <div className="w-20 h-20 rounded-3xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mx-auto">
-            <Mail className="w-10 h-10 text-brand-blue" />
+            <Key className="w-10 h-10 text-brand-blue" />
           </div>
           <div className="space-y-4">
-            <h2 className="text-3xl font-display uppercase italic">Check your inbox</h2>
+            <h2 className="text-3xl font-display uppercase italic">Verify Your Account</h2>
             <p className="text-white/40 text-sm font-light leading-relaxed">
-              We've sent a verification link to <span className="text-white font-medium">{email}</span>. 
-              Please click the link to activate your account.
+              A 6-digit code has been sent to <span className="text-white font-medium">{email}</span>
             </p>
           </div>
-          <div className="pt-4">
+
+          <form onSubmit={handleVerifyOtp} className="space-y-8">
+            <div className="flex justify-center gap-2">
+              {otp.map((digit, i) => (
+                <input
+                  key={i}
+                  id={`otp-${i}`}
+                  type="text"
+                  inputMode="numeric"
+                  value={digit}
+                  onChange={(e) => handleOtpChange(i, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(i, e)}
+                  className="w-12 h-16 bg-white/5 border border-white/10 rounded-xl text-center text-2xl font-bold focus:outline-none focus:border-brand-blue transition-colors"
+                  autoFocus={i === 0}
+                />
+              ))}
+            </div>
+
             <button 
-              onClick={() => {
-                // Check session again
-                supabase.auth.getSession().then(({ data: { session } }) => {
-                  if (session) {
-                    toast('Email verified! Redirecting...', 'success');
-                    window.location.href = '/discovery';
-                  } else {
-                    toast('Please verify your email first.', 'info');
-                  }
-                });
-              }}
-              className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)]"
+              type="submit"
+              disabled={loading}
+              className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)] disabled:opacity-50"
             >
-              I've verified my email
+              {loading ? 'Verifying...' : 'Verify Code'}
             </button>
-            <button 
-              onClick={() => setVerificationSent(false)}
-              className="mt-4 text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-white transition-colors"
-            >
-              Back to login
-            </button>
-          </div>
+
+            <div className="space-y-2">
+              <button 
+                type="button"
+                disabled={resendTimer > 0 || loading}
+                onClick={handleSendOtp}
+                className="text-[10px] text-brand-blue uppercase tracking-widest font-bold disabled:text-white/20 transition-colors"
+              >
+                {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
+              </button>
+              <br />
+              <button 
+                type="button"
+                onClick={() => setOtpSent(false)}
+                className="text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-white transition-colors"
+              >
+                Back to email
+              </button>
+            </div>
+          </form>
         </motion.div>
       </div>
     );
@@ -382,7 +470,7 @@ function AuthScreen() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              onSubmit={handleEmailAuth}
+              onSubmit={handleSendOtp}
               className="space-y-4 text-left"
             >
               <div className="space-y-4">
@@ -410,24 +498,6 @@ function AuthScreen() {
                     className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
                   />
                 </div>
-                <div className="relative">
-                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                  <input 
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-12 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
               </div>
 
               {error && (
@@ -441,7 +511,7 @@ function AuthScreen() {
                 disabled={loading}
                 className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
               >
-                {loading ? 'Processing...' : mode === 'signup' ? 'Create Account' : 'Login'}
+                {loading ? 'Processing...' : 'Continue'}
               </button>
 
               <button 

@@ -19,6 +19,25 @@ export const supabase = createClient(
 );
 
 // Auth Helpers
+export const signInWithOtp = async (email: string) => {
+  const { data, error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: window.location.origin + '/verify-success',
+    },
+  });
+  return { data, error };
+};
+
+export const verifyOtp = async (email: string, token: string) => {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: 'email',
+  });
+  return { data, error };
+};
+
 export const signIn = async () => {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',

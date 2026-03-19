@@ -10,7 +10,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     bio TEXT,
     role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     is_verified BOOLEAN DEFAULT FALSE,
-    profile_mode TEXT DEFAULT 'public' CHECK (profile_mode IN ('public', 'private')),
+    is_subscribed BOOLEAN DEFAULT FALSE,
+    subscription_expiry TIMESTAMPTZ,
+    profile_mode TEXT DEFAULT 'public' CHECK (profile_mode IN ('public', 'private', 'incognito')),
+    is_public BOOLEAN DEFAULT TRUE,
+    hide_online_status BOOLEAN DEFAULT FALSE,
+    is_online BOOLEAN DEFAULT FALSE,
     balance DECIMAL(12, 2) DEFAULT 0.00,
     location JSONB DEFAULT '{"lat": 0, "lng": 0, "city": "Unknown"}'::JSONB,
     preferences JSONB DEFAULT '{"gender": "", "interests": [], "availability": ""}'::JSONB,
@@ -115,3 +120,23 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 8. Saved Profiles Table
+CREATE TABLE IF NOT EXISTS public.saved_profiles (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    saved_profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, saved_profile_id)
+);
+
+ALTER TABLE public.saved_profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own saved profiles" ON public.saved_profiles
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can save profiles" ON public.saved_profiles
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can unsave profiles" ON public.saved_profiles
+    FOR DELETE USING (auth.uid() = user_id);

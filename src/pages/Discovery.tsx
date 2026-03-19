@@ -35,6 +35,7 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
       .select('*')
       .neq('id', profile?.id)
       .eq('profile_mode', 'public')
+      .eq('is_public', true)
       .limit(20);
 
     if (!error) {
@@ -305,10 +306,12 @@ function UserCard({ user, index, isSubscribed, onLockedClick }: {
               <MapPin className="w-3 h-3 text-brand-blue" />
               <span>2km away</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-brand-blue animate-pulse shadow-[0_0_5px_rgba(0,209,255,0.5)]" />
-              <span className="text-brand-blue">Online</span>
-            </div>
+            {(user.is_online && !user.hide_online_status) && (
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-brand-blue animate-pulse shadow-[0_0_5px_rgba(0,209,255,0.5)]" />
+                <span className="text-brand-blue">Online</span>
+              </div>
+            )}
           </div>
         </div>
 

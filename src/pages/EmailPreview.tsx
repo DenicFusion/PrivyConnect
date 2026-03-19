@@ -2,29 +2,29 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Mail, ArrowLeft, Copy, Check, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { emailTemplates } from '../lib/emailTemplates';
+import { EMAIL_TEMPLATES } from '../lib/emailTemplates';
 import { useToast } from '../components/Toaster';
 
 export default function EmailPreviewPage() {
-  const [selectedTemplate, setSelectedTemplate] = useState<keyof typeof emailTemplates>('confirmation');
+  const [selectedTemplate, setSelectedTemplate] = useState<keyof typeof EMAIL_TEMPLATES>('OTP_CODE');
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
 
   const templates = [
-    { id: 'confirmation', name: 'Email Confirmation', icon: Mail },
-    { id: 'welcome', name: 'Welcome Email', icon: Mail },
-    { id: 'subscriptionSuccess', name: 'Subscription Success', icon: Mail },
-    { id: 'accountFunded', name: 'Account Funded', icon: Mail },
-    { id: 'withdrawal', name: 'Withdrawal Initialized', icon: Mail },
-    { id: 'passwordReset', name: 'Password Reset', icon: Mail },
-    { id: 'securityAlert', name: 'Security Alert', icon: Mail },
+    { id: 'OTP_CODE', name: 'OTP Verification', icon: Mail },
+    { id: 'ACCOUNT_VERIFICATION', name: 'Account Verified', icon: Mail },
+    { id: 'SUBSCRIPTION_CONFIRMATION', name: 'Subscription Active', icon: Mail },
+    { id: 'PAYMENT_SUCCESSFUL', name: 'Payment Successful', icon: Mail },
+    { id: 'WALLET_FUNDED', name: 'Wallet Funded', icon: Mail },
+    { id: 'WITHDRAWAL_REQUEST', name: 'Withdrawal Requested', icon: Mail },
+    { id: 'PASSWORD_RESET', name: 'Password Reset', icon: Mail },
   ];
 
   const getHtml = () => {
-    const t = emailTemplates[selectedTemplate];
+    const t = EMAIL_TEMPLATES[selectedTemplate];
     if (typeof t === 'function') {
       // @ts-ignore
-      return t('https://example.com/action-link', 'Demo User', '$1,000', 'Premium Plan', 'New York, US', 'iPhone 15 Pro');
+      return t('123456', 'Demo User', '1,500', 'Premium Weekly', 'Lagos, NG', 'iPhone 15 Pro');
     }
     return '';
   };
