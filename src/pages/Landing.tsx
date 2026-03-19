@@ -1,13 +1,41 @@
-import { motion } from 'motion/react';
-import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users, Bell, Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users, Bell, Settings, X, ChevronRight, Download, Mail, HelpCircle, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
+import { supabase } from '../lib/supabase';
 
 export default function LandingPage() {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsLoggedIn(!!session);
+    };
+    checkAuth();
+
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const menuItems = [
+    { name: 'Home', href: '#home' },
+    { name: 'Features', href: '#features' },
+    { name: 'Pricing', href: '#pricing' },
+    { name: 'Download App', href: '#download' },
+    { name: 'About', href: '#about' },
+    { name: 'Privacy', href: '#privacy' },
+    { name: 'Contact', href: '#contact' },
+  ];
+
   return (
-    <div className="min-h-screen bg-[#050505] text-white overflow-x-hidden selection:bg-brand-blue/30">
-      {/* Navigation - Matching Dashboard Header Exactly */}
-      <nav className="fixed top-0 left-0 right-0 z-50 h-20 border-b border-white/10 flex items-center justify-between px-6 backdrop-blur-xl bg-[#050505]/80">
+    <div className="min-h-screen bg-[#050505] text-white overflow-x-hidden selection:bg-brand-blue/30 font-sans">
+      {/* Navigation */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 h-20 border-b transition-all duration-300 flex items-center justify-between px-6 ${scrolled ? 'bg-[#050505]/90 backdrop-blur-xl border-white/10' : 'bg-transparent border-transparent'}`}>
         <div className="flex items-center gap-3">
           <Link to="/" className="flex items-center gap-3 group">
             <div className="relative">
@@ -24,40 +52,83 @@ export default function LandingPage() {
                 <Logo className="w-10 h-10" />
               </div>
             </div>
-            <span className="text-2xl font-display font-bold tracking-tighter">
+            <span className="text-xl md:text-2xl font-display font-bold tracking-tighter">
               Privy<span className="text-brand-blue">Connect</span>
             </span>
           </Link>
         </div>
 
-        <div className="hidden lg:flex items-center gap-12 text-[10px] uppercase tracking-[0.3em] font-bold text-white/40">
-          <a href="#features" className="hover:text-brand-blue transition-colors">Infrastructure</a>
-          <a href="#app" className="hover:text-brand-blue transition-colors">Ecosystem</a>
-          <a href="#safety" className="hover:text-brand-blue transition-colors">Security</a>
+        {/* Desktop Menu */}
+        <div className="hidden lg:flex items-center gap-8 text-[10px] uppercase tracking-[0.3em] font-bold text-white/40">
+          {menuItems.slice(0, 4).map((item) => (
+            <a key={item.name} href={item.href} className="hover:text-brand-blue transition-colors">{item.name}</a>
+          ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-3">
-            <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
-              <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-              <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
-            </button>
-            <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
-              <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-            </button>
-          </div>
+        <div className="flex items-center gap-4">
           <Link 
-            to="/discovery"
-            className="px-8 py-3 bg-brand-blue text-brand-dark text-[10px] uppercase tracking-widest font-bold rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,209,255,0.3)]"
+            to="/login"
+            className="hidden md:block px-6 py-2.5 bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-white/10 transition-all"
           >
-            Access Portal
+            Login / Sign Up
           </Link>
+          
+          {/* Menu Toggle */}
+          <button 
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="p-2 text-white hover:text-brand-blue transition-colors"
+          >
+            {isMenuOpen ? (
+              <X className="w-6 h-6" />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" transform="matrix(-1, 0, 0, 1, 0, 0)">
+                <path d="M5 17H13M5 12H19M5 7H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
         </div>
       </nav>
 
-      {/* Hero Section - Full Width Banner with Overlaid Text */}
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        {/* Full Width Banner Background */}
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: '100%' }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-0 z-40 bg-[#050505] pt-24 px-8 flex flex-col gap-8"
+          >
+            <div className="flex flex-col gap-6">
+              {menuItems.map((item) => (
+                <a 
+                  key={item.name} 
+                  href={item.href} 
+                  onClick={() => setIsMenuOpen(false)}
+                  className="text-4xl font-display uppercase italic tracking-tighter hover:text-brand-blue transition-colors"
+                >
+                  {item.name}
+                </a>
+              ))}
+            </div>
+            <div className="mt-auto pb-12 space-y-4">
+              <Link 
+                to="/login" 
+                onClick={() => setIsMenuOpen(false)}
+                className="block w-full py-4 bg-brand-blue text-brand-dark text-center font-bold uppercase tracking-widest rounded-2xl"
+              >
+                Get Started
+              </Link>
+              <p className="text-center text-white/20 text-[10px] uppercase tracking-widest font-bold">
+                &copy; 2026 PrivyConnect Ecosystem
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hero Section */}
+      <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0 z-0">
           <img 
             src="https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=2000" 
@@ -65,11 +136,9 @@ export default function LandingPage() {
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
-          {/* Dark Overlays for Readability - Multi-layered for depth */}
           <div className="absolute inset-0 bg-black/40" />
           <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/90 via-transparent to-[#050505]" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/80 via-transparent to-[#050505]/80" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 py-20 text-center">
@@ -102,11 +171,11 @@ export default function LandingPage() {
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-8">
               <Link
-                to="/discovery"
+                to={isLoggedIn ? "/discovery" : "/login"}
                 className="group relative px-12 py-6 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.3em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(0,209,255,0.4)]"
               >
                 <span className="relative z-10 flex items-center gap-3 text-xs">
-                  Initialize Connection <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                  {isLoggedIn ? "Go to Dashboard" : "Initialize Connection"} <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </span>
               </Link>
               
@@ -135,150 +204,246 @@ export default function LandingPage() {
             </div>
           </motion.div>
         </div>
-
-        {/* Scroll Indicator */}
-        <motion.div 
-          animate={{ y: [0, 10, 0] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 opacity-20"
-        >
-          <div className="w-px h-12 bg-gradient-to-b from-brand-blue to-transparent" />
-          <span className="text-[10px] uppercase tracking-[0.5em] font-bold">Scroll</span>
-        </motion.div>
       </section>
 
-      {/* Stats Section */}
-      <section className="py-24 border-y border-white/5 bg-white/[0.02]">
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-12 text-center">
-          {[
-            { label: "Active Users", value: "10K+" },
-            { label: "Daily Matches", value: "2.5K" },
-            { label: "Verified Profiles", value: "98%" },
-            { label: "Privacy Score", value: "100" }
-          ].map((stat, i) => (
-            <div key={i} className="space-y-2">
-              <div className="text-4xl font-display uppercase italic text-brand-blue">{stat.value}</div>
-              <div className="text-[10px] uppercase tracking-widest font-bold text-white/30">{stat.label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* App vs Web Section */}
-      <section id="app" className="py-32 px-6">
-        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-20 items-center">
-          <div className="space-y-12">
-            <div className="space-y-6">
-              <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">
-                One Platform.<br />
-                <span className="text-white/30">Dual Experience.</span>
-              </h2>
-              <p className="text-white/40 text-lg font-light leading-relaxed">
-                Experience PrivyConnect across all your devices. Our web platform handles your account, while our mobile app delivers the full immersive product experience.
-              </p>
-            </div>
-
-            <div className="grid gap-6">
-              {[
-                { icon: Globe, title: "Web Experience", desc: "Landing, conversion, and account management." },
-                { icon: Smartphone, title: "Mobile App", desc: "Full product experience, real-time chats, and discovery." }
-              ].map((item, i) => (
-                <div key={i} className="p-8 rounded-[32px] bg-white/5 border border-white/10 flex gap-6 items-start">
-                  <div className="p-4 rounded-2xl bg-brand-blue/10 border border-brand-blue/20">
-                    <item.icon className="w-6 h-6 text-brand-blue" />
-                  </div>
-                  <div className="space-y-2">
-                    <h3 className="text-xl font-bold uppercase tracking-widest">{item.title}</h3>
-                    <p className="text-white/40 text-sm font-light leading-relaxed">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* Features Section - Minimized Heading, Restored Grid */}
+      <section id="features" className="py-24 px-6 bg-white/[0.01]">
+        <div className="max-w-7xl mx-auto space-y-12">
+          <div className="text-center space-y-2">
+            <h2 className="text-4xl md:text-5xl font-display uppercase tracking-tighter italic">Infrastructure</h2>
+            <p className="text-white/30 text-[8px] uppercase tracking-[0.4em] font-bold">Core Benefits</p>
           </div>
 
-          <div className="relative">
-            <div className="absolute inset-0 bg-brand-blue/20 blur-[100px] rounded-full" />
-            <motion.div 
-              initial={{ rotate: -5, y: 20 }}
-              whileInView={{ rotate: 0, y: 0 }}
-              className="relative aspect-[9/16] max-w-[400px] mx-auto bg-brand-dark border-[12px] border-white/10 rounded-[60px] overflow-hidden shadow-2xl"
-            >
-              <img 
-                src="https://picsum.photos/seed/app-preview/800/1400" 
-                className="w-full h-full object-cover opacity-50 grayscale"
-                referrerPolicy="no-referrer"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-brand-dark via-transparent to-transparent" />
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center space-y-8">
-                <div className="w-20 h-20 rounded-3xl bg-brand-blue flex items-center justify-center shadow-[0_0_40px_rgba(0,209,255,0.5)]">
-                  <Shield className="w-10 h-10 text-brand-dark" />
-                </div>
-                <div className="space-y-4">
-                  <h4 className="text-2xl font-display uppercase italic">PrivyConnect App</h4>
-                  <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Coming soon to iOS & Android</p>
-                </div>
-                <button className="px-8 py-4 bg-white/5 border border-white/10 backdrop-blur-xl rounded-2xl text-[10px] uppercase tracking-widest font-bold hover:bg-white/10 transition-all">
-                  Join Waitlist
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Grid */}
-      <section id="features" className="py-32 px-6 bg-white/[0.01]">
-        <div className="max-w-7xl mx-auto space-y-20">
-          <div className="text-center space-y-4">
-            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Premium Features</h2>
-            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">Built for the elite</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
-              { icon: Lock, title: "Total Privacy", desc: "End-to-end encrypted chats and blur previews for non-subscribers." },
-              { icon: Eye, title: "Verification", desc: "AI-powered face verification ensures you only connect with real people." },
-              { icon: Zap, title: "Monetization", desc: "Earn from tips and exclusive content with instant wallet withdrawals." },
-              { icon: Users, title: "Discovery", desc: "Advanced 2-column grid with live activity and engagement triggers." },
-              { icon: CheckCircle, title: "Verified Badges", desc: "Stand out with our premium verification system and trust scores." },
-              { icon: Shield, title: "Safety First", desc: "Advanced moderation and reporting tools to keep the community safe." }
+              { 
+                icon: Shield, 
+                title: "Secure Infrastructure", 
+                desc: "Multi-factor authentication and biometric security layers protecting your digital assets." 
+              },
+              { 
+                icon: Lock, 
+                title: "Private Communications", 
+                desc: "End-to-end encryption for all your data and communications within the elite network." 
+              },
+              { 
+                icon: Zap, 
+                title: "High-Speed Sync", 
+                desc: "Real-time synchronization across all your devices with zero-latency architecture." 
+              },
+              { 
+                icon: Users, 
+                title: "Verified Network", 
+                desc: "Strict vetting process for all nodes and users to maintain the highest level of integrity." 
+              },
+              { 
+                icon: Globe, 
+                title: "Global Elite Access", 
+                desc: "Connect to an elite network of high-performance servers located in strategic global hubs." 
+              },
+              { 
+                icon: CheckCircle, 
+                title: "Premium Status", 
+                desc: "Exclusive access to premium features and priority support for our most valued members." 
+              }
             ].map((feature, i) => (
               <motion.div
                 key={i}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.1 }}
-                className="p-10 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-sm hover:bg-white/10 transition-all group"
+                className="p-8 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm hover:bg-white/10 transition-all group"
               >
-                <div className="w-14 h-14 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+                <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <feature.icon className="w-6 h-6 text-brand-blue" />
                 </div>
-                <h3 className="text-2xl font-bold mb-4 uppercase tracking-wider italic">{feature.title}</h3>
-                <p className="text-white/40 font-light leading-relaxed">{feature.desc}</p>
+                <h3 className="text-xl font-bold mb-3 uppercase tracking-wider italic">{feature.title}</h3>
+                <p className="text-white/40 text-sm font-light leading-relaxed">{feature.desc}</p>
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 md:py-32 px-6">
-        <div className="max-w-5xl mx-auto p-10 md:p-24 rounded-[40px] md:rounded-[60px] bg-gradient-to-br from-brand-blue/20 to-blue-600/20 border border-brand-blue/30 relative overflow-hidden text-center">
-          <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(0,209,255,0.1),transparent)] pointer-events-none" />
-          <div className="relative z-10 space-y-8 md:space-y-12">
-            <h2 className="text-4xl md:text-8xl font-display uppercase tracking-tighter italic leading-none">
-              Ready to<br />
-              <span className="text-brand-blue">Connect?</span>
-            </h2>
-            <p className="max-w-xl mx-auto text-white/40 text-base md:text-lg font-light leading-relaxed">
-              Join the most exclusive social network today. Your privacy is our priority.
-            </p>
-            <Link 
-              to="/discovery"
-              className="inline-block px-10 py-5 md:px-12 md:py-6 bg-white text-brand-dark font-bold uppercase tracking-[0.2em] rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-2xl text-xs md:text-sm"
-            >
-              Get Started Now
-            </Link>
+      {/* Pricing Section */}
+      <section id="pricing" className="py-32 px-6">
+        <div className="max-w-7xl mx-auto space-y-20">
+          <div className="text-center space-y-4">
+            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Pricing</h2>
+            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">Choose your access level</p>
+          </div>
+
+          <div className="max-w-md mx-auto p-12 rounded-[48px] bg-gradient-to-br from-brand-blue/20 to-purple-500/20 border border-brand-blue/30 backdrop-blur-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-6">
+              <div className="px-4 py-1 bg-brand-blue text-brand-dark text-[8px] font-black uppercase tracking-widest rounded-full">Most Popular</div>
+            </div>
+            <div className="space-y-8">
+              <div className="space-y-2">
+                <h3 className="text-3xl font-display uppercase italic">Premium Access</h3>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-5xl font-display italic">₦1,500</span>
+                  <span className="text-white/40 uppercase tracking-widest text-[10px] font-bold">/ week</span>
+                </div>
+              </div>
+              <ul className="space-y-4">
+                {['Unlimited Profile Views', 'Real-time Chatting', 'Verified Badge', 'Priority Support', 'Exclusive Events'].map((feat, i) => (
+                  <li key={i} className="flex items-center gap-3 text-sm font-light">
+                    <CheckCircle className="w-4 h-4 text-brand-blue" />
+                    {feat}
+                  </li>
+                ))}
+              </ul>
+              <Link to="/login" className="block w-full py-5 bg-brand-blue text-brand-dark text-center font-bold uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)]">
+                Subscribe Now
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Download Section */}
+      <section id="download" className="py-32 px-6 bg-white/[0.01]">
+        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-20 items-center">
+          <div className="space-y-12">
+            <div className="space-y-6">
+              <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">
+                Download<br />
+                <span className="text-brand-blue">The App</span>
+              </h2>
+              <p className="text-white/40 text-lg font-light leading-relaxed">
+                Get the full PrivyConnect experience on your mobile device. Scan the QR code or use the store links below.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <button className="flex items-center gap-3 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all">
+                <Smartphone className="w-6 h-6 text-brand-blue" />
+                <div className="text-left">
+                  <div className="text-[8px] uppercase tracking-widest font-bold text-white/40">Download on</div>
+                  <div className="text-sm font-bold">App Store</div>
+                </div>
+              </button>
+              <button className="flex items-center gap-3 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all">
+                <Zap className="w-6 h-6 text-brand-blue" />
+                <div className="text-left">
+                  <div className="text-[8px] uppercase tracking-widest font-bold text-white/40">Get it on</div>
+                  <div className="text-sm font-bold">Google Play</div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div className="flex justify-center">
+            <div className="p-8 rounded-[48px] bg-white border-8 border-white/10 shadow-2xl">
+              <div className="w-64 h-64 bg-black rounded-3xl flex items-center justify-center">
+                <div className="text-brand-blue font-display text-2xl uppercase tracking-widest font-bold text-center">
+                  QR CODE<br />COMING SOON
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* About Section */}
+      <section id="about" className="py-32 px-6">
+        <div className="max-w-4xl mx-auto text-center space-y-12">
+          <div className="space-y-4">
+            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Our Vision</h2>
+            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">About PrivyConnect</p>
+          </div>
+          <p className="text-xl md:text-2xl font-light leading-relaxed text-white/60 italic">
+            "PrivyConnect was founded on the principle that elite social interactions deserve an elite infrastructure. We bridge the gap between digital privacy and human connection, creating a sanctuary for those who value discretion as much as engagement."
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-8 pt-12">
+            <div className="space-y-2">
+              <div className="text-sm font-bold uppercase tracking-widest text-brand-blue">Established</div>
+              <div className="text-white/40 text-xs">2026</div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-bold uppercase tracking-widest text-brand-blue">Headquarters</div>
+              <div className="text-white/40 text-xs">Global / Decentralized</div>
+            </div>
+            <div className="space-y-2 col-span-2 md:col-span-1">
+              <div className="text-sm font-bold uppercase tracking-widest text-brand-blue">Mission</div>
+              <div className="text-white/40 text-xs">Secure Elite Connections</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Contact Section */}
+      <section id="contact" className="py-32 px-6 bg-white/[0.01]">
+        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-20">
+          <div className="space-y-12">
+            <div className="space-y-6">
+              <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">
+                Contact<br />
+                <span className="text-brand-blue">Support</span>
+              </h2>
+              <p className="text-white/40 text-lg font-light leading-relaxed">
+                Have questions or need assistance? Our dedicated support team is available 24/7 to ensure your experience is seamless.
+              </p>
+            </div>
+            <div className="space-y-6">
+              <div className="flex items-center gap-6 p-6 rounded-3xl bg-white/5 border border-white/10">
+                <Mail className="w-6 h-6 text-brand-blue" />
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest font-bold text-white/40">Email Us</div>
+                  <div className="text-sm font-bold">support@privyconnect.com</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-6 p-6 rounded-3xl bg-white/5 border border-white/10">
+                <HelpCircle className="w-6 h-6 text-brand-blue" />
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest font-bold text-white/40">FAQ</div>
+                  <div className="text-sm font-bold">Visit Help Center</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <form className="p-12 rounded-[48px] bg-white/5 border border-white/10 backdrop-blur-xl space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Full Name</label>
+              <input type="text" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-colors" placeholder="John Doe" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Email Address</label>
+              <input type="email" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-colors" placeholder="john@example.com" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Message</label>
+              <textarea rows={4} className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-colors resize-none" placeholder="How can we help you?" />
+            </div>
+            <button type="submit" className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest rounded-2xl hover:scale-[1.02] transition-all">
+              Send Message
+            </button>
+          </form>
+        </div>
+      </section>
+
+      {/* Privacy & Terms Section */}
+      <section id="privacy" className="py-32 px-6">
+        <div className="max-w-4xl mx-auto space-y-12">
+          <div className="text-center space-y-4">
+            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Legal</h2>
+            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">Privacy & Terms</p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="p-10 rounded-[40px] bg-white/5 border border-white/10 space-y-6">
+              <FileText className="w-10 h-10 text-brand-blue" />
+              <h3 className="text-2xl font-bold uppercase tracking-wider italic">Privacy Policy</h3>
+              <p className="text-white/40 text-sm font-light leading-relaxed">
+                We take your privacy seriously. Our policy outlines how we collect, use, and protect your personal information. We never sell your data.
+              </p>
+              <button className="text-brand-blue text-[10px] uppercase tracking-widest font-bold hover:underline">Read Full Policy</button>
+            </div>
+            <div className="p-10 rounded-[40px] bg-white/5 border border-white/10 space-y-6">
+              <Shield className="w-10 h-10 text-brand-blue" />
+              <h3 className="text-2xl font-bold uppercase tracking-wider italic">Terms of Service</h3>
+              <p className="text-white/40 text-sm font-light leading-relaxed">
+                By using PrivyConnect, you agree to our community guidelines and terms. We maintain a high standard of conduct for all members.
+              </p>
+              <button className="text-brand-blue text-[10px] uppercase tracking-widest font-bold hover:underline">Read Full Terms</button>
+            </div>
           </div>
         </div>
       </section>
@@ -293,10 +458,10 @@ export default function LandingPage() {
             <span className="font-display text-xl uppercase tracking-[0.2em] font-bold italic">PrivyConnect</span>
           </div>
           
-          <div className="flex gap-12 text-[10px] uppercase tracking-widest font-bold text-white/20">
-            <a href="#" className="hover:text-brand-blue transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-brand-blue transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-brand-blue transition-colors">Contact Us</a>
+          <div className="flex flex-wrap justify-center gap-8 md:gap-12 text-[10px] uppercase tracking-widest font-bold text-white/20">
+            {menuItems.map(item => (
+              <a key={item.name} href={item.href} className="hover:text-brand-blue transition-colors">{item.name}</a>
+            ))}
           </div>
 
           <div className="text-white/20 text-[10px] uppercase tracking-widest font-bold">
