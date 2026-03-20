@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_USERS, MOCK_TRANSACTIONS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
@@ -32,6 +33,7 @@ import {
   ChevronRight,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowLeft,
   Wallet,
   X
 } from 'lucide-react';
@@ -171,63 +173,66 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
 
   return (
     <div className="min-h-screen bg-brand-dark text-white pb-20">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-        <div className="flex items-center gap-6">
-          <PrivyLogo className="scale-125 origin-left hidden md:flex" />
-          <div className="h-12 w-px bg-white/10 hidden md:block" />
-          <div>
-            <h1 className="text-5xl font-display font-extrabold uppercase tracking-tighter mb-2 italic">
-              Command <span className="text-brand-blue">Center</span>
-            </h1>
-            <p className="text-white/40 font-light text-sm uppercase tracking-[0.3em]">System Administration & Global Analytics</p>
+      <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8 md:pt-12">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+          <div className="flex items-center gap-6">
+            <PrivyLogo className="scale-125 origin-left hidden md:flex" />
+            <div className="h-12 w-px bg-white/10 hidden md:block" />
+            <div>
+              <h1 className="text-5xl font-display font-extrabold uppercase tracking-tighter mb-2 italic">
+                Command <span className="text-brand-blue">Center</span>
+              </h1>
+              <p className="text-white/40 font-light text-sm uppercase tracking-[0.3em]">System Administration & Global Analytics</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link to="/discovery" className="px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-white/40 text-[10px] uppercase tracking-widest font-bold hover:text-white hover:bg-white/10 transition-all flex items-center gap-2">
+              <ArrowLeft className="w-3 h-3" />
+              Exit Terminal
+            </Link>
+            <div className="px-4 py-2 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 text-brand-blue text-[10px] uppercase tracking-widest font-bold flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-brand-blue animate-pulse shadow-[0_0_8px_rgba(0,209,255,0.8)]" />
+              Live System Active
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="px-4 py-2 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 text-brand-blue text-[10px] uppercase tracking-widest font-bold flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-brand-blue animate-pulse shadow-[0_0_8px_rgba(0,209,255,0.8)]" />
-            Live System Active
-          </div>
-          <button className="p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all">
-            <Bell className="w-5 h-5 text-white/50" />
-          </button>
-        </div>
-      </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex overflow-x-auto scrollbar-hide gap-2 mb-12 p-1 bg-white/5 rounded-[24px] border border-white/10 w-fit">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={cn(
-              "flex items-center gap-3 px-6 py-3 rounded-[20px] text-xs font-bold uppercase tracking-widest transition-all whitespace-nowrap",
-              activeTab === tab.id 
-                ? "bg-brand-blue text-brand-dark shadow-lg shadow-brand-blue/20" 
-                : "text-white/40 hover:text-white hover:bg-white/5"
-            )}
+        {/* Navigation Tabs */}
+        <div className="flex overflow-x-auto scrollbar-hide gap-2 mb-12 p-1 bg-white/5 rounded-[24px] border border-white/10 w-fit">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={cn(
+                "flex items-center gap-3 px-6 py-3 rounded-[20px] text-xs font-bold uppercase tracking-widest transition-all whitespace-nowrap",
+                activeTab === tab.id 
+                  ? "bg-brand-blue text-brand-dark shadow-lg shadow-brand-blue/20" 
+                  : "text-white/40 hover:text-white hover:bg-white/5"
+              )}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
           >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-          </button>
-        ))}
+            {activeTab === 'dashboard' && <DashboardView stats={stats} transactions={transactions} />}
+            {activeTab === 'users' && <UserManagementView users={users} />}
+            {activeTab === 'finance' && <FinancialControlView transactions={transactions} settings={settings} />}
+            {activeTab === 'moderation' && <ModerationView />}
+            {activeTab === 'settings' && <SystemSettingsView settings={settings} />}
+          </motion.div>
+        </AnimatePresence>
       </div>
-
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ duration: 0.3 }}
-        >
-          {activeTab === 'dashboard' && <DashboardView stats={stats} transactions={transactions} />}
-          {activeTab === 'users' && <UserManagementView users={users} />}
-          {activeTab === 'finance' && <FinancialControlView transactions={transactions} settings={settings} />}
-          {activeTab === 'moderation' && <ModerationView />}
-          {activeTab === 'settings' && <SystemSettingsView settings={settings} />}
-        </motion.div>
-      </AnimatePresence>
     </div>
   );
 }

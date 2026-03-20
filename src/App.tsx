@@ -268,7 +268,7 @@ function AppContent() {
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatListPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatRoomPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/Myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><Layout profile={profile}><AdminPage profile={profile} /></Layout></AdminGuard></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
           </Routes>
         </div>
       </Router>
@@ -466,14 +466,10 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/discovery' },
-    { icon: Wallet, label: 'Wallet', path: '/wallet' },
     { icon: MessageSquare, label: 'Chats', path: '/chats' },
+    { icon: Wallet, label: 'Wallet', path: '/wallet' },
     { icon: User, label: 'Profile', path: profile?.id ? `/profile/${profile.id}` : '/profile' },
   ];
-
-  if (profile?.role === 'admin') {
-    navItems.push({ icon: Shield, label: 'Admin', path: '/Myadmin' });
-  }
 
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 overflow-x-hidden">
