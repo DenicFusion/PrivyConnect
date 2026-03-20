@@ -24,7 +24,8 @@ import ProfilePage from './pages/Profile';
 import ChatListPage from './pages/ChatList';
 import ChatRoomPage from './pages/ChatRoom';
 import WalletPage from './pages/Wallet';
-import AdminPage from './pages/Admin';
+import AdminPage from './admin/AdminPage';
+import AdminGuard from './admin/AdminGuard';
 import VerifySuccessPage from './pages/VerifySuccess';
 import EmailPreviewPage from './pages/EmailPreview';
 import LoginPage from './pages/Login';
@@ -268,197 +269,12 @@ function AppContent() {
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatListPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatRoomPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/admin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
+            <Route path="/myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
           </Routes>
         </div>
       </Router>
     </ErrorBoundary>
   );
-}
-
-function AdminGuard({ children, profile }: { children: React.ReactNode, profile: any }) {
-  const [password, setPassword] = useState('');
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [error, setError] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  // If user is not an admin, don't even show the login
-  if (profile && profile.role !== 'admin') {
-    return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
-        <div className="text-center space-y-4">
-          <Shield className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-display font-bold uppercase tracking-tight">Access Denied</h2>
-          <p className="text-white/40 max-w-xs mx-auto">This area is restricted to system administrators only.</p>
-          <button 
-            onClick={() => window.location.href = '/discovery'}
-            className="px-6 py-2 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-xs"
-          >
-            Return to Safety
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(false);
-    
-    // Simulate system check - in production this would be a real secondary auth
-    setTimeout(() => {
-      if (password === 'Admin123') {
-        setIsAuthorized(true);
-      } else {
-        setError(true);
-        setIsLoading(false);
-      }
-    }, 800);
-  };
-
-  if (!isAuthorized) {
-    return (
-      <div className="min-h-screen bg-brand-dark flex items-center justify-center p-6 relative overflow-hidden">
-        {/* Advanced Background Effects */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-brand-blue/20 blur-[120px] animate-pulse" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-500/10 blur-[120px] animate-pulse" style={{ animationDelay: '1s' }} />
-          <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px]" />
-        </div>
-        
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9, y: 30 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ type: 'spring', damping: 20, stiffness: 100 }}
-          className="w-full max-w-lg relative z-10"
-        >
-          {/* Decorative Elements */}
-          <div className="absolute -top-12 -left-12 w-24 h-24 border-t-2 border-l-2 border-brand-blue/30 rounded-tl-[40px] pointer-events-none" />
-          <div className="absolute -bottom-12 -right-12 w-24 h-24 border-b-2 border-r-2 border-brand-blue/30 rounded-br-[40px] pointer-events-none" />
-
-          <div className="text-center mb-12 space-y-6">
-            <motion.div 
-              animate={{ 
-                rotateY: [0, 360],
-                boxShadow: ['0 0 20px rgba(0,209,255,0.2)', '0 0 40px rgba(0,209,255,0.4)', '0 0 20px rgba(0,209,255,0.2)']
-              }}
-              transition={{ rotateY: { duration: 10, repeat: Infinity, ease: "linear" }, boxShadow: { duration: 2, repeat: Infinity } }}
-              className="inline-flex items-center justify-center p-6 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl"
-            >
-              <Logo className="w-20 h-20" />
-            </motion.div>
-            <div className="space-y-2">
-              <h2 className="text-5xl font-display font-black uppercase tracking-tighter italic leading-none">
-                Privy<span className="text-brand-blue">Command</span>
-              </h2>
-              <div className="flex items-center justify-center gap-4">
-                <div className="h-px w-8 bg-white/10" />
-                <p className="text-[10px] text-white/40 uppercase tracking-[0.5em] font-bold">Terminal Authorization Required</p>
-                <div className="h-px w-8 bg-white/10" />
-              </div>
-            </div>
-          </div>
-
-          <div className="p-12 rounded-[56px] bg-white/5 border border-white/10 backdrop-blur-3xl space-y-10 relative overflow-hidden group shadow-[0_0_100px_rgba(0,0,0,0.5)]">
-            <div className="absolute inset-0 bg-gradient-to-br from-brand-blue/[0.08] via-transparent to-purple-500/[0.05] opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-            
-            <div className="flex items-center justify-between relative z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-brand-blue animate-ping" />
-                <span className="text-[9px] uppercase tracking-widest font-bold text-brand-blue">Encrypted Session</span>
-              </div>
-              <span className="text-[9px] uppercase tracking-widest font-bold text-white/20 font-mono">v4.2.0-stable</span>
-            </div>
-
-            <form onSubmit={handleLogin} className="space-y-8 relative z-10">
-              <div className="space-y-4">
-                <div className="flex justify-between items-end px-4">
-                  <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/40">Access Key</label>
-                  <span className="text-[9px] font-mono text-white/20">AES-256-GCM</span>
-                </div>
-                <div className="relative group/input">
-                  <div className="absolute inset-0 bg-brand-blue/20 blur-xl opacity-0 group-focus-within/input:opacity-100 transition-opacity duration-500" />
-                  <Lock className={cn(
-                    "absolute left-8 top-1/2 -translate-y-1/2 w-6 h-6 transition-all duration-300",
-                    error ? "text-red-500" : "text-white/20 group-focus-within/input:text-brand-blue group-focus-within/input:scale-110"
-                  )} />
-                  <input 
-                    type="password" 
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      setError(false);
-                    }}
-                    placeholder="••••••••••••"
-                    className={cn(
-                      "w-full bg-white/5 border rounded-[32px] py-6 pl-20 pr-8 focus:outline-none transition-all text-2xl tracking-[0.3em] font-mono relative z-10",
-                      error ? "border-red-500/50 bg-red-500/5 text-red-500" : "border-white/10 focus:border-brand-blue/50 focus:bg-white/10"
-                    )}
-                    autoFocus
-                  />
-                </div>
-                {error && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="px-6 py-3 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center gap-3"
-                  >
-                    <ShieldAlert className="w-4 h-4 text-red-500" />
-                    <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest">
-                      Authorization Failed: Invalid System Key
-                    </p>
-                  </motion.div>
-                )}
-              </div>
-
-              <button 
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-6 bg-brand-blue text-brand-dark rounded-[32px] font-black uppercase tracking-[0.3em] text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)] disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-4 group/btn"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-5 h-5 border-3 border-brand-dark/30 border-t-brand-dark rounded-full animate-spin" />
-                    Verifying Credentials...
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-5 h-5 transition-transform group-hover/btn:scale-110" />
-                    Initialize Command
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
-
-          <div className="mt-16 flex flex-col items-center gap-8">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-3 px-5 py-2.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] uppercase tracking-widest font-bold text-white/40">Secure Node</span>
-              </div>
-              <div className="flex items-center gap-3 px-5 py-2.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md">
-                <Activity className="w-3 h-3 text-brand-blue" />
-                <span className="text-[10px] uppercase tracking-widest font-bold text-white/40">System Load: 12%</span>
-              </div>
-            </div>
-            <div className="space-y-2 text-center">
-              <p className="text-[10px] text-white/10 uppercase tracking-[0.3em] font-bold">
-                Proprietary Administrative Interface
-              </p>
-              <p className="text-[9px] text-white/5 uppercase tracking-widest font-medium">
-                © 2026 PrivyConnect Global Infrastructure
-              </p>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
-  return <>{children}</>;
 }
 
 function Layout({ children, profile }: { children: React.ReactNode, profile: any }) {
