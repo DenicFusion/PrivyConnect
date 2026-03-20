@@ -25,7 +25,6 @@ export default function LandingPage() {
   const menuItems = [
     { name: 'Home', href: '#home' },
     { name: 'Features', href: '#features' },
-    { name: 'Pricing', href: '#pricing' },
     { name: 'Download App', href: '#download' },
     { name: 'About', href: '#about' },
     { name: 'Privacy', href: '#privacy' },
@@ -66,13 +65,6 @@ export default function LandingPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <Link 
-            to="/login"
-            className="hidden md:block px-6 py-2.5 bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-white/10 transition-all"
-          >
-            Login / Sign Up
-          </Link>
-          
           {/* Menu Toggle */}
           <button 
             onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -111,14 +103,7 @@ export default function LandingPage() {
                 </a>
               ))}
             </div>
-            <div className="mt-auto pb-12 space-y-4">
-              <Link 
-                to="/login" 
-                onClick={() => setIsMenuOpen(false)}
-                className="block w-full py-4 bg-brand-blue text-brand-dark text-center font-bold uppercase tracking-widest rounded-2xl"
-              >
-                Get Started
-              </Link>
+            <div className="mt-auto pb-12">
               <p className="text-center text-white/20 text-[10px] uppercase tracking-widest font-bold">
                 &copy; 2026 PrivyConnect Ecosystem
               </p>
@@ -128,7 +113,7 @@ export default function LandingPage() {
       </AnimatePresence>
 
       {/* Hero Section */}
-      <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden">
+      <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden pb-20">
         <div className="absolute inset-0 z-0">
           <img 
             src="https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=2000" 
@@ -210,8 +195,8 @@ export default function LandingPage() {
       <section id="features" className="py-24 px-6 bg-white/[0.01]">
         <div className="max-w-7xl mx-auto space-y-12">
           <div className="text-center space-y-2">
-            <h2 className="text-4xl md:text-5xl font-display uppercase tracking-tighter italic">Infrastructure</h2>
-            <p className="text-white/30 text-[8px] uppercase tracking-[0.4em] font-bold">Core Benefits</p>
+            <h2 className="text-2xl md:text-3xl font-display uppercase tracking-tighter italic opacity-40">Infrastructure</h2>
+            <p className="text-white/20 text-[8px] uppercase tracking-[0.4em] font-bold">Core Benefits</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">

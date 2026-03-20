@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, MoreVertical, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info } from 'lucide-react';
+import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, MoreVertical, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info, ShieldOff } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import Cropper from 'react-easy-crop';
@@ -323,6 +323,32 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     }
   };
 
+  const handleBlockUser = async () => {
+    if (!uid || !myProfile) return;
+    
+    if (!isSupabaseActive) {
+      toast('User blocked successfully (Mock Mode)!', 'success');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('blocked_users')
+        .insert({
+          user_id: myProfile.id,
+          blocked_user_id: uid,
+          created_at: new Date().toISOString()
+        });
+      
+      if (error) throw error;
+      toast('User blocked successfully. You will no longer see their content.', 'success');
+      navigate('/discovery');
+    } catch (err: any) {
+      console.error('Error blocking user:', err);
+      toast('Failed to block user. Please try again.', 'error');
+    }
+  };
+
   if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
   if (!user) return <div className="h-screen flex items-center justify-center">User not found</div>;
 
@@ -566,14 +592,23 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                       <span className="uppercase tracking-[0.2em] text-xs font-black text-white/80">Send Tip</span>
                     </button>
                   </div>
-                  <button 
-                    onClick={handleSaveProfile}
-                    disabled={isSaving}
-                    className="w-full flex items-center justify-center gap-4 px-8 py-6 bg-white/5 border border-white/10 rounded-[24px] hover:bg-white/10 transition-all group disabled:opacity-50"
-                  >
-                    <Heart className={cn("w-6 h-6 transition-colors", isSaved ? "text-red-500 fill-red-500" : "text-white/20 group-hover:text-red-500")} />
-                    <span className="uppercase tracking-[0.2em] text-xs font-black text-white/80">{isSaved ? 'Saved' : 'Save Profile'}</span>
-                  </button>
+                  <div className="space-y-4">
+                    <button 
+                      onClick={handleSaveProfile}
+                      disabled={isSaving}
+                      className="w-full flex items-center justify-center gap-4 px-8 py-6 bg-white/5 border border-white/10 rounded-[24px] hover:bg-white/10 transition-all group disabled:opacity-50"
+                    >
+                      <Heart className={cn("w-6 h-6 transition-colors", isSaved ? "text-red-500 fill-red-500" : "text-white/20 group-hover:text-red-500")} />
+                      <span className="uppercase tracking-[0.2em] text-xs font-black text-white/80">{isSaved ? 'Saved' : 'Save Profile'}</span>
+                    </button>
+                    <button 
+                      onClick={handleBlockUser}
+                      className="w-full flex items-center justify-center gap-4 px-8 py-6 bg-red-500/5 border border-red-500/10 rounded-[24px] hover:bg-red-500/10 transition-all group"
+                    >
+                      <ShieldOff className="w-6 h-6 text-red-500/20 group-hover:text-red-500 transition-colors" />
+                      <span className="uppercase tracking-[0.2em] text-xs font-black text-red-500/80">Block User</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </>

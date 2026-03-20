@@ -146,51 +146,44 @@ function AppContent() {
   const fetchProfile = async (uid: string) => {
     try {
       console.log('Fetching profile for:', uid);
-      const { data, error } = await supabase
+      
+      // Strict profile fetching: Get user first to ensure session is valid
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('No auth user found');
+
+      let { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', uid)
+        .eq('id', user.id)
         .single();
 
       if (error && error.code === 'PGRST116') {
-        console.log('Profile not found, creating one...');
-        // Profile doesn't exist, create it
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('No auth user found during profile creation');
-
-        const newProfile = {
-          id: uid,
-          username: user.email?.split('@')[0] || 'user_' + Math.random().toString(36).slice(2, 7),
-          display_name: user.user_metadata?.full_name || '',
-          photo_url: user.user_metadata?.avatar_url || '',
-          role: 'user',
-          is_verified: false,
-          is_subscribed: false,
-          profile_mode: 'public',
-          is_public: true,
-          hide_online_status: false,
-          is_online: true,
-          last_active: new Date().toISOString(),
-          preferences: { gender: '', interests: [], availability: '' },
-          location: { lat: 0, lng: 0, city: 'Unknown' }
-        };
-        
-        const { data: createdProfile, error: createError } = await supabase
+        // Fallback: Create profile if it doesn't exist
+        const { data: newProfile, error: createError } = await supabase
           .from('profiles')
-          .insert(newProfile)
+          .insert([
+            { 
+              id: user.id,
+              username: user.email?.split('@')[0] || `user_${user.id.slice(0, 5)}`,
+              display_name: user.user_metadata?.full_name || '',
+              created_at: new Date().toISOString()
+            }
+          ])
           .select()
           .single();
         
         if (createError) {
-          console.error('Error creating profile:', createError);
-          throw createError;
+          console.error('Error creating fallback profile:', createError);
+          throw new Error('User profile not found and could not be created.');
         }
-        console.log('Profile created successfully:', createdProfile);
-        setProfile(createdProfile);
+        data = newProfile;
+        error = null;
       } else if (error) {
         console.error('Supabase error fetching profile:', error);
         throw error;
-      } else {
+      }
+
+      if (data) {
         console.log('Profile fetched successfully:', data);
         setProfile(data);
       }
@@ -424,18 +417,31 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 overflow-x-hidden">
       {/* Top Bar */}
       <header className="h-20 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
-        <Link to="/discovery">
-          <PrivyLogo className="scale-90 origin-left drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
-        </Link>
+        <div className="flex-1 flex items-center">
+          <Link to="/discovery" className="max-w-[50%]">
+            <PrivyLogo className="scale-90 origin-left drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
+          </Link>
+        </div>
         
         <div className="flex items-center gap-3">
           <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
             <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
             <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
           </button>
-          <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
-            <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+          
+          {/* Menu Portal */}
+          <button className="p-2 text-white hover:text-brand-blue transition-colors group">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" transform="matrix(-1, 0, 0, 1, 0, 0)">
+              <g id="SVGRepo_bgCarrier" strokeWidth="0"></g>
+              <g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g>
+              <g id="SVGRepo_iconCarrier"> 
+                <g id="Menu / Menu_Alt_03"> 
+                  <path id="Vector" d="M5 17H13M5 12H19M5 7H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path> 
+                </g> 
+              </g>
+            </svg>
           </button>
+
           <button onClick={() => logOut()} className="p-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-colors group">
             <LogOut className="w-5 h-5 text-red-500/70 group-hover:text-red-500" />
           </button>
