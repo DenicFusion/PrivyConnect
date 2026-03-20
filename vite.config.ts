@@ -9,6 +9,11 @@ export default defineConfig(({mode}) => {
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.VITE_R2_ACCOUNT_ID': JSON.stringify(env.VITE_R2_ACCOUNT_ID || env.R2_ACCOUNT_ID),
+      'process.env.VITE_R2_ACCESS_KEY_ID': JSON.stringify(env.VITE_R2_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID),
+      'process.env.VITE_R2_SECRET_ACCESS_KEY': JSON.stringify(env.VITE_R2_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY),
+      'process.env.VITE_R2_BUCKET_NAME': JSON.stringify(env.VITE_R2_BUCKET_NAME || env.R2_BUCKET_NAME),
+      'process.env.VITE_R2_PUBLIC_URL': JSON.stringify(env.VITE_R2_PUBLIC_URL || env.R2_PUBLIC_URL),
     },
     resolve: {
       alias: {

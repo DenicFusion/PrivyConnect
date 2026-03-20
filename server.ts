@@ -8,8 +8,24 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
+import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
+
+// Initialize Firebase Admin
+if (!getApps().length) {
+  initializeApp({
+    projectId: firebaseConfig.projectId,
+    // Note: In a real production environment, you would use a service account key.
+    // For this environment, we'll assume the default credentials are sufficient or use the project ID.
+  });
+}
+
+const messaging = getMessaging();
+
 async function startServer() {
   const app = express();
+  app.use(express.json()); // Add JSON parser
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -42,6 +58,29 @@ async function startServer() {
   // API routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.post("/api/send-notification", async (req, res) => {
+    const { token, title, body, data } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ error: 'Token is required' });
+    }
+
+    try {
+      const response = await messaging.send({
+        token,
+        notification: {
+          title,
+          body,
+        },
+        data: data || {},
+      });
+      res.json({ success: true, messageId: response });
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      res.status(500).json({ error: 'Failed to send notification' });
+    }
   });
 
   // Vite middleware for development

@@ -135,7 +135,7 @@ export default function ChatListPage({ profile }: { profile: any }) {
                       )}
                     </div>
                     <span className="text-[9px] uppercase tracking-[0.2em] font-bold text-white/20">
-                      {formatDistanceToNow(new Date(chat.last_timestamp), { addSuffix: true })}
+                      {chat.last_timestamp ? formatDistanceToNow(new Date(chat.last_timestamp), { addSuffix: true }) : '...'}
                     </span>
                   </div>
                   

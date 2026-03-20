@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users, Bell, Settings, X, ChevronRight, Download, Mail, HelpCircle, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
 
 export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -12,6 +12,10 @@ export default function LandingPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      if (!supabase || !isSupabaseActive) {
+        setIsLoggedIn(true);
+        return;
+      }
       const { data: { session } } = await supabase.auth.getSession();
       setIsLoggedIn(!!session);
     };

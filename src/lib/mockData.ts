@@ -115,15 +115,17 @@ export const MOCK_MESSAGES = [
     id: 'msg-1',
     chat_id: 'chat-1',
     sender_id: 'user-1',
-    text: 'Hey, how are you doing?',
-    timestamp: new Date().toISOString()
+    content: 'Hey, how are you doing?',
+    message_type: 'text',
+    created_at: new Date().toISOString()
   },
   {
     id: 'msg-2',
     chat_id: 'chat-1',
     sender_id: 'mock-user-123',
-    text: 'I am doing great, thanks for asking!',
-    timestamp: new Date(Date.now() - 60000).toISOString()
+    content: 'I am doing great, thanks for asking!',
+    message_type: 'text',
+    created_at: new Date(Date.now() - 60000).toISOString()
   }
 ];
 

@@ -1,0 +1,22 @@
+{
+  "entities": {
+    "notifications": {
+      "title": "Notifications",
+      "description": "Push notifications sent to users",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "body", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/notifications/{notificationId}": {
+      "schema": "notifications",
+      "description": "Collection of notifications"
+    }
+  }
+}

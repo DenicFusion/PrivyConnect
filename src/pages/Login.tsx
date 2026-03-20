@@ -23,13 +23,17 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   useEffect(() => {
+    if (!isSupabaseActive) {
+      navigate('/discovery');
+      return;
+    }
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         navigate('/discovery');
       }
     };
-    if (isSupabaseActive) checkSession();
+    checkSession();
   }, [navigate]);
 
   useEffect(() => {

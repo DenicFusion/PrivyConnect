@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     is_public BOOLEAN DEFAULT TRUE,
     hide_online_status BOOLEAN DEFAULT FALSE,
     is_online BOOLEAN DEFAULT FALSE,
+    push_token TEXT,
     balance DECIMAL(12, 2) DEFAULT 0.00,
     location JSONB DEFAULT '{"lat": 0, "lng": 0, "city": "Unknown"}'::JSONB,
     preferences JSONB DEFAULT '{"gender": "", "interests": [], "availability": ""}'::JSONB,
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS public.chats (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     participants UUID[] NOT NULL,
     last_message TEXT,
-    last_message_at TIMESTAMPTZ DEFAULT NOW(),
+    last_timestamp TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -49,9 +50,11 @@ CREATE TABLE IF NOT EXISTS public.messages (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     chat_id UUID REFERENCES public.chats(id) ON DELETE CASCADE NOT NULL,
     sender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    text TEXT NOT NULL,
-    type TEXT DEFAULT 'text' CHECK (type IN ('text', 'image', 'system')),
-    is_read BOOLEAN DEFAULT FALSE,
+    content TEXT,
+    file_url TEXT,
+    voice_url TEXT,
+    message_type TEXT DEFAULT 'text' CHECK (message_type IN ('text', 'image', 'video', 'audio', 'voice', 'system')),
+    status TEXT DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'read')),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

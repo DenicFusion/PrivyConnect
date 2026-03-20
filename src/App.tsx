@@ -14,6 +14,7 @@ function cn(...inputs: ClassValue[]) {
 
 // Components
 import { Logo, PrivyLogo } from './components/Logo';
+import { requestNotificationPermission, onForegroundMessage } from './lib/firebase';
 import { ToastProvider, useToast } from './components/Toaster';
 
 // Pages
@@ -86,6 +87,7 @@ const MOCK_PROFILE = {
   photo_url: 'https://picsum.photos/seed/demo/200/200',
   role: 'admin',
   is_verified: true,
+  is_subscribed: true,
   profile_mode: 'public',
   balance: 5000,
   created_at: new Date().toISOString()
@@ -186,6 +188,22 @@ function AppContent() {
       if (data) {
         console.log('Profile fetched successfully:', data);
         setProfile(data);
+
+        // Handle Push Notifications
+        if (isSupabaseActive) {
+          const token = await requestNotificationPermission();
+          if (token && token !== data.push_token) {
+            await supabase
+              .from('profiles')
+              .update({ push_token: token })
+              .eq('id', user.id);
+          }
+
+          onForegroundMessage((payload) => {
+            console.log('Foreground message received:', payload);
+            toast(payload.notification.body, 'info');
+          });
+        }
       }
     } catch (err) {
       console.error('Error in fetchProfile:', err);

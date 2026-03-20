@@ -9,6 +9,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { uploadBlobToR2, uploadToR2 } from '../lib/storage';
 import imageCompression from 'browser-image-compression';
+import { useToast } from '../components/Toaster';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -19,11 +20,13 @@ function useVoiceRecorder() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const timerRef = useRef<any>(null);
 
   const startRecording = async () => {
     try {
+      setRecordingError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder.current = new MediaRecorder(stream);
       const chunks: BlobPart[] = [];
@@ -40,8 +43,13 @@ function useVoiceRecorder() {
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error starting recording:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setRecordingError('Microphone access denied. Please enable it in your browser settings.');
+      } else {
+        setRecordingError('Could not start recording. Please check your microphone.');
+      }
     }
   };
 
@@ -57,9 +65,10 @@ function useVoiceRecorder() {
   const cancelRecording = () => {
     stopRecording();
     setAudioBlob(null);
+    setRecordingError(null);
   };
 
-  return { isRecording, recordingTime, audioBlob, startRecording, stopRecording, cancelRecording, setAudioBlob };
+  return { isRecording, recordingTime, audioBlob, recordingError, startRecording, stopRecording, cancelRecording, setAudioBlob };
 }
 
 export default function ChatRoomPage({ profile }: { profile: any }) {
@@ -79,13 +88,65 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<any>(null);
   
-  const { isRecording, recordingTime, audioBlob, startRecording, stopRecording, cancelRecording, setAudioBlob } = useVoiceRecorder();
+  const { isRecording, recordingTime, audioBlob, recordingError, startRecording, stopRecording, cancelRecording, setAudioBlob } = useVoiceRecorder();
+
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (recordingError) {
+      toast(recordingError, 'error');
+    }
+  }, [recordingError, toast]);
+
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [playingPreview, setPlayingPreview] = useState(false);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const handlePlayAudio = (url: string, id: string, isPreview: boolean = false) => {
+    if (audioRef.current) {
+      if (playingAudioId === id || (isPreview && playingPreview)) {
+        audioRef.current.pause();
+        setPlayingAudioId(null);
+        setPlayingPreview(false);
+        setPlaybackProgress(0);
+        return;
+      }
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    
+    if (isPreview) {
+      setPlayingPreview(true);
+      setPlayingAudioId(null);
+    } else {
+      setPlayingAudioId(id);
+      setPlayingPreview(false);
+    }
+
+    audio.ontimeupdate = () => {
+      if (audio.duration) {
+        setPlaybackProgress((audio.currentTime / audio.duration) * 100);
+      }
+    };
+
+    audio.play();
+    audio.onended = () => {
+      setPlayingAudioId(null);
+      setPlayingPreview(false);
+      setPlaybackProgress(0);
+    };
+  };
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     setTimeout(() => {
       scrollRef.current?.scrollIntoView({ behavior });
     }, 100);
   }, []);
+
+  const [activeReactionMenu, setActiveReactionMenu] = useState<string | null>(null);
 
   const markMessagesAsRead = useCallback(async (msgs: any[]) => {
     if (!isSupabaseActive || !profile?.id || !chatId) return;
@@ -105,6 +166,53 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
       ));
     }
   }, [chatId, profile?.id]);
+
+  const markMessagesAsDelivered = useCallback(async (msgs: any[]) => {
+    if (!isSupabaseActive || !profile?.id || !chatId) return;
+    
+    const undeliveredMsgs = msgs.filter(m => m.sender_id !== profile.id && !m.status);
+    if (undeliveredMsgs.length === 0) return;
+
+    await supabase
+      .from('messages')
+      .update({ status: 'delivered' })
+      .in('id', undeliveredMsgs.map(m => m.id))
+      .eq('chat_id', chatId);
+  }, [chatId, profile?.id]);
+
+  const handleReaction = async (messageId: string, emoji: string) => {
+    if (!isSupabaseActive) {
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          const reactions = m.reactions || {};
+          reactions[profile.id] = emoji;
+          return { ...m, reactions };
+        }
+        return m;
+      }));
+      setActiveReactionMenu(null);
+      return;
+    }
+
+    const msg = messages.find(m => m.id === messageId);
+    const reactions = msg?.reactions || {};
+    
+    // Toggle reaction
+    if (reactions[profile.id] === emoji) {
+      delete reactions[profile.id];
+    } else {
+      reactions[profile.id] = emoji;
+    }
+
+    const { error } = await supabase
+      .from('messages')
+      .update({ reactions })
+      .eq('id', messageId);
+    
+    if (!error) {
+      setActiveReactionMenu(null);
+    }
+  };
 
   useEffect(() => {
     if (!chatId || !profile?.id) return;
@@ -167,6 +275,7 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
       }, (payload) => {
         setMessages(prev => [...prev, payload.new]);
         if (payload.new.sender_id !== profile.id) {
+          markMessagesAsDelivered([payload.new]);
           markMessagesAsRead([payload.new]);
         }
         scrollToBottom();
@@ -322,6 +431,24 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
             last_timestamp: new Date().toISOString()
           })
           .eq('id', chatId);
+
+        // Send Push Notification to other user
+        if (otherUser?.push_token) {
+          try {
+            await fetch('/api/send-notification', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                token: otherUser.push_token,
+                title: `New message from ${profile.username}`,
+                body: messageType === 'text' ? messageContent : `Sent a ${messageType}`,
+                data: { chatId }
+              })
+            });
+          } catch (err) {
+            console.error('Error triggering push notification:', err);
+          }
+        }
       }
     } catch (err) {
       console.error('Error sending message:', err);
@@ -421,21 +548,39 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
                   isMe ? "ml-auto items-end" : "mr-auto items-start"
                 )}
               >
-                <div className={cn(
-                  "relative p-4 rounded-[20px] text-sm leading-relaxed font-medium transition-all group-hover:scale-[1.02] shadow-xl",
-                  isMe 
-                    ? "bg-gradient-to-br from-brand-blue to-purple-600 text-white rounded-tr-none" 
-                    : "bg-white/10 text-white/90 rounded-tl-none border border-white/10 backdrop-blur-xl"
-                )}>
+                <div 
+                  onDoubleClick={() => setActiveReactionMenu(msg.id)}
+                  className={cn(
+                    "relative p-4 rounded-[20px] text-sm leading-relaxed font-medium transition-all group-hover:scale-[1.02] shadow-xl cursor-pointer",
+                    isMe 
+                      ? "bg-gradient-to-br from-brand-blue to-purple-600 text-white rounded-tr-none" 
+                      : "bg-white/10 text-white/90 rounded-tl-none border border-white/10 backdrop-blur-xl"
+                  )}
+                >
                   {msg.message_type === 'text' && msg.content}
                   
                   {msg.message_type === 'voice' && (
                     <div className="flex items-center gap-3 min-w-[180px]">
-                      <button className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors">
-                        <Play className="w-4 h-4 fill-current" />
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePlayAudio(msg.voice_url, msg.id);
+                        }}
+                        className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors"
+                      >
+                        {playingAudioId === msg.id ? (
+                          <Pause className="w-4 h-4 fill-current" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current ml-1" />
+                        )}
                       </button>
                       <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
-                        <div className="h-full bg-white/60 w-1/3" />
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: playingAudioId === msg.id ? `${playbackProgress}%` : '0%' }}
+                          transition={{ duration: 0.1, ease: "linear" }}
+                          className="h-full bg-white/60" 
+                        />
                       </div>
                       <Volume2 className="w-4 h-4 opacity-50" />
                     </div>
@@ -463,15 +608,72 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
                       {msg.content && <p>{msg.content}</p>}
                     </div>
                   )}
+
+                  {/* Reactions Display */}
+                  {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                    <div className={cn(
+                      "absolute -bottom-3 flex gap-1",
+                      isMe ? "right-0" : "left-0"
+                    )}>
+                      {Object.entries(msg.reactions).map(([uid, emoji]: [string, any]) => (
+                        <div key={uid} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-full px-1.5 py-0.5 text-[10px] shadow-lg">
+                          {emoji}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Reaction Menu */}
+                  <AnimatePresence>
+                    {activeReactionMenu === msg.id && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                        className={cn(
+                          "absolute -top-12 z-50 flex gap-2 p-2 bg-black/80 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl",
+                          isMe ? "right-0" : "left-0"
+                        )}
+                      >
+                        {['❤️', '👍', '🔥', '😂', '😮', '😢'].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReaction(msg.id, emoji);
+                            }}
+                            className="hover:scale-125 transition-transform text-lg"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveReactionMenu(null);
+                          }}
+                          className="ml-1 p-1 hover:bg-white/10 rounded-full"
+                        >
+                          <X className="w-3 h-3 text-white/40" />
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
                 
                 <div className="flex items-center gap-2 mt-1.5 px-1">
                   <span className="text-[9px] font-bold text-white/20">
-                    {format(new Date(msg.created_at), 'h:mm a')}
+                    {msg.created_at ? format(new Date(msg.created_at), 'h:mm a') : '...'}
                   </span>
                   {isMe && (
-                    <div className="flex items-center text-brand-blue">
-                      {msg.status === 'read' ? <CheckCheck className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
+                    <div className="flex items-center">
+                      {msg.status === 'read' ? (
+                        <CheckCheck className="w-3.5 h-3.5 text-brand-blue" />
+                      ) : msg.status === 'delivered' ? (
+                        <CheckCheck className="w-3.5 h-3.5 text-white/40" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5 text-white/20" />
+                      )}
                     </div>
                   )}
                 </div>
@@ -580,16 +782,32 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         {/* Audio Preview */}
         {audioBlob && !isRecording && (
           <div className="mb-4 p-4 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-brand-blue/10 flex items-center justify-center">
-                <Volume2 className="w-6 h-6 text-brand-blue" />
-              </div>
-              <div className="text-left">
-                <p className="text-xs font-bold">Voice Note</p>
-                <p className="text-[10px] text-white/20 uppercase tracking-widest">Ready to send</p>
+            <div className="flex items-center gap-4 flex-1">
+              <button 
+                onClick={() => handlePlayAudio(URL.createObjectURL(audioBlob), 'preview', true)}
+                className="w-12 h-12 rounded-xl bg-brand-blue/10 flex items-center justify-center hover:bg-brand-blue/20 transition-colors"
+              >
+                {playingPreview ? (
+                  <Pause className="w-6 h-6 text-brand-blue" />
+                ) : (
+                  <Play className="w-6 h-6 text-brand-blue ml-1" />
+                )}
+              </button>
+              <div className="flex-1">
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-xs font-bold">Voice Note Preview</p>
+                  <p className="text-[10px] text-white/20 uppercase tracking-widest">Listen before sending</p>
+                </div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: playingPreview ? `${playbackProgress}%` : '0%' }}
+                    className="h-full bg-brand-blue"
+                  />
+                </div>
               </div>
             </div>
-            <button onClick={() => setAudioBlob(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+            <button onClick={() => setAudioBlob(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors ml-4">
               <X className="w-5 h-5 text-white/40" />
             </button>
           </div>

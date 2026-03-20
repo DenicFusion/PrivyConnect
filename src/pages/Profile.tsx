@@ -568,7 +568,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                 </div>
               </div>
 
-              {!isOwnProfile && isSubscribed && (
+              {!isOwnProfile && (
                 <div className="space-y-6 pt-6">
                   <div className="flex items-center justify-center gap-4">
                     <div className="h-px flex-1 bg-white/10" />
