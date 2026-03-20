@@ -189,6 +189,27 @@ function AppContent() {
         console.log('Profile fetched successfully:', data);
         setProfile(data);
 
+        // Update online status
+        if (isSupabaseActive) {
+          await supabase
+            .from('profiles')
+            .update({ is_online: true, last_active: new Date().toISOString() })
+            .eq('id', user.id);
+          
+          // Set up heartbeat or cleanup on window close
+          const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+              supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
+            } else {
+              supabase.from('profiles').update({ is_online: true, last_active: new Date().toISOString() }).eq('id', user.id);
+            }
+          };
+          document.addEventListener('visibilitychange', handleVisibilityChange);
+          window.addEventListener('beforeunload', () => {
+            supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
+          });
+        }
+
         // Handle Push Notifications
         if (isSupabaseActive) {
           const token = await requestNotificationPermission();
@@ -247,7 +268,7 @@ function AppContent() {
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatListPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatRoomPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/Myadmin" element={<ProtectedRoute session={session}><AdminGuard><Layout profile={profile}><AdminPage profile={profile} /></Layout></AdminGuard></ProtectedRoute>} />
+            <Route path="/Myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><Layout profile={profile}><AdminPage profile={profile} /></Layout></AdminGuard></ProtectedRoute>} />
           </Routes>
         </div>
       </Router>
@@ -255,18 +276,37 @@ function AppContent() {
   );
 }
 
-function AdminGuard({ children }: { children: React.ReactNode }) {
+function AdminGuard({ children, profile }: { children: React.ReactNode, profile: any }) {
   const [password, setPassword] = useState('');
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // If user is not an admin, don't even show the login
+  if (profile && profile.role !== 'admin') {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
+        <div className="text-center space-y-4">
+          <Shield className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-display font-bold uppercase tracking-tight">Access Denied</h2>
+          <p className="text-white/40 max-w-xs mx-auto">This area is restricted to system administrators only.</p>
+          <button 
+            onClick={() => window.location.href = '/discovery'}
+            className="px-6 py-2 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-xs"
+          >
+            Return to Safety
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(false);
     
-    // Simulate system check
+    // Simulate system check - in production this would be a real secondary auth
     setTimeout(() => {
       if (password === 'Admin123') {
         setIsAuthorized(true);
@@ -430,6 +470,10 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
     { icon: MessageSquare, label: 'Chats', path: '/chats' },
     { icon: User, label: 'Profile', path: profile?.id ? `/profile/${profile.id}` : '/profile' },
   ];
+
+  if (profile?.role === 'admin') {
+    navItems.push({ icon: Shield, label: 'Admin', path: '/Myadmin' });
+  }
 
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 overflow-x-hidden">

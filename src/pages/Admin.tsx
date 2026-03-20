@@ -60,6 +60,8 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
     memoryUsage: 45
   });
 
+  const [settings, setSettings] = useState<any>({});
+
   useEffect(() => {
     const fetchAdminData = async () => {
       setLoading(true);
@@ -67,6 +69,12 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
       if (!isSupabaseActive) {
         setUsers(MOCK_USERS);
         setTransactions(MOCK_TRANSACTIONS);
+        setSettings({
+          subscription_price: { amount: 1500 },
+          platform_commission: { percentage: 25 },
+          withdrawal_limits: { min: 5000, max: 500000 },
+          feature_flags: { chat: true, tipping: true, discovery: true, notifications: true }
+        });
         
         const volume = MOCK_TRANSACTIONS.reduce((acc, tx) => acc + tx.amount, 0);
         
@@ -84,9 +92,70 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
         return;
       }
 
-      // Real Supabase data fetching logic here...
-      // (Omitted for brevity, but would involve .from('profiles').select('*'), etc.)
-      setLoading(false);
+      try {
+        // Fetch Users
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (profilesError) throw profilesError;
+        setUsers(profiles || []);
+
+        // Fetch Transactions
+        const { data: txs, error: txsError } = await supabase
+          .from('transactions')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (txsError) throw txsError;
+        setTransactions(txs || []);
+
+        // Fetch Settings
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('system_settings')
+          .select('*');
+        
+        if (settingsError) throw settingsError;
+        const settingsObj = (settingsData || []).reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
+        setSettings(settingsObj);
+
+        // Calculate Stats
+        const totalUsers = profiles?.length || 0;
+        const activeSubs = profiles?.filter(p => p.is_subscribed && p.subscription_expiry && new Date(p.subscription_expiry) > new Date()).length || 0;
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const dailyRevenue = txs
+          ?.filter(tx => new Date(tx.created_at) >= today && tx.status === 'completed' && (tx.type === 'payment' || tx.type === 'tip'))
+          .reduce((acc, tx) => acc + Number(tx.amount), 0) || 0;
+        
+        const totalEarnings = txs
+          ?.filter(tx => tx.status === 'completed' && (tx.type === 'payment' || tx.type === 'tip'))
+          .reduce((acc, tx) => acc + Number(tx.amount), 0) || 0;
+
+        const newSignups = profiles
+          ?.filter(p => new Date(p.created_at) >= today).length || 0;
+
+        const activeNow = profiles?.filter(p => p.is_online).length || 0;
+
+        setStats({
+          totalUsers,
+          activeSubscriptions: activeSubs,
+          dailyRevenue,
+          totalEarnings,
+          newSignups,
+          activeNow,
+          cpuLoad: 12 + Math.floor(Math.random() * 5),
+          memoryUsage: 45 + Math.floor(Math.random() * 10)
+        });
+
+      } catch (error) {
+        console.error('Error fetching admin data:', error);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchAdminData();
@@ -154,9 +223,9 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
         >
           {activeTab === 'dashboard' && <DashboardView stats={stats} transactions={transactions} />}
           {activeTab === 'users' && <UserManagementView users={users} />}
-          {activeTab === 'finance' && <FinancialControlView transactions={transactions} />}
+          {activeTab === 'finance' && <FinancialControlView transactions={transactions} settings={settings} />}
           {activeTab === 'moderation' && <ModerationView />}
-          {activeTab === 'settings' && <SystemSettingsView />}
+          {activeTab === 'settings' && <SystemSettingsView settings={settings} />}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -342,25 +411,75 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
     setUsers(filtered);
   }, [searchQuery, filter, initialUsers]);
 
-  const handleAction = (userId: string, action: 'verify' | 'ban' | 'delete') => {
+  const handleAction = async (userId: string, action: 'verify' | 'ban' | 'delete') => {
     if (action === 'delete') {
       setDeleteUserId(userId);
       return;
     }
 
-    setUsers(prev => prev.map(u => {
-      if (u.id === userId) {
-        if (action === 'verify') return { ...u, is_verified: !u.is_verified };
-        if (action === 'ban') return { ...u, is_suspended: !u.is_suspended };
+    if (!isSupabaseActive) {
+      setUsers(prev => prev.map(u => {
+        if (u.id === userId) {
+          if (action === 'verify') return { ...u, is_verified: !u.is_verified };
+          if (action === 'ban') return { ...u, is_suspended: !u.is_suspended };
+        }
+        return u;
+      }));
+      return;
+    }
+
+    try {
+      const user = initialUsers.find(u => u.id === userId);
+      if (!user) return;
+
+      if (action === 'verify') {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ is_verified: !user.is_verified })
+          .eq('id', userId);
+        if (error) throw error;
+      } else if (action === 'ban') {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ is_suspended: !user.is_suspended })
+          .eq('id', userId);
+        if (error) throw error;
       }
-      return u;
-    }));
+      
+      // Local update
+      setUsers(prev => prev.map(u => {
+        if (u.id === userId) {
+          if (action === 'verify') return { ...u, is_verified: !u.is_verified };
+          if (action === 'ban') return { ...u, is_suspended: !u.is_suspended };
+        }
+        return u;
+      }));
+    } catch (error) {
+      console.error(`Error performing ${action} action:`, error);
+    }
   };
 
-  const confirmDelete = () => {
-    if (deleteUserId) {
+  const confirmDelete = async () => {
+    if (!deleteUserId) return;
+
+    if (!isSupabaseActive) {
       setUsers(prev => prev.filter(u => u.id !== deleteUserId));
       setDeleteUserId(null);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', deleteUserId);
+      
+      if (error) throw error;
+
+      setUsers(prev => prev.filter(u => u.id !== deleteUserId));
+      setDeleteUserId(null);
+    } catch (error) {
+      console.error('Error deleting user:', error);
     }
   };
 
@@ -545,11 +664,16 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
   );
 }
 
-function FinancialControlView({ transactions: initialTransactions }: { transactions: any[] }) {
-  const [subPrice, setSubPrice] = useState('1500');
-  const [commission, setCommission] = useState('25');
+function FinancialControlView({ transactions: initialTransactions, settings }: { transactions: any[], settings: any }) {
+  const [subPrice, setSubPrice] = useState(settings?.subscription_price?.amount?.toString() || '1500');
+  const [commission, setCommission] = useState(settings?.platform_commission?.percentage?.toString() || '25');
   const [txFilter, setTxFilter] = useState<'all' | 'subscription' | 'tip' | 'withdrawal'>('all');
   const [transactions, setTransactions] = useState(initialTransactions);
+
+  useEffect(() => {
+    if (settings?.subscription_price?.amount) setSubPrice(settings.subscription_price.amount.toString());
+    if (settings?.platform_commission?.percentage) setCommission(settings.platform_commission.percentage.toString());
+  }, [settings]);
 
   useEffect(() => {
     let filtered = initialTransactions;
@@ -566,13 +690,44 @@ function FinancialControlView({ transactions: initialTransactions }: { transacti
     setIsWithdrawModalOpen(true);
   };
 
-  const confirmWithdraw = () => {
+  const confirmWithdraw = async () => {
     setIsWithdrawing(true);
+    
+    if (isSupabaseActive) {
+      try {
+        // In a real app, this would trigger a backend process or record a withdrawal
+        const { error } = await supabase
+          .from('transactions')
+          .insert({
+            profile_id: (await supabase.auth.getUser()).data.user?.id,
+            amount: 1240500, // Example amount
+            type: 'withdrawal',
+            status: 'completed',
+            description: 'Platform Treasury Disbursement'
+          });
+        if (error) throw error;
+      } catch (error) {
+        console.error('Error processing withdrawal:', error);
+      }
+    }
+
     setTimeout(() => {
       setIsWithdrawing(false);
       setIsWithdrawModalOpen(false);
-      // In a real app, we'd update the balance here
     }, 2000);
+  };
+
+  const updateSetting = async (key: string, value: any) => {
+    if (!isSupabaseActive) return;
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert({ key, value, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      alert(`Setting ${key} updated successfully!`);
+    } catch (error) {
+      console.error(`Error updating setting ${key}:`, error);
+    }
   };
 
   return (
@@ -611,7 +766,12 @@ function FinancialControlView({ transactions: initialTransactions }: { transacti
                   onChange={(e) => setSubPrice(e.target.value)}
                   className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-mono font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
                 />
-                <button className="px-6 py-4 bg-brand-blue/10 text-brand-blue border border-brand-blue/20 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-brand-blue hover:text-brand-dark transition-all">Update</button>
+                <button 
+                  onClick={() => updateSetting('subscription_price', { amount: Number(subPrice), currency: 'NGN' })}
+                  className="px-6 py-4 bg-brand-blue/10 text-brand-blue border border-brand-blue/20 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-brand-blue hover:text-brand-dark transition-all"
+                >
+                  Update
+                </button>
               </div>
             </div>
             <div className="space-y-3">
@@ -623,7 +783,12 @@ function FinancialControlView({ transactions: initialTransactions }: { transacti
                   onChange={(e) => setCommission(e.target.value)}
                   className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-mono font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
                 />
-                <button className="px-6 py-4 bg-brand-blue/10 text-brand-blue border border-brand-blue/20 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-brand-blue hover:text-brand-dark transition-all">Update</button>
+                <button 
+                  onClick={() => updateSetting('platform_commission', { percentage: Number(commission) })}
+                  className="px-6 py-4 bg-brand-blue/10 text-brand-blue border border-brand-blue/20 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-brand-blue hover:text-brand-dark transition-all"
+                >
+                  Update
+                </button>
               </div>
             </div>
           </div>
@@ -782,19 +947,87 @@ function FinancialControlView({ transactions: initialTransactions }: { transacti
 }
 
 function ModerationView() {
-  const [keywords, setKeywords] = useState(['spam', 'scam', 'crypto', 'whatsapp', 'telegram']);
+  const [keywords, setKeywords] = useState<string[]>([]);
   const [newKeyword, setNewKeyword] = useState('');
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const addKeyword = (e: React.FormEvent) => {
+  useEffect(() => {
+    const fetchModerationData = async () => {
+      if (!isSupabaseActive) {
+        setKeywords(['spam', 'scam', 'crypto', 'whatsapp', 'telegram']);
+        setReports([
+          { id: '1', reporter_id: 'user-1', reported_id: 'user-2', reason: 'Spamming links', status: 'pending', created_at: new Date().toISOString() },
+          { id: '2', reporter_id: 'user-3', reported_id: 'user-4', reason: 'Inappropriate content', status: 'pending', created_at: new Date().toISOString() }
+        ]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data: kwData } = await supabase.from('moderation_keywords').select('keyword');
+        setKeywords(kwData?.map(k => k.keyword) || []);
+
+        const { data: reportData } = await supabase
+          .from('reports')
+          .select('*, reporter:profiles!reporter_id(username, photo_url), reported:profiles!reported_id(username, photo_url)')
+          .order('created_at', { ascending: false });
+        setReports(reportData || []);
+      } catch (error) {
+        console.error('Error fetching moderation data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchModerationData();
+  }, []);
+
+  const addKeyword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newKeyword && !keywords.includes(newKeyword.toLowerCase())) {
-      setKeywords([...keywords, newKeyword.toLowerCase()]);
+      const kw = newKeyword.toLowerCase();
+      if (isSupabaseActive) {
+        try {
+          const { error } = await supabase.from('moderation_keywords').insert({ keyword: kw });
+          if (error) throw error;
+        } catch (error) {
+          console.error('Error adding keyword:', error);
+          return;
+        }
+      }
+      setKeywords([...keywords, kw]);
       setNewKeyword('');
     }
   };
 
-  const removeKeyword = (kw: string) => {
+  const removeKeyword = async (kw: string) => {
+    if (isSupabaseActive) {
+      try {
+        const { error } = await supabase.from('moderation_keywords').delete().eq('keyword', kw);
+        if (error) throw error;
+      } catch (error) {
+        console.error('Error removing keyword:', error);
+        return;
+      }
+    }
     setKeywords(keywords.filter(k => k !== kw));
+  };
+
+  const handleReport = async (reportId: string, action: 'resolve' | 'dismiss') => {
+    if (isSupabaseActive) {
+      try {
+        const { error } = await supabase
+          .from('reports')
+          .update({ status: action === 'resolve' ? 'resolved' : 'dismissed' })
+          .eq('id', reportId);
+        if (error) throw error;
+      } catch (error) {
+        console.error(`Error ${action}ing report:`, error);
+        return;
+      }
+    }
+    setReports(prev => prev.filter(r => r.id !== reportId));
   };
 
   return (
@@ -806,27 +1039,44 @@ function ModerationView() {
             Reports Queue
           </h3>
           <div className="space-y-4">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="p-6 rounded-[32px] bg-white/5 border border-white/10 space-y-4 group hover:bg-white/10 transition-all">
+            {reports.map((report, i) => (
+              <div key={report.id} className="p-6 rounded-[32px] bg-white/5 border border-white/10 space-y-4 group hover:bg-white/10 transition-all">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <img src={`https://picsum.photos/seed/report${i}/100/100`} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
+                    <img src={report.reported?.photo_url || `https://picsum.photos/seed/report${i}/100/100`} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
                     <div>
-                      <p className="text-sm font-bold tracking-tight">User_{i}42</p>
-                      <p className="text-[10px] text-red-400 uppercase tracking-widest font-bold">Reported for Spam</p>
+                      <p className="text-sm font-bold tracking-tight">{report.reported?.username || 'Unknown User'}</p>
+                      <p className="text-[10px] text-red-400 uppercase tracking-widest font-bold">Reported for {report.reason}</p>
                     </div>
                   </div>
-                  <span className="text-[9px] text-white/20 uppercase tracking-widest font-bold font-mono">15m ago</span>
+                  <span className="text-[9px] text-white/20 uppercase tracking-widest font-bold font-mono">
+                    {new Date(report.created_at).toLocaleDateString()}
+                  </span>
                 </div>
                 <p className="text-xs text-white/50 leading-relaxed bg-black/20 p-4 rounded-2xl italic border border-white/5">
-                  "This user is sending multiple unsolicited links in the chat. Very suspicious behavior."
+                  "Reported by {report.reporter?.username || 'Anonymous'}"
                 </p>
                 <div className="flex gap-2">
-                  <button className="flex-1 py-3 bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg shadow-red-500/20">Ban User</button>
-                  <button className="flex-1 py-3 bg-white/5 text-white/40 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all border border-white/10">Dismiss</button>
+                  <button 
+                    onClick={() => handleReport(report.id, 'resolve')}
+                    className="flex-1 py-3 bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                  >
+                    Resolve
+                  </button>
+                  <button 
+                    onClick={() => handleReport(report.id, 'dismiss')}
+                    className="flex-1 py-3 bg-white/5 text-white/40 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all border border-white/10"
+                  >
+                    Dismiss
+                  </button>
                 </div>
               </div>
             ))}
+            {reports.length === 0 && (
+              <div className="py-12 text-center text-white/30 text-xs uppercase tracking-widest font-bold">
+                No pending reports
+              </div>
+            )}
           </div>
         </div>
 
@@ -900,8 +1150,66 @@ function ModerationView() {
   );
 }
 
-function SystemSettingsView() {
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
+function SystemSettingsView({ settings }: { settings: any }) {
+  const [flags, setFlags] = useState(settings?.feature_flags || { chat: true, tipping: true, discovery: true, notifications: true });
+  const [maintenanceMode, setMaintenanceMode] = useState(settings?.maintenance_mode || false);
+  const [minWithdrawal, setMinWithdrawal] = useState(settings?.min_withdrawal || 5000);
+  const [maxWithdrawal, setMaxWithdrawal] = useState(settings?.max_withdrawal || 500000);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (settings?.feature_flags) setFlags(settings.feature_flags);
+    if (settings?.maintenance_mode !== undefined) setMaintenanceMode(settings.maintenance_mode);
+    if (settings?.min_withdrawal) setMinWithdrawal(settings.min_withdrawal);
+    if (settings?.max_withdrawal) setMaxWithdrawal(settings.max_withdrawal);
+  }, [settings]);
+
+  const toggleFlag = async (flag: string) => {
+    const newFlags = { ...flags, [flag]: !flags[flag] };
+    setFlags(newFlags);
+    
+    if (isSupabaseActive) {
+      try {
+        const { error } = await supabase
+          .from('system_settings')
+          .upsert({ key: 'feature_flags', value: newFlags, updated_at: new Date().toISOString() });
+        if (error) throw error;
+      } catch (error) {
+        console.error(`Error toggling flag ${flag}:`, error);
+      }
+    }
+  };
+
+  const toggleMaintenance = async () => {
+    const newVal = !maintenanceMode;
+    setMaintenanceMode(newVal);
+    
+    if (isSupabaseActive) {
+      try {
+        const { error } = await supabase
+          .from('system_settings')
+          .upsert({ key: 'maintenance_mode', value: newVal, updated_at: new Date().toISOString() });
+        if (error) throw error;
+      } catch (error) {
+        console.error('Error toggling maintenance mode:', error);
+      }
+    }
+  };
+
+  const saveLimits = async () => {
+    setIsSaving(true);
+    if (isSupabaseActive) {
+      try {
+        await Promise.all([
+          supabase.from('system_settings').upsert({ key: 'min_withdrawal', value: Number(minWithdrawal), updated_at: new Date().toISOString() }),
+          supabase.from('system_settings').upsert({ key: 'max_withdrawal', value: Number(maxWithdrawal), updated_at: new Date().toISOString() })
+        ]);
+      } catch (error) {
+        console.error('Error saving withdrawal limits:', error);
+      }
+    }
+    setTimeout(() => setIsSaving(false), 1000);
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -912,20 +1220,23 @@ function SystemSettingsView() {
         <h3 className="text-xl font-display font-bold uppercase tracking-widest relative z-10">General Settings</h3>
         <div className="space-y-6 relative z-10">
           {[
-            { label: 'Enable Chat System', desc: 'Allow users to message each other', active: true },
-            { label: 'Enable Tipping', desc: 'Allow creators to receive tips', active: true },
-            { label: 'Public Discovery', desc: 'Show profiles in discovery feed', active: true },
-            { label: 'Email Notifications', desc: 'Send system alerts to users', active: false },
+            { id: 'chat', label: 'Enable Chat System', desc: 'Allow users to message each other', active: flags.chat },
+            { id: 'tipping', label: 'Enable Tipping', desc: 'Allow creators to receive tips', active: flags.tipping },
+            { id: 'discovery', label: 'Public Discovery', desc: 'Show profiles in discovery feed', active: flags.discovery },
+            { id: 'notifications', label: 'Email Notifications', desc: 'Send system alerts to users', active: flags.notifications },
           ].map((item, i) => (
             <div key={i} className="flex items-center justify-between group">
               <div>
                 <p className="text-sm font-bold tracking-tight group-hover:text-brand-blue transition-colors">{item.label}</p>
                 <p className="text-[10px] text-white/30 uppercase tracking-widest">{item.desc}</p>
               </div>
-              <div className={cn(
-                "w-12 h-6 rounded-full p-1 flex transition-all cursor-pointer",
-                item.active ? "bg-brand-blue justify-end" : "bg-white/10 justify-start"
-              )}>
+              <div 
+                onClick={() => toggleFlag(item.id)}
+                className={cn(
+                  "w-12 h-6 rounded-full p-1 flex transition-all cursor-pointer",
+                  item.active ? "bg-brand-blue justify-end" : "bg-white/10 justify-start"
+                )}
+              >
                 <div className="w-4 h-4 bg-brand-dark rounded-full shadow-sm" />
               </div>
             </div>
@@ -939,7 +1250,7 @@ function SystemSettingsView() {
               <p className="text-[10px] text-red-500/40 uppercase tracking-widest">Restrict platform access for updates</p>
             </div>
             <div 
-              onClick={() => setMaintenanceMode(!maintenanceMode)}
+              onClick={toggleMaintenance}
               className={cn(
                 "w-12 h-6 rounded-full p-1 flex transition-all cursor-pointer",
                 maintenanceMode ? "bg-red-500 justify-end" : "bg-white/10 justify-start"
@@ -989,14 +1300,32 @@ function SystemSettingsView() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <p className="text-[8px] uppercase tracking-widest font-bold text-white/20">Minimum (₦)</p>
-              <input type="text" defaultValue="5000" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" />
+              <input 
+                type="number" 
+                value={minWithdrawal} 
+                onChange={(e) => setMinWithdrawal(Number(e.target.value))}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+              />
             </div>
             <div className="space-y-2">
               <p className="text-[8px] uppercase tracking-widest font-bold text-white/20">Maximum (₦)</p>
-              <input type="text" defaultValue="500000" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" />
+              <input 
+                type="number" 
+                value={maxWithdrawal} 
+                onChange={(e) => setMaxWithdrawal(Number(e.target.value))}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+              />
             </div>
           </div>
           
+          <button 
+            onClick={saveLimits}
+            disabled={isSaving}
+            className="w-full py-4 bg-brand-blue text-brand-dark rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+          >
+            {isSaving ? 'Saving...' : 'Save Limits'}
+          </button>
+
           <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-3 group">
             <Clock className="w-4 h-4 text-white/20 group-hover:text-brand-blue transition-colors" />
             Schedule System Backup

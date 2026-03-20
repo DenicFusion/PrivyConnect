@@ -23,6 +23,8 @@ if (!getApps().length) {
 
 const messaging = getMessaging();
 
+import { sendEmail, EmailType } from "./server/services/emailService.ts";
+
 async function startServer() {
   const app = express();
   app.use(express.json()); // Add JSON parser
@@ -35,6 +37,27 @@ async function startServer() {
   });
 
   const PORT = 3000;
+
+  // Email API route
+  app.post("/api/send-email", async (req, res) => {
+    const { to, subject, type, data } = req.body;
+
+    if (!to || !type) {
+      return res.status(400).json({ error: "Recipient and email type are required" });
+    }
+
+    try {
+      const result = await sendEmail({ to, subject, type: type as EmailType, data });
+      if (result.success) {
+        res.json({ success: true, messageId: result.messageId });
+      } else {
+        res.status(500).json({ error: result.error });
+      }
+    } catch (error) {
+      console.error("Error in /api/send-email:", error);
+      res.status(500).json({ error: "Failed to process email request" });
+    }
+  });
 
   // Real-time Chat logic
   io.on("connection", (socket) => {

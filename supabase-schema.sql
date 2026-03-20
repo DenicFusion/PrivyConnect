@@ -143,3 +143,74 @@ CREATE POLICY "Users can save profiles" ON public.saved_profiles
 
 CREATE POLICY "Users can unsave profiles" ON public.saved_profiles
     FOR DELETE USING (auth.uid() = user_id);
+
+-- 9. Reports Table
+CREATE TABLE IF NOT EXISTS public.reports (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    reporter_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    reported_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'dismissed')),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins can view all reports" ON public.reports
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE id = auth.uid() AND role = 'admin'
+        )
+    );
+
+CREATE POLICY "Users can create reports" ON public.reports
+    FOR INSERT WITH CHECK (auth.uid() = reporter_id);
+
+-- 10. System Settings Table
+CREATE TABLE IF NOT EXISTS public.system_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Everyone can view settings" ON public.system_settings
+    FOR SELECT USING (TRUE);
+
+CREATE POLICY "Admins can update settings" ON public.system_settings
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE id = auth.uid() AND role = 'admin'
+        )
+    );
+
+-- 11. Moderation Keywords Table
+CREATE TABLE IF NOT EXISTS public.moderation_keywords (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    keyword TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.moderation_keywords ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Everyone can view keywords" ON public.moderation_keywords
+    FOR SELECT USING (TRUE);
+
+CREATE POLICY "Admins can manage keywords" ON public.moderation_keywords
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE id = auth.uid() AND role = 'admin'
+        )
+    );
+
+-- Insert default settings
+INSERT INTO public.system_settings (key, value) VALUES 
+('subscription_price', '{"amount": 1500, "currency": "NGN"}'),
+('platform_commission', '{"percentage": 25}'),
+('withdrawal_limits', '{"min": 5000, "max": 500000}'),
+('feature_flags', '{"chat": true, "tipping": true, "discovery": true, "notifications": true}')
+ON CONFLICT (key) DO NOTHING;
