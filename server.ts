@@ -4,6 +4,9 @@ import { Server } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import axios from "axios";
+import cron from "node-cron";
+import { supabaseAdmin } from "./server/services/supabaseService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +79,151 @@ async function startServer() {
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
     });
+  });
+
+  // Payment Success API route
+  app.post("/api/payment-success", async (req, res) => {
+    const { reference, type, amount, userId, email } = req.body;
+
+    if (!reference || !userId) {
+      return res.status(400).json({ error: "Reference and User ID are required" });
+    }
+
+    try {
+      // 1. Verify payment with KoraPay
+      const korapaySecretKey = process.env.KORAPAY_SECRET_KEY;
+      if (!korapaySecretKey) {
+        console.error("KORAPAY_SECRET_KEY is missing");
+        return res.status(500).json({ error: "Payment verification failed: Server configuration error" });
+      }
+
+      const verifyResponse = await axios.get(
+        `https://api.korapay.com/merchant/api/v1/charges/${reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${korapaySecretKey}`,
+          },
+        }
+      );
+
+      const paymentData = verifyResponse.data.data;
+
+      if (paymentData.status !== "success") {
+        return res.status(400).json({ error: "Payment not successful" });
+      }
+
+      // 2. Update Supabase based on type
+      if (type === "topup") {
+        // Update balance
+        const { data: profile, error: fetchError } = await supabaseAdmin
+          .from("profiles")
+          .select("balance")
+          .eq("id", userId)
+          .single();
+
+        if (fetchError) throw fetchError;
+
+        const newBalance = (profile.balance || 0) + parseFloat(amount);
+
+        const { error: updateError } = await supabaseAdmin
+          .from("profiles")
+          .update({ balance: newBalance })
+          .eq("id", userId);
+
+        if (updateError) throw updateError;
+
+        // Log transaction
+        await supabaseAdmin.from("transactions").insert({
+          profile_id: userId,
+          amount: parseFloat(amount),
+          type: "deposit",
+          status: "completed",
+          description: `Wallet top-up via KoraPay (Ref: ${reference})`,
+        });
+
+        // Send email
+        await sendEmail({
+          to: email,
+          subject: "Wallet Funded 💰",
+          type: "wallet_funded",
+          data: { amount: `₦${amount}`, balance: `₦${newBalance}` },
+        });
+
+      } else if (type === "subscription") {
+        // Update subscription
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + 7);
+
+        const { error: updateError } = await supabaseAdmin
+          .from("profiles")
+          .update({
+            is_subscribed: true,
+            subscription_expiry: expiryDate.toISOString(),
+          })
+          .eq("id", userId);
+
+        if (updateError) throw updateError;
+
+        // Log transaction
+        await supabaseAdmin.from("transactions").insert({
+          profile_id: userId,
+          amount: 1500,
+          type: "payment",
+          status: "completed",
+          description: `Weekly Subscription via KoraPay (Ref: ${reference})`,
+        });
+
+        // Send email
+        await sendEmail({
+          to: email,
+          subject: "Subscription Confirmed! 💎",
+          type: "subscription_success",
+          data: { plan: "Weekly Subscription", expiryDate: expiryDate.toDateString() },
+        });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error in /api/payment-success:", error);
+      res.status(500).json({ error: "Failed to process payment success" });
+    }
+  });
+
+  // Subscription Expiry Cron Job (Runs daily at midnight)
+  cron.schedule("0 0 * * *", async () => {
+    console.log("Running subscription expiry check...");
+    try {
+      const { data: expiredProfiles, error } = await supabaseAdmin
+        .from("profiles")
+        .select("id, email, username")
+        .eq("is_subscribed", true)
+        .lt("subscription_expiry", new Date().toISOString());
+
+      if (error) throw error;
+
+      if (expiredProfiles && expiredProfiles.length > 0) {
+        for (const profile of expiredProfiles) {
+          // 1. Update profile status
+          await supabaseAdmin
+            .from("profiles")
+            .update({ is_subscribed: false })
+            .eq("id", profile.id);
+
+          // 2. Send expiry email
+          if (profile.email) {
+            await sendEmail({
+              to: profile.email,
+              subject: "Your Access Has Expired 🔒",
+              type: "subscription_expired",
+              data: { username: profile.username },
+            });
+          }
+          console.log(`Subscription expired for user: ${profile.username}`);
+        }
+      }
+    } catch (error) {
+      console.error("Error in subscription expiry cron:", error);
+    }
   });
 
   // API routes

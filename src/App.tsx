@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { supabase, signIn, logOut, isSupabaseActive, signInWithEmail, signUpWithEmail } from './lib/supabase';
 import { APP_CONFIG } from './config';
-import { Home, Search, MessageSquare, User, Wallet, Shield, LogOut, Menu, X, Bell, Settings, AlertCircle, Lock, ShieldAlert, ShieldCheck, Activity, ArrowLeft, Mail, Key, EyeOff, Eye } from 'lucide-react';
+import { Home, Search, MessageSquare, User, Wallet, Shield, LogOut, Menu, X, Bell, Settings, AlertCircle, Lock, ShieldAlert, ShieldCheck, Activity, ArrowLeft, Mail, Key, EyeOff, Eye, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -29,6 +29,68 @@ import AdminGuard from './admin/AdminGuard';
 import VerifySuccessPage from './pages/VerifySuccess';
 import EmailPreviewPage from './pages/EmailPreview';
 import LoginPage from './pages/Login';
+
+// Subscription Guard Component
+function SubscriptionGuard({ children, profile }: { children: React.ReactNode, profile: any }) {
+  const location = useLocation();
+  
+  if (!profile) return null;
+
+  if (!profile.is_subscribed) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center space-y-8">
+        <div className="relative">
+          <div className="w-24 h-24 rounded-[32px] bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+            <Lock className="w-10 h-10 text-amber-500" />
+          </div>
+          <motion.div 
+            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center shadow-lg shadow-brand-blue/20"
+          >
+            <ShieldCheck className="w-4 h-4 text-black" />
+          </motion.div>
+        </div>
+
+        <div className="space-y-3 max-w-md">
+          <h2 className="text-4xl font-display uppercase tracking-tighter italic">Premium Access Required</h2>
+          <p className="text-white/40 font-light leading-relaxed">
+            Your weekly subscription has ended. Renew now to continue chatting and viewing exclusive profiles.
+          </p>
+        </div>
+
+        <div className="flex flex-col w-full max-w-xs gap-4">
+          <Link 
+            to="/wallet" 
+            className="py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+          >
+            <Zap className="w-4 h-4" />
+            Subscribe Now (₦1,500)
+          </Link>
+          <Link 
+            to="/discovery" 
+            className="py-5 bg-white/5 border border-white/10 text-white/60 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all"
+          >
+            Back to Discovery
+          </Link>
+        </div>
+
+        <div className="flex items-center gap-6 pt-8 opacity-20 grayscale">
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Secure Payment</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Instant Access</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  return <>{children}</>;
+}
 
 // Protected Route Component
 function ProtectedRoute({ children, session }: { children: React.ReactNode, session: any }) {
@@ -265,9 +327,9 @@ function AppContent() {
             
             {/* App Experience: Authentication required for these routes */}
             <Route path="/discovery" element={<ProtectedRoute session={session}><Layout profile={profile}><DiscoveryPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile}><ProfilePage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatListPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><ChatRoomPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ProfilePage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
+            <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
+            <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
           </Routes>
