@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, MoreVertical, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info, ShieldOff } from 'lucide-react';
+import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, Share2, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info, ShieldOff, Copy, Share } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import Cropper from 'react-easy-crop';
@@ -24,6 +25,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
   const [showTipModal, setShowTipModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
   const [tipAmount, setTipAmount] = useState('1500');
   
@@ -369,8 +371,11 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
               Edit Profile
             </button>
           )}
-          <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors">
-            <MoreVertical className="w-6 h-6 text-white/50" />
+          <button 
+            onClick={() => setShowShareModal(true)}
+            className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group"
+          >
+            <Share2 className="w-6 h-6 text-white/50 group-hover:text-brand-blue transition-colors" />
           </button>
         </div>
       </div>
@@ -711,7 +716,94 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         </div>
       )}
 
-      {/* Edit Profile Modal */}
+      {/* Share Modal */}
+      <AnimatePresence>
+        {showShareModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowShareModal(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-8">
+                <button onClick={() => setShowShareModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-white/30" />
+                </button>
+              </div>
+
+              <div className="text-center space-y-3">
+                <div className="w-16 h-16 rounded-2xl bg-brand-blue/10 flex items-center justify-center mx-auto mb-4">
+                  <Share2 className="w-8 h-8 text-brand-blue" />
+                </div>
+                <h2 className="text-3xl font-display uppercase tracking-tighter italic">Profile Sharing</h2>
+                <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Share your public link</p>
+              </div>
+
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest font-bold mb-1">Public Link</p>
+                    <p className="text-xs text-white/60 truncate">{`${window.location.origin}/u/${user.username}`}</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/u/${user.username}`);
+                      toast('Link copied to clipboard!', 'success');
+                    }}
+                    className="p-3 bg-brand-blue text-brand-dark rounded-xl hover:scale-105 transition-all"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-8 bg-white/5 border border-white/10 rounded-[32px] flex flex-col items-center gap-6">
+                  <div className="p-4 bg-white rounded-3xl shadow-[0_0_30px_rgba(255,255,255,0.1)]">
+                    <QRCodeCanvas 
+                      value={`${window.location.origin}/u/${user.username}`}
+                      size={180}
+                      level="H"
+                      includeMargin={false}
+                    />
+                  </div>
+                  <p className="text-[9px] uppercase tracking-[0.3em] font-bold text-white/20">Scan to view profile</p>
+                </div>
+
+                <button 
+                  onClick={async () => {
+                    if (navigator.share) {
+                      try {
+                        await navigator.share({
+                          title: `${user.display_name || user.username} on PrivyConnect`,
+                          text: `Check out ${user.display_name || user.username}'s profile on PrivyConnect!`,
+                          url: `${window.location.origin}/u/${user.username}`,
+                        });
+                      } catch (err) {
+                        console.error('Error sharing:', err);
+                      }
+                    } else {
+                      toast('Sharing not supported on this browser', 'info');
+                    }
+                  }}
+                  className="w-full py-5 bg-white/5 border border-white/10 rounded-2xl text-[10px] uppercase tracking-widest font-bold text-white/60 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
+                >
+                  <Share className="w-4 h-4" />
+                  More Share Options
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      
+      {/* Edit Modal */}
       <AnimatePresence>
         {showEditModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">

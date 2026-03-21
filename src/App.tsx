@@ -376,19 +376,6 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
             <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
           </Link>
           
-          {/* Menu Portal */}
-          <button className="p-2 text-white hover:text-brand-blue transition-colors group">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" transform="matrix(-1, 0, 0, 1, 0, 0)">
-              <g id="SVGRepo_bgCarrier" strokeWidth="0"></g>
-              <g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g>
-              <g id="SVGRepo_iconCarrier"> 
-                <g id="Menu / Menu_Alt_03"> 
-                  <path id="Vector" d="M5 17H13M5 12H19M5 7H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path> 
-                </g> 
-              </g>
-            </svg>
-          </button>
-
           <button onClick={() => logOut()} className="p-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-colors group">
             <LogOut className="w-5 h-5 text-red-500/70 group-hover:text-red-500" />
           </button>
@@ -420,7 +407,9 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
           {navItems.map((item) => {
             const isActive = item.path === '/discovery' 
               ? location.pathname === '/discovery'
-              : location.pathname.startsWith(item.path);
+              : item.path === '/chats'
+                ? location.pathname.startsWith('/chats') || location.pathname.startsWith('/chat/')
+                : location.pathname.startsWith(item.path);
             const Icon = item.icon;
             
             return (

@@ -39,14 +39,17 @@ L.Marker.prototype.options.icon = DefaultIcon;
 
 const UserIcon = L.divIcon({
   className: 'custom-div-icon',
-  html: `<div class="relative w-10 h-10 flex items-center justify-center">
+  html: `<div class="relative w-12 h-12 flex items-center justify-center">
           <div class="absolute inset-0 rounded-full bg-brand-blue/20 animate-ping"></div>
-          <div class="w-8 h-8 rounded-full border-2 border-brand-blue bg-brand-dark flex items-center justify-center shadow-lg shadow-brand-blue/20 z-10">
-            <div class="w-2.5 h-2.5 rounded-full bg-brand-blue"></div>
+          <div class="w-10 h-10 rounded-full border-2 border-brand-blue bg-brand-dark flex items-center justify-center shadow-lg shadow-brand-blue/40 z-10">
+            <div class="flex flex-col items-center">
+              <div class="w-2.5 h-2.5 rounded-full bg-brand-blue mb-0.5"></div>
+              <span class="text-[7px] font-black text-brand-blue uppercase tracking-tighter">You</span>
+            </div>
           </div>
         </div>`,
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
+  iconSize: [48, 48],
+  iconAnchor: [24, 24],
 });
 
 const ProfileIcon = (photoUrl: string) => L.divIcon({
@@ -294,12 +297,25 @@ export default function MapDiscovery({ profile }: { profile: any }) {
         )}
       </AnimatePresence>
 
+      {/* Legend & Privacy Info */}
+      <div className="absolute top-6 left-6 z-[1000] flex flex-col gap-2">
+        <div className="px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl flex items-center gap-3 shadow-2xl">
+          <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+          <span className="text-[9px] uppercase tracking-widest font-black text-white/80">Your location is always visible to you</span>
+        </div>
+        <div className="px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl flex items-center gap-3 shadow-2xl">
+          <Shield className="w-3 h-3 text-emerald-500" />
+          <span className="text-[9px] uppercase tracking-widest font-black text-white/80">Privacy Protected &bull; {privacyMode} mode</span>
+        </div>
+      </div>
+
       {/* Map Container */}
       <MapContainer 
         center={mapCenter} 
         zoom={13} 
         style={{ height: '100%', width: '100%', background: '#0a0a0a' }}
         zoomControl={false}
+        attributionControl={false}
       >
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
