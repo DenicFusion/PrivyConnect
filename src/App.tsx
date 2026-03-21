@@ -318,18 +318,9 @@ function AppContent() {
     );
   }
 
-  // Show onboarding if profile is missing gender or looking_for
-  const needsOnboarding = session && profile && (!profile.gender || !profile.looking_for);
-
   return (
     <ErrorBoundary>
       <Router>
-        {needsOnboarding && (
-          <Onboarding 
-            profile={profile} 
-            onComplete={() => fetchProfile(session.user.id)} 
-          />
-        )}
         <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-brand-blue/30 overflow-x-hidden">
           <Routes>
             {/* Website Experience: Landing page is public */}

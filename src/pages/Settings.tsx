@@ -46,6 +46,8 @@ export default function SettingsPage({ profile }: { profile: any }) {
     username: profile?.username || '',
     email: profile?.email || '',
     bio: profile?.bio || '',
+    gender: profile?.gender || '',
+    looking_for: profile?.looking_for || 'everyone',
     messaging_privacy: profile?.messaging_privacy || 'everyone',
     location_privacy: profile?.location_privacy || 'exact',
     is_public: profile?.is_public ?? true,
@@ -271,6 +273,61 @@ export default function SettingsPage({ profile }: { profile: any }) {
                         className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-all min-h-[100px]"
                       />
                     </div>
+
+                    <div className="space-y-6 md:col-span-2">
+                      <h3 className="text-xl font-display italic tracking-tight">Identity & Discovery</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                          <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Your Gender</label>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { id: 'male', label: 'Male', icon: '♂️' },
+                              { id: 'female', label: 'Female', icon: '♀️' },
+                              { id: 'unspecified', label: 'Other', icon: '✨' }
+                            ].map((opt) => (
+                              <button
+                                key={opt.id}
+                                onClick={() => setFormData({...formData, gender: opt.id})}
+                                className={cn(
+                                  "px-6 py-3 rounded-xl border text-[10px] uppercase tracking-widest font-bold transition-all flex items-center gap-2",
+                                  formData.gender === opt.id 
+                                    ? "bg-brand-blue border-brand-blue text-brand-dark" 
+                                    : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                                )}
+                              >
+                                <span>{opt.icon}</span>
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Looking For</label>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { id: 'male', label: 'Men', icon: '🕺' },
+                              { id: 'female', label: 'Women', icon: '💃' },
+                              { id: 'everyone', label: 'Everyone', icon: '🌈' }
+                            ].map((opt) => (
+                              <button
+                                key={opt.id}
+                                onClick={() => setFormData({...formData, looking_for: opt.id})}
+                                className={cn(
+                                  "px-6 py-3 rounded-xl border text-[10px] uppercase tracking-widest font-bold transition-all flex items-center gap-2",
+                                  formData.looking_for === opt.id 
+                                    ? "bg-brand-blue border-brand-blue text-brand-dark" 
+                                    : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                                )}
+                              >
+                                <span>{opt.icon}</span>
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="p-8 rounded-[32px] bg-brand-blue/5 border border-brand-blue/10 space-y-6">
@@ -328,7 +385,9 @@ export default function SettingsPage({ profile }: { profile: any }) {
                     onClick={() => handleUpdateProfile({
                       display_name: formData.display_name,
                       username: formData.username,
-                      bio: formData.bio
+                      bio: formData.bio,
+                      gender: formData.gender,
+                      looking_for: formData.looking_for
                     })}
                     disabled={loading}
                     className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-lg shadow-brand-blue/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"

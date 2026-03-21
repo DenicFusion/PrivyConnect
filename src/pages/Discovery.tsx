@@ -195,6 +195,30 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </div>
       </div>
 
+      {(!profile?.gender || !profile?.looking_for) && (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="p-6 rounded-[32px] bg-brand-blue/10 border border-brand-blue/20 flex flex-col md:flex-row items-center justify-between gap-6"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-brand-blue/20 flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-brand-blue" />
+            </div>
+            <div className="text-center md:text-left">
+              <h3 className="font-bold uppercase tracking-widest text-xs">Complete your profile</h3>
+              <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Set your gender and discovery preferences to find better matches</p>
+            </div>
+          </div>
+          <Link 
+            to="/settings" 
+            className="px-8 py-4 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest text-[10px] rounded-xl hover:scale-105 transition-all shadow-lg"
+          >
+            Go to Settings
+          </Link>
+        </motion.div>
+      )}
+
       {/* Tabs */}
       <div className="overflow-x-auto scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
         <div className="flex items-center gap-2 p-1 bg-white/5 rounded-2xl w-fit min-w-max">
