@@ -27,6 +27,9 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [quickMessage, setQuickMessage] = useState('');
+  const [isSendingChat, setIsSendingChat] = useState(false);
   const [tipAmount, setTipAmount] = useState('1500');
   
   const [isSaved, setIsSaved] = useState(false);
@@ -228,33 +231,69 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
 
   const handleStartChat = async () => {
     if (!uid || !myProfile) return;
+    setShowChatModal(true);
+  };
+
+  const confirmStartChat = async () => {
+    if (!uid || !myProfile || isSendingChat) return;
     
-    // Create or find chat
+    setIsSendingChat(true);
     const chatId = [uid, myProfile.id].sort().join('_');
     
-    if (!isSupabaseActive) {
-      navigate(`/chat/${chatId}`);
-      return;
-    }
+    try {
+      if (!isSupabaseActive) {
+        navigate(`/chat/${chatId}`);
+        return;
+      }
 
-    const { data: existingChat } = await supabase
-      .from('chats')
-      .select('*')
-      .eq('id', chatId)
-      .single();
-    
-    if (!existingChat) {
-      await supabase
+      // 1. Create or find chat
+      const { data: existingChat } = await supabase
         .from('chats')
-        .insert({
-          id: chatId,
-          participants: [uid, myProfile.id],
-          last_message: '',
-          last_timestamp: new Date().toISOString(),
-        });
+        .select('*')
+        .eq('id', chatId)
+        .single();
+      
+      if (!existingChat) {
+        await supabase
+          .from('chats')
+          .insert({
+            id: chatId,
+            participants: [uid, myProfile.id],
+            last_message: quickMessage || 'Started a conversation',
+            last_timestamp: new Date().toISOString(),
+          });
+      }
+
+      // 2. Send initial message if provided
+      if (quickMessage.trim()) {
+        await supabase
+          .from('messages')
+          .insert({
+            chat_id: chatId,
+            sender_id: myProfile.id,
+            content: quickMessage.trim(),
+            message_type: 'text',
+            created_at: new Date().toISOString()
+          });
+
+        // Update chat last message
+        await supabase
+          .from('chats')
+          .update({
+            last_message: quickMessage.trim(),
+            last_timestamp: new Date().toISOString()
+          })
+          .eq('id', chatId);
+      }
+      
+      navigate(`/chat/${chatId}`);
+    } catch (error) {
+      console.error('Error starting chat:', error);
+      toast('Failed to start chat', 'error');
+    } finally {
+      setIsSendingChat(false);
+      setShowChatModal(false);
     }
-    
-    navigate(`/chat/${chatId}`);
   };
 
   const handleSendTip = async () => {
@@ -1026,6 +1065,60 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                   <Zap className="w-4 h-4 text-white/20" />
                   <span className="text-[8px] uppercase tracking-widest text-white/20 font-bold">Instant</span>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Quick Message Modal */}
+      <AnimatePresence>
+        {showChatModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowChatModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[40px] p-10 space-y-8"
+            >
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 rounded-2xl bg-brand-blue/10 flex items-center justify-center mx-auto mb-4">
+                  <MessageSquare className="w-8 h-8 text-brand-blue" />
+                </div>
+                <h2 className="text-3xl font-display uppercase tracking-tighter italic">Send a Message</h2>
+                <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Start a conversation with {user.username}</p>
+              </div>
+
+              <div className="space-y-4">
+                <textarea 
+                  value={quickMessage}
+                  onChange={(e) => setQuickMessage(e.target.value)}
+                  placeholder="Type your first message..."
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 min-h-[120px] text-sm font-medium focus:outline-none focus:border-brand-blue/50 transition-all resize-none"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <button 
+                  onClick={confirmStartChat}
+                  disabled={isSendingChat}
+                  className="w-full py-5 bg-brand-blue text-brand-dark font-black uppercase tracking-[0.2em] text-xs rounded-2xl shadow-lg shadow-brand-blue/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                >
+                  {isSendingChat ? 'Sending...' : 'Send & Open Chat'}
+                </button>
+                <button 
+                  onClick={() => setShowChatModal(false)}
+                  className="w-full py-5 bg-white/5 text-white/40 font-bold uppercase tracking-widest text-[10px] rounded-2xl hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
               </div>
             </motion.div>
           </div>

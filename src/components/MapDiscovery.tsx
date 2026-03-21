@@ -21,6 +21,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useToast } from './Toaster';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -85,10 +86,10 @@ export default function MapDiscovery({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mapCenter, setMapCenter] = useState<[number, number]>([9.0820, 8.6753]); // Nigeria center
-  const [privacyMode, setPrivacyMode] = useState(profile?.location_privacy || 'exact');
   const [radius, setRadius] = useState(10); // Default 10km
   const [locationError, setLocationError] = useState<string | null>(null);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
+  const { toast } = useToast();
   const updateInterval = useRef<NodeJS.Timeout | null>(null);
 
   const fetchNearbyUsers = useCallback(async (center: [number, number]) => {
@@ -138,9 +139,8 @@ export default function MapDiscovery({ profile }: { profile: any }) {
         setLocationError(null);
         setShowPermissionPrompt(false);
         
-        if (privacyMode !== 'hidden') {
-          updateLocationInDB(latitude, longitude);
-        }
+        toast('Location updated successfully', 'success');
+        updateLocationInDB(latitude, longitude);
       },
       (error) => {
         console.error(error);
@@ -161,7 +161,7 @@ export default function MapDiscovery({ profile }: { profile: any }) {
     
     // Periodic update every 60 seconds
     updateInterval.current = setInterval(() => {
-      if (navigator.geolocation && privacyMode !== 'hidden') {
+      if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition((pos) => {
           const { latitude, longitude } = pos.coords;
           setUserLocation([latitude, longitude]);
@@ -173,26 +173,13 @@ export default function MapDiscovery({ profile }: { profile: any }) {
     return () => {
       if (updateInterval.current) clearInterval(updateInterval.current);
     };
-  }, [profile?.id, privacyMode]);
+  }, [profile?.id]);
 
   useEffect(() => {
     if (userLocation) {
       fetchNearbyUsers(userLocation);
     }
   }, [radius, userLocation, fetchNearbyUsers]);
-
-  const togglePrivacy = async () => {
-    const modes: ('exact' | 'approximate' | 'hidden')[] = ['exact', 'approximate', 'hidden'];
-    const nextMode = modes[(modes.indexOf(privacyMode) + 1) % modes.length];
-    setPrivacyMode(nextMode);
-    
-    if (profile?.id) {
-      await supabase.from('profiles').update({ 
-        location_privacy: nextMode,
-        location_visible: nextMode !== 'hidden'
-      }).eq('id', profile.id);
-    }
-  };
 
   const radiusOptions = [
     { label: '1km', value: 1 },
@@ -206,49 +193,10 @@ export default function MapDiscovery({ profile }: { profile: any }) {
       "relative rounded-[40px] overflow-hidden border border-white/10 bg-[#0a0a0a] transition-all duration-500",
       isFullscreen ? "fixed inset-4 z-50" : "h-[700px] w-full"
     )}>
-      {/* Map UI Overlay */}
-      <div className="absolute top-6 left-6 right-6 z-[1000] flex flex-col gap-4 pointer-events-none">
-        <div className="flex items-start justify-between">
-          <div className="flex flex-col gap-2 pointer-events-auto">
-            <div className="bg-black/60 backdrop-blur-xl border border-white/10 p-4 rounded-3xl flex items-center gap-4">
-              <div className="w-10 h-10 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
-                <Compass className="w-5 h-5 text-brand-blue animate-spin-slow" />
-              </div>
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-widest">Discovery Engine</h3>
-                <p className="text-[8px] text-white/40 uppercase tracking-widest font-bold">
-                  {nearbyUsers.length} users within {radius}km
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2 pointer-events-auto">
-            <button 
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-4 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl text-white/60 hover:text-white transition-all shadow-xl"
-            >
-              {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-            </button>
-            <button 
-              onClick={togglePrivacy}
-              className="p-4 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl text-brand-blue hover:scale-105 transition-all flex items-center gap-2 shadow-xl"
-            >
-              {privacyMode === 'hidden' ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              <span className="text-[10px] font-bold uppercase tracking-widest">{privacyMode}</span>
-            </button>
-            <button 
-              onClick={requestLocation}
-              className="p-4 bg-brand-blue text-brand-dark rounded-2xl hover:scale-105 transition-all shadow-xl"
-            >
-              <Locate className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Radius Selector */}
+      {/* Map UI Overlay - ONLY Radius Selector kept */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none">
         <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl border border-white/10 p-1 rounded-2xl flex items-center gap-1">
+          <div className="bg-black/60 backdrop-blur-xl border border-white/10 p-1 rounded-2xl flex items-center gap-1 shadow-2xl">
             {radiusOptions.map((opt) => (
               <button
                 key={opt.value}
@@ -256,7 +204,7 @@ export default function MapDiscovery({ profile }: { profile: any }) {
                 className={cn(
                   "px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
                   radius === opt.value 
-                    ? "bg-brand-blue text-brand-dark" 
+                    ? "bg-brand-blue text-brand-dark shadow-[0_0_20px_rgba(0,209,255,0.3)]" 
                     : "text-white/40 hover:text-white"
                 )}
               >
@@ -297,17 +245,6 @@ export default function MapDiscovery({ profile }: { profile: any }) {
         )}
       </AnimatePresence>
 
-      {/* Legend & Privacy Info */}
-      <div className="absolute top-6 left-6 z-[1000] flex flex-col gap-2">
-        <div className="px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl flex items-center gap-3 shadow-2xl">
-          <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
-          <span className="text-[9px] uppercase tracking-widest font-black text-white/80">Your location is always visible to you</span>
-        </div>
-        <div className="px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl flex items-center gap-3 shadow-2xl">
-          <Shield className="w-3 h-3 text-emerald-500" />
-          <span className="text-[9px] uppercase tracking-widest font-black text-white/80">Privacy Protected &bull; {privacyMode} mode</span>
-        </div>
-      </div>
 
       {/* Map Container */}
       <MapContainer 
@@ -325,7 +262,7 @@ export default function MapDiscovery({ profile }: { profile: any }) {
         <MapEvents onMove={fetchNearbyUsers} />
         <RecenterMap center={mapCenter} />
 
-        {userLocation && privacyMode !== 'hidden' && (
+        {userLocation && (
           <Marker position={userLocation} icon={UserIcon}>
             <Popup className="custom-popup">
               <div className="p-2 text-center">
@@ -389,26 +326,6 @@ export default function MapDiscovery({ profile }: { profile: any }) {
         ))}
       </MapContainer>
 
-      {/* Map Legend/Status */}
-      <div className="absolute bottom-6 left-6 z-[1000] pointer-events-none">
-        <div className="bg-black/60 backdrop-blur-xl border border-white/10 px-6 py-3 rounded-full flex items-center gap-4">
-          <div className="flex -space-x-3">
-            {nearbyUsers.slice(0, 5).map((u, i) => (
-              <div key={u.id} className="w-8 h-8 rounded-full border-2 border-brand-dark overflow-hidden shadow-lg">
-                <img src={u.photo_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}`} className="w-full h-full object-cover" />
-              </div>
-            ))}
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-[10px] text-white font-bold uppercase tracking-widest">
-              Nearby Discovery
-            </p>
-            <p className="text-[8px] text-white/40 uppercase tracking-widest font-bold">
-              {nearbyUsers.length} users matching your preference
-            </p>
-          </div>
-        </div>
-      </div>
 
       <style>{`
         .leaflet-container {

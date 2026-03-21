@@ -273,7 +273,10 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         table: 'messages',
         filter: `chat_id=eq.${chatId}`
       }, (payload) => {
-        setMessages(prev => [...prev, payload.new]);
+        setMessages(prev => {
+          if (prev.find(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
         if (payload.new.sender_id !== profile.id) {
           markMessagesAsDelivered([payload.new]);
           markMessagesAsRead([payload.new]);
@@ -391,27 +394,30 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
       }
 
       const messageContent = newMessage.trim();
+      const tempId = `temp-${Date.now()}`;
+      const optimisticMsg = {
+        id: tempId,
+        chat_id: chatId,
+        sender_id: profile.id,
+        content: messageContent,
+        file_url: fileUrl,
+        voice_url: voiceUrl,
+        message_type: messageType,
+        created_at: new Date().toISOString(),
+        status: 'sending'
+      };
+
+      setMessages(prev => [...prev, optimisticMsg]);
       setNewMessage('');
       setUploadProgress(100);
+      scrollToBottom();
 
       if (!isSupabaseActive) {
-        const newMsg = {
-          id: `msg-${Date.now()}`,
-          chat_id: chatId,
-          sender_id: profile.id,
-          content: messageContent,
-          file_url: fileUrl,
-          voice_url: voiceUrl,
-          message_type: messageType,
-          created_at: new Date().toISOString(),
-          status: 'sent'
-        };
-        setMessages(prev => [...prev, newMsg]);
-        scrollToBottom();
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'sent' } : m));
         return;
       }
 
-      const { error } = await supabase
+      const { data: sentMsg, error } = await supabase
         .from('messages')
         .insert({
           chat_id: chatId,
@@ -421,7 +427,18 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
           voice_url: voiceUrl,
           message_type: messageType,
           created_at: new Date().toISOString()
-        });
+        })
+        .select()
+        .single();
+
+      if (error) {
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        toast('Failed to send message', 'error');
+        throw error;
+      }
+
+      // Replace optimistic message with real one
+      setMessages(prev => prev.map(m => m.id === tempId ? sentMsg : m));
 
       if (!error) {
         await supabase

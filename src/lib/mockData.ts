@@ -14,6 +14,7 @@ export const MOCK_USERS = [
     profile_mode: 'public',
     balance: 5000,
     bio: 'Platform Administrator and Demo User.',
+    gender: 'male',
     preferences: ['Admin', 'Support', 'Tech'],
     created_at: new Date().toISOString()
   },
@@ -28,6 +29,7 @@ export const MOCK_USERS = [
     profile_mode: 'public',
     balance: 0,
     bio: 'Living life one vibe at a time.',
+    gender: 'male',
     preferences: ['Travel', 'Music', 'Vibes'],
     created_at: new Date().toISOString()
   },
@@ -42,6 +44,7 @@ export const MOCK_USERS = [
     profile_mode: 'public',
     balance: 0,
     bio: 'Art lover and coffee enthusiast.',
+    gender: 'female',
     preferences: ['Art', 'Coffee', 'Design'],
     created_at: new Date().toISOString()
   },
@@ -56,6 +59,7 @@ export const MOCK_USERS = [
     profile_mode: 'public',
     balance: 0,
     bio: 'Building the future, one line of code at a time.',
+    gender: 'male',
     preferences: ['Tech', 'Coding', 'Future'],
     created_at: new Date().toISOString()
   },
@@ -70,6 +74,7 @@ export const MOCK_USERS = [
     profile_mode: 'public',
     balance: 0,
     bio: 'Explorer and adventurer.',
+    gender: 'female',
     preferences: ['Adventure', 'History', 'Travel'],
     created_at: new Date().toISOString()
   },
@@ -84,6 +89,7 @@ export const MOCK_USERS = [
     profile_mode: 'public',
     balance: 0,
     bio: 'Legal mind and chess player.',
+    gender: 'male',
     preferences: ['Law', 'Chess', 'Strategy'],
     created_at: new Date().toISOString()
   }

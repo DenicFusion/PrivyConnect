@@ -20,20 +20,63 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
   const [showLockModal, setShowLockModal] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [liveCount, setLiveCount] = useState(18);
+  const [genderFilter, setGenderFilter] = useState(profile?.looking_for || 'everyone');
+  const [showProfilePrompt, setShowProfilePrompt] = useState(false);
 
   const isSubscribed = profile?.is_subscribed || false;
+
+  // Handle Profile Completion Prompt
+  useEffect(() => {
+    if (!profile?.id) return;
+    
+    const promptKey = `profile_prompt_shown_${profile.id}`;
+    const hasShown = localStorage.getItem(promptKey);
+    
+    if (!hasShown && (!profile?.gender || !profile?.looking_for)) {
+      setShowProfilePrompt(true);
+      localStorage.setItem(promptKey, 'true');
+      
+      // Add to Notification Center if Supabase is active
+      if (isSupabaseActive) {
+        supabase.from('notifications').insert({
+          user_id: profile.id,
+          type: 'subscription',
+          title: 'Complete your profile',
+          message: 'Set your gender and discovery preferences to find better matches.',
+          link: '/settings',
+          is_read: false,
+          created_at: new Date().toISOString()
+        }).then(({ error }) => {
+          if (error) console.error('Error adding notification:', error);
+        });
+      }
+    }
+  }, [profile?.id, profile?.gender, profile?.looking_for]);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
 
     if (!isSupabaseActive) {
-      setUsers(MOCK_USERS.filter(u => u.id !== profile?.id));
+      let mockData = MOCK_USERS.filter(u => u.id !== profile?.id);
+      if (genderFilter !== 'everyone') {
+        mockData = mockData.filter(u => u.gender === genderFilter);
+      }
+      setUsers(mockData);
       setLoading(false);
       return;
     }
 
     try {
-      let data: any[] = [];
+      let query = supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', profile?.id)
+        .eq('profile_mode', 'public')
+        .eq('is_public', true);
+
+      if (genderFilter !== 'everyone') {
+        query = query.eq('gender', genderFilter);
+      }
       
       if (filter === 'nearby') {
         // Get user location first
@@ -44,56 +87,38 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
               user_lat: latitude,
               user_lng: longitude,
               radius_km: 50, // Default 50km for grid view
-              preference: profile?.looking_for || 'everyone'
+              preference: genderFilter
             });
             if (!error) setUsers(nearbyData || []);
             setLoading(false);
           }, async (err) => {
             console.error('Location error:', err);
             // Fallback to general query if location denied
-            const { data: fallbackData, error } = await supabase
-              .from('profiles')
-              .select('*')
-              .neq('id', profile?.id)
-              .eq('profile_mode', 'public')
-              .eq('is_public', true)
-              .limit(20);
+            const { data: fallbackData, error } = await query.limit(20);
             if (!error) setUsers(fallbackData || []);
             setLoading(false);
           });
           return; // Exit early as we handle loading in callbacks
         }
       } else if (filter === 'active') {
-        const { data: activeData, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .neq('id', profile?.id)
-          .eq('profile_mode', 'public')
-          .eq('is_public', true)
+        const { data: activeData, error } = await query
           .eq('is_online', true)
           .order('last_active', { ascending: false })
           .limit(20);
-        data = activeData || [];
+        setUsers(activeData || []);
       } else {
         // Trending/Default
-        const { data: trendingData, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .neq('id', profile?.id)
-          .eq('profile_mode', 'public')
-          .eq('is_public', true)
+        const { data: trendingData, error } = await query
           .order('created_at', { ascending: false })
           .limit(20);
-        data = trendingData || [];
+        setUsers(trendingData || []);
       }
-
-      setUsers(data);
     } catch (err) {
       console.error('Error fetching users:', err);
     } finally {
       setLoading(false);
     }
-  }, [profile?.id, profile?.looking_for, filter]);
+  }, [profile?.id, profile?.looking_for, filter, genderFilter]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -131,11 +156,14 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         `is now online nearby`,
         `just updated their profile`,
         `is looking for a connection`,
-        `just became verified`
+        `just became verified`,
+        `sent a tip to a creator`,
+        `is active in your area`,
+        `just uploaded new photos`
       ];
       const randomActivity = activities[Math.floor(Math.random() * activities.length)];
       setLiveActivity(`${randomUser.username} ${randomActivity}`);
-    }, 5000);
+    }, 8000); // Increased interval for better readability
     return () => clearInterval(interval);
   }, []);
 
@@ -195,7 +223,7 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </div>
       </div>
 
-      {(!profile?.gender || !profile?.looking_for) && (
+      {showProfilePrompt && (
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -210,35 +238,66 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
               <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Set your gender and discovery preferences to find better matches</p>
             </div>
           </div>
-          <Link 
-            to="/settings" 
-            className="px-8 py-4 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest text-[10px] rounded-xl hover:scale-105 transition-all shadow-lg"
-          >
-            Go to Settings
-          </Link>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setShowProfilePrompt(false)}
+              className="px-6 py-4 bg-white/5 text-white/40 font-bold uppercase tracking-widest text-[10px] rounded-xl hover:bg-white/10 transition-all"
+            >
+              Dismiss
+            </button>
+            <Link 
+              to="/settings" 
+              className="px-8 py-4 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest text-[10px] rounded-xl hover:scale-105 transition-all shadow-lg"
+            >
+              Go to Settings
+            </Link>
+          </div>
         </motion.div>
       )}
 
-      {/* Tabs */}
-      <div className="overflow-x-auto scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
-        <div className="flex items-center gap-2 p-1 bg-white/5 rounded-2xl w-fit min-w-max">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = filter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setFilter(tab.id)}
-                className={cn(
-                  "flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all whitespace-nowrap relative",
-                  isActive ? "bg-brand-blue text-brand-dark shadow-lg shadow-brand-blue/20" : "text-white/40 hover:text-white/70"
-                )}
-              >
-                <Icon className={cn("w-4 h-4", isActive && "animate-pulse")} />
-                {tab.label}
-              </button>
-            );
-          })}
+      {/* Filter Tabs & Gender Filter */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="overflow-x-auto scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
+          <div className="flex items-center gap-2 p-1 bg-white/5 rounded-2xl w-fit min-w-max">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = filter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilter(tab.id)}
+                  className={cn(
+                    "flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all whitespace-nowrap relative",
+                    isActive ? "bg-brand-blue text-brand-dark shadow-lg shadow-brand-blue/20" : "text-white/40 hover:text-white/70"
+                  )}
+                >
+                  <Icon className={cn("w-4 h-4", isActive && "animate-pulse")} />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 p-1 bg-white/5 rounded-2xl w-fit border border-white/10">
+          {[
+            { id: 'everyone', label: 'Everyone' },
+            { id: 'male', label: 'Male' },
+            { id: 'female', label: 'Female' }
+          ].map((g) => (
+            <button
+              key={g.id}
+              onClick={() => setGenderFilter(g.id)}
+              className={cn(
+                "px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all",
+                genderFilter === g.id 
+                  ? "bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]" 
+                  : "text-white/30 hover:text-white/60"
+              )}
+            >
+              {g.label}
+            </button>
+          ))}
         </div>
       </div>
 
