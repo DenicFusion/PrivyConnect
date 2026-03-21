@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Shield, Zap, TrendingUp, Users, Filter, Search, Flame, Sparkles, Lock, X, CheckCircle } from 'lucide-react';
+import { MapPin, Shield, Zap, TrendingUp, Users, Filter, Search, Flame, Sparkles, Lock, X, CheckCircle, Map as MapIcon, Grid } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import MapDiscovery from '../components/MapDiscovery';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -17,6 +18,7 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showLockModal, setShowLockModal] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [liveCount, setLiveCount] = useState(18);
 
   const isSubscribed = profile?.is_subscribed || false;
@@ -30,19 +32,68 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .neq('id', profile?.id)
-      .eq('profile_mode', 'public')
-      .eq('is_public', true)
-      .limit(20);
+    try {
+      let data: any[] = [];
+      
+      if (filter === 'nearby') {
+        // Get user location first
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(async (pos) => {
+            const { latitude, longitude } = pos.coords;
+            const { data: nearbyData, error } = await supabase.rpc('search_nearby_users', {
+              user_lat: latitude,
+              user_lng: longitude,
+              radius_km: 50, // Default 50km for grid view
+              preference: profile?.looking_for || 'everyone'
+            });
+            if (!error) setUsers(nearbyData || []);
+            setLoading(false);
+          }, async (err) => {
+            console.error('Location error:', err);
+            // Fallback to general query if location denied
+            const { data: fallbackData, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .neq('id', profile?.id)
+              .eq('profile_mode', 'public')
+              .eq('is_public', true)
+              .limit(20);
+            if (!error) setUsers(fallbackData || []);
+            setLoading(false);
+          });
+          return; // Exit early as we handle loading in callbacks
+        }
+      } else if (filter === 'active') {
+        const { data: activeData, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', profile?.id)
+          .eq('profile_mode', 'public')
+          .eq('is_public', true)
+          .eq('is_online', true)
+          .order('last_active', { ascending: false })
+          .limit(20);
+        data = activeData || [];
+      } else {
+        // Trending/Default
+        const { data: trendingData, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', profile?.id)
+          .eq('profile_mode', 'public')
+          .eq('is_public', true)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        data = trendingData || [];
+      }
 
-    if (!error) {
-      setUsers(data || []);
+      setUsers(data);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [profile?.id]);
+  }, [profile?.id, profile?.looking_for, filter]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -108,6 +159,26 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </div>
         
         <div className="flex items-center gap-3">
+          <div className="flex items-center bg-white/5 border border-white/10 rounded-2xl p-1 mr-2">
+            <button 
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                "p-2 rounded-xl transition-all",
+                viewMode === 'grid' ? "bg-brand-blue text-brand-dark" : "text-white/40 hover:text-white"
+              )}
+            >
+              <Grid className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setViewMode('map')}
+              className={cn(
+                "p-2 rounded-xl transition-all",
+                viewMode === 'map' ? "bg-brand-blue text-brand-dark" : "text-white/40 hover:text-white"
+              )}
+            >
+              <MapIcon className="w-5 h-5" />
+            </button>
+          </div>
           <div className="relative group flex-1 md:flex-none">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-brand-blue transition-colors" />
             <input 
@@ -163,8 +234,16 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </motion.div>
       </AnimatePresence>
 
-      {/* Grid */}
-      {loading ? (
+      {/* Grid or Map */}
+      {viewMode === 'map' ? (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full"
+        >
+          <MapDiscovery profile={profile} />
+        </motion.div>
+      ) : loading ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
           {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
             <div key={i} className="aspect-[3/4] rounded-3xl bg-white/5 animate-pulse" />
@@ -304,7 +383,7 @@ function UserCard({ user, index, isSubscribed, onLockedClick }: {
           <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] font-bold text-white/40">
             <div className="flex items-center gap-1.5">
               <MapPin className="w-3 h-3 text-brand-blue" />
-              <span>2km away</span>
+              <span>{user.distance ? `~${user.distance.toFixed(1)}km away` : 'Nearby'}</span>
             </div>
             {(user.is_online && !user.hide_online_status) && (
               <div className="flex items-center gap-1.5">

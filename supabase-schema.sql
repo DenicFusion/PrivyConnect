@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     push_token TEXT,
     balance DECIMAL(12, 2) DEFAULT 0.00,
     location JSONB DEFAULT '{"lat": 0, "lng": 0, "city": "Unknown"}'::JSONB,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    last_location_update TIMESTAMPTZ,
+    location_visible BOOLEAN DEFAULT TRUE,
+    gender TEXT CHECK (gender IN ('male', 'female', 'unspecified')),
+    looking_for TEXT CHECK (looking_for IN ('male', 'female', 'everyone')),
+    location_privacy TEXT DEFAULT 'exact' CHECK (location_privacy IN ('exact', 'approximate', 'hidden')),
+    messaging_privacy TEXT DEFAULT 'everyone' CHECK (messaging_privacy IN ('everyone', 'subscribers', 'nobody')),
+    notification_settings JSONB DEFAULT '{"chat": true, "tips": true, "subscriptions": true, "promotions": true}'::JSONB,
+    auto_renew BOOLEAN DEFAULT FALSE,
     preferences JSONB DEFAULT '{"gender": "", "interests": [], "availability": ""}'::JSONB,
     last_active TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -206,6 +216,114 @@ CREATE POLICY "Admins can manage keywords" ON public.moderation_keywords
             WHERE id = auth.uid() AND role = 'admin'
         )
     );
+
+-- 12. Notifications Table
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link TEXT,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own notifications" ON public.notifications
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own notifications" ON public.notifications
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own notifications" ON public.notifications
+    FOR DELETE USING (auth.uid() = user_id);
+
+-- 13. Login Activity Table
+CREATE TABLE IF NOT EXISTS public.login_activity (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    device TEXT,
+    location TEXT,
+    ip TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.login_activity ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own login activity" ON public.login_activity
+    FOR SELECT USING (auth.uid() = user_id);
+
+-- 14. Enable Realtime for Notifications
+ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+
+-- 15. Search Nearby Users Function (Haversine Formula)
+CREATE OR REPLACE FUNCTION public.search_nearby_users(
+    user_lat DOUBLE PRECISION,
+    user_lng DOUBLE PRECISION,
+    radius_km DOUBLE PRECISION,
+    preference TEXT DEFAULT 'everyone'
+)
+RETURNS TABLE (
+    id UUID,
+    username TEXT,
+    display_name TEXT,
+    photo_url TEXT,
+    gender TEXT,
+    is_subscribed BOOLEAN,
+    is_verified BOOLEAN,
+    is_online BOOLEAN,
+    hide_online_status BOOLEAN,
+    location_privacy TEXT,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    distance DOUBLE PRECISION
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.id,
+        p.username,
+        p.display_name,
+        p.photo_url,
+        p.gender,
+        p.is_subscribed,
+        p.is_verified,
+        p.is_online,
+        p.hide_online_status,
+        p.location_privacy,
+        p.latitude,
+        p.longitude,
+        (
+            6371 * acos(
+                cos(radians(user_lat)) *
+                cos(radians(p.latitude)) *
+                cos(radians(p.longitude) - radians(user_lng)) +
+                sin(radians(user_lat)) *
+                sin(radians(p.latitude))
+            )
+        ) AS distance
+    FROM public.profiles p
+    WHERE p.location_visible = TRUE
+    AND p.latitude IS NOT NULL
+    AND p.longitude IS NOT NULL
+    AND (
+        preference = 'everyone'
+        OR p.gender = preference
+    )
+    AND (
+        6371 * acos(
+            cos(radians(user_lat)) *
+            cos(radians(p.latitude)) *
+            cos(radians(p.longitude) - radians(user_lng)) +
+            sin(radians(user_lat)) *
+            sin(radians(p.latitude))
+        )
+    ) < radius_km
+    ORDER BY distance ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Insert default settings
 INSERT INTO public.system_settings (key, value) VALUES 

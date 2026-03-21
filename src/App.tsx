@@ -29,6 +29,10 @@ import AdminGuard from './admin/AdminGuard';
 import VerifySuccessPage from './pages/VerifySuccess';
 import EmailPreviewPage from './pages/EmailPreview';
 import LoginPage from './pages/Login';
+import SettingsPage from './pages/Settings';
+import NotificationsPage from './pages/Notifications';
+import PublicProfilePage from './pages/PublicProfile';
+import Onboarding from './components/Onboarding';
 
 // Subscription Guard Component
 function SubscriptionGuard({ children, profile }: { children: React.ReactNode, profile: any }) {
@@ -314,9 +318,18 @@ function AppContent() {
     );
   }
 
+  // Show onboarding if profile is missing gender or looking_for
+  const needsOnboarding = session && profile && (!profile.gender || !profile.looking_for);
+
   return (
     <ErrorBoundary>
       <Router>
+        {needsOnboarding && (
+          <Onboarding 
+            profile={profile} 
+            onComplete={() => fetchProfile(session.user.id)} 
+          />
+        )}
         <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-brand-blue/30 overflow-x-hidden">
           <Routes>
             {/* Website Experience: Landing page is public */}
@@ -331,6 +344,9 @@ function AppContent() {
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute session={session}><Layout profile={profile}><SettingsPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/notifications" element={<ProtectedRoute session={session}><Layout profile={profile}><NotificationsPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/u/:username" element={<PublicProfilePage />} />
             <Route path="/myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
           </Routes>
         </div>
@@ -360,10 +376,14 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
         </div>
         
         <div className="flex items-center gap-3">
-          <button className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
+          <Link to="/notifications" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
             <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
             <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
-          </button>
+          </Link>
+          
+          <Link to="/settings" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
+            <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+          </Link>
           
           {/* Menu Portal */}
           <button className="p-2 text-white hover:text-brand-blue transition-colors group">
