@@ -204,6 +204,13 @@ export default function LoginPage() {
                 {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
               </button>
               <br />
+              <Link 
+                to="/email-preview"
+                className="text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-brand-blue transition-colors"
+              >
+                Not receiving a code?
+              </Link>
+              <br />
               <button 
                 type="button"
                 onClick={() => setOtpSent(false)}

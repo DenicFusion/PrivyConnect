@@ -327,7 +327,7 @@ function AppContent() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/verify-success" element={<VerifySuccessPage />} />
-            <Route path="/dev/emails" element={<EmailPreviewPage />} />
+            <Route path="/email-preview" element={<EmailPreviewPage />} />
             
             {/* App Experience: Authentication required for these routes */}
             <Route path="/discovery" element={<ProtectedRoute session={session}><Layout profile={profile}><DiscoveryPage profile={profile} /></Layout></ProtectedRoute>} />

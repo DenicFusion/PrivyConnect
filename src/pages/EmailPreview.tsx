@@ -46,13 +46,24 @@ export default function EmailPreviewPage() {
           </Link>
           <h1 className="text-xl font-display uppercase italic tracking-widest">Email Template Gallery</h1>
         </div>
-        <button 
-          onClick={copyToClipboard}
-          className="flex items-center gap-2 px-6 py-2.5 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-[10px] hover:scale-105 transition-all"
-        >
-          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-          Copy HTML
-        </button>
+        <div className="flex gap-4">
+          <button 
+            onClick={() => {
+              const guide = document.getElementById('supabase-guide');
+              guide?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-6 py-2.5 bg-white/5 border border-white/10 text-white/60 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all"
+          >
+            Supabase Setup Guide
+          </button>
+          <button 
+            onClick={copyToClipboard}
+            className="flex items-center gap-2 px-6 py-2.5 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-[10px] hover:scale-105 transition-all"
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            Copy HTML
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
@@ -77,7 +88,7 @@ export default function EmailPreviewPage() {
 
         {/* Preview Area */}
         <main className="flex-1 bg-[#111] p-12 overflow-y-auto">
-          <div className="max-w-3xl mx-auto space-y-8">
+          <div className="max-w-3xl mx-auto space-y-12">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <h2 className="text-2xl font-bold uppercase tracking-tight italic">Live Preview</h2>
@@ -96,6 +107,53 @@ export default function EmailPreviewPage() {
                 title="Email Preview"
                 className="w-full h-[800px] border-none"
               />
+            </div>
+
+            {/* Supabase Guide Section */}
+            <div id="supabase-guide" className="pt-12 border-t border-white/10 space-y-8">
+              <div className="space-y-2">
+                <h2 className="text-3xl font-display uppercase italic text-brand-blue">Supabase Configuration Guide</h2>
+                <p className="text-white/40 text-sm">Follow these steps to enable 6-digit codes and custom branding for your authentication emails.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-8 rounded-[32px] bg-white/5 border border-white/10 space-y-4">
+                  <div className="w-10 h-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold">1</div>
+                  <h3 className="text-lg font-bold uppercase tracking-tight">Enable OTP Codes</h3>
+                  <p className="text-white/40 text-xs leading-relaxed">
+                    By default, Supabase sends a magic link. To send a 6-digit code instead:
+                  </p>
+                  <ul className="text-[10px] text-white/60 space-y-2 list-disc pl-4 uppercase tracking-widest font-bold">
+                    <li>Go to Authentication {'>'} Email Templates</li>
+                    <li>Select "Magic Link" or "Confirm Signup"</li>
+                    <li>Replace <code className="text-brand-blue">{'{{ .ConfirmationURL }}'}</code> with <code className="text-brand-blue">{'{{ .Token }}'}</code></li>
+                  </ul>
+                </div>
+
+                <div className="p-8 rounded-[32px] bg-white/5 border border-white/10 space-y-4">
+                  <div className="w-10 h-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold">2</div>
+                  <h3 className="text-lg font-bold uppercase tracking-tight">Apply Branding</h3>
+                  <p className="text-white/40 text-xs leading-relaxed">
+                    To use the premium templates shown above in your Supabase emails:
+                  </p>
+                  <ul className="text-[10px] text-white/60 space-y-2 list-disc pl-4 uppercase tracking-widest font-bold">
+                    <li>Select the "OTP Verification" template on the left</li>
+                    <li>Click "Copy HTML" at the top of this page</li>
+                    <li>Paste the HTML into the Supabase Email Body editor</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="p-8 rounded-[32px] bg-brand-blue/5 border border-brand-blue/20 flex items-center justify-between gap-8">
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-brand-blue">Pro Tip: Custom SMTP</h4>
+                  <p className="text-white/40 text-[10px] uppercase tracking-widest leading-relaxed">
+                    To avoid "Sent via Supabase" footers, configure your Resend SMTP credentials in <br />
+                    <span className="text-white">Project Settings {'>'} Authentication {'>'} SMTP</span>.
+                  </p>
+                </div>
+                <ExternalLink className="w-6 h-6 text-brand-blue/40" />
+              </div>
             </div>
           </div>
         </main>
