@@ -109,7 +109,7 @@ export default function LoginPage() {
       const { error } = await supabase.auth.verifyOtp({
         email,
         token,
-        type: 'email'
+        type: mode === 'signup' ? 'signup' : 'email'
       });
       if (error) throw error;
       toast('Verified successfully!', 'success');
