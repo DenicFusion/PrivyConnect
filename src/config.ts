@@ -5,7 +5,7 @@
 
 export const APP_CONFIG = {
   // Set to true to use real Supabase backend, false for mock data
-  USE_SUPABASE: false,
+  USE_SUPABASE: true,
   
   // App Metadata
   NAME: 'PrivyConnect',
