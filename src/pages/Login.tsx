@@ -4,17 +4,19 @@ import { supabase, signIn, isSupabaseActive } from '../lib/supabase';
 import { Logo } from '../components/Logo';
 import { useToast } from '../components/Toaster';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, User, Key, ArrowLeft, Shield, Smartphone, Globe } from 'lucide-react';
+import { Mail, User, Key, ArrowLeft, Shield, Smartphone, Globe, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const [mode, setMode] = useState<'login' | 'signup' | 'select'>('select');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
+  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState(['', '', '', '', '', '', '', '']);
   const [resendTimer, setResendTimer] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
   const { toast } = useToast();
@@ -54,33 +56,60 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      let loginEmail = email;
+
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            data: { username },
+            data: { 
+              username,
+              full_name: fullName
+            },
             emailRedirectTo: window.location.origin + '/verify-success'
           }
         });
         if (error) throw error;
+        
+        // Send initial notification
+        if (data.user) {
+          const { sendInitialNotification } = await import('../services/notificationService');
+          await sendInitialNotification(data.user.id);
+        }
+
         toast('Verification code sent to your email!', 'success');
       } else {
+        // Login flow: If it's a username, find the email
+        if (!email.includes('@')) {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('email')
+            .eq('username', email)
+            .single();
+          
+          if (profileError || !profileData?.email) {
+            throw new Error('Username not found. Please use your email.');
+          }
+          loginEmail = profileData.email;
+        }
+
         // Login flow: First verify password
         const { error: pwdError } = await supabase.auth.signInWithPassword({
-          email,
+          email: loginEmail,
           password
         });
         if (pwdError) throw pwdError;
 
         // Password correct, now send OTP for "two-factor" verification
         const { error: otpError } = await supabase.auth.signInWithOtp({
-          email,
+          email: loginEmail,
           options: {
             emailRedirectTo: window.location.origin + '/verify-success'
           }
         });
         if (otpError) throw otpError;
+        setEmail(loginEmail); // Update email state to the actual email for OTP verification
         toast('Security code sent to your email!', 'success');
       }
       
@@ -98,8 +127,8 @@ export default function LoginPage() {
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = otp.join('');
-    if (token.length !== 6) {
-      toast('Please enter the 6-digit code.', 'error');
+    if (token.length !== 8 && token.length !== 6) {
+      toast('Please enter the code.', 'error');
       return;
     }
     setLoading(true);
@@ -134,7 +163,7 @@ export default function LoginPage() {
     setOtp(newOtp);
 
     // Auto-focus next input
-    if (value && index < 5) {
+    if (value && index < otp.length - 1) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
     }
@@ -165,7 +194,7 @@ export default function LoginPage() {
           <div className="space-y-4">
             <h2 className="text-3xl font-display uppercase italic">Verify Your Account</h2>
             <p className="text-white/40 text-sm font-light leading-relaxed">
-              A 6-digit code has been sent to <span className="text-white font-medium">{email}</span>
+              A code has been sent to <span className="text-white font-medium">{email}</span>
             </p>
           </div>
 
@@ -302,23 +331,36 @@ export default function LoginPage() {
             >
               <div className="space-y-4">
                 {mode === 'signup' && (
-                  <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                    <input 
-                      type="text"
-                      placeholder="Username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      required
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
-                    />
-                  </div>
+                  <>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                      <input 
+                        type="text"
+                        placeholder="Full Name"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        required
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
+                      />
+                    </div>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                      <input 
+                        type="text"
+                        placeholder="Username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        required
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
+                      />
+                    </div>
+                  </>
                 )}
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
                   <input 
-                    type="email"
-                    placeholder="Email Address"
+                    type={mode === 'signup' ? 'email' : 'text'}
+                    placeholder={mode === 'signup' ? 'Email Address' : 'Username or Email'}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -328,13 +370,20 @@ export default function LoginPage() {
                 <div className="relative">
                   <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
                   <input 
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 

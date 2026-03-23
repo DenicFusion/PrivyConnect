@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Shield, Zap, TrendingUp, Users, Filter, Search, Flame, Sparkles, Lock, X, CheckCircle, Map as MapIcon, Grid } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import MapDiscovery from '../components/MapDiscovery';
+import GenderModal from '../components/GenderModal';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -22,6 +23,7 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
   const [liveCount, setLiveCount] = useState(18);
   const [genderFilter, setGenderFilter] = useState(profile?.looking_for || 'everyone');
   const [showProfilePrompt, setShowProfilePrompt] = useState(false);
+  const [showGenderModal, setShowGenderModal] = useState(false);
 
   const isSubscribed = profile?.is_subscribed || false;
 
@@ -32,7 +34,9 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
     const promptKey = `profile_prompt_shown_${profile.id}`;
     const hasShown = localStorage.getItem(promptKey);
     
-    if (!hasShown && (!profile?.gender || !profile?.looking_for)) {
+    if (!profile?.gender) {
+      setShowGenderModal(true);
+    } else if (!hasShown && !profile?.looking_for) {
       setShowProfilePrompt(true);
       localStorage.setItem(promptKey, 'true');
       
@@ -42,7 +46,7 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
           user_id: profile.id,
           type: 'subscription',
           title: 'Complete your profile',
-          message: 'Set your gender and discovery preferences to find better matches.',
+          message: 'Set your discovery preferences to find better matches.',
           link: '/settings',
           is_read: false,
           created_at: new Date().toISOString()
@@ -247,7 +251,7 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
             </button>
             <Link 
               to="/settings" 
-              className="px-8 py-4 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest text-[10px] rounded-xl hover:scale-105 transition-all shadow-lg"
+              className="relative z-50 px-8 py-4 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest text-[10px] rounded-xl hover:scale-105 transition-all shadow-lg text-center"
             >
               Go to Settings
             </Link>
@@ -346,6 +350,17 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
         </div>
       )}
 
+      {/* Gender Modal */}
+      <GenderModal 
+        isOpen={showGenderModal}
+        onClose={() => setShowGenderModal(false)}
+        userId={profile?.id}
+        onSuccess={() => {
+          // Refresh profile or just close
+          window.location.reload();
+        }}
+      />
+
       {filteredUsers.length === 0 && !loading && (
         <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
           <Users className="w-12 h-12 text-white/20 mx-auto mb-4" />
@@ -389,7 +404,10 @@ export default function DiscoveryPage({ profile }: { profile: any }) {
               </div>
 
               <div className="space-y-4">
-                <button className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all">
+                <button 
+                  onClick={() => window.location.href = '/wallet'}
+                  className="relative z-50 w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
                   Subscribe Now – ₦1500/week
                 </button>
                 <p className="text-[8px] text-white/20 uppercase tracking-widest font-bold">Cancel anytime • Secure payment</p>

@@ -16,7 +16,8 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Users
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -122,7 +123,7 @@ export default function WalletPage({ profile }: { profile: any }) {
         onSuccess: async (response: any) => {
           console.log("Payment successful:", response);
           
-          // Send to backend for verification and update
+          // Optimistic UI update if possible, but let's rely on backend verification
           try {
             const verifyRes = await fetch('/api/payment-success', {
               method: 'POST',
@@ -139,7 +140,26 @@ export default function WalletPage({ profile }: { profile: any }) {
             if (verifyRes.ok) {
               toast('Payment successful! Your account has been updated.', 'success');
               setShowDepositModal(false);
-              // Profile will be re-fetched by App.tsx
+              
+              // Fallback: If the backend verification is slow, we can manually update local profile state
+              // though App.tsx should handle this via real-time or re-fetch
+              if (isSupabaseActive) {
+                if (paymentType === 'subscription') {
+                  const expiry = new Date();
+                  expiry.setDate(expiry.getDate() + 7);
+                  await supabase.from('profiles').update({
+                    is_subscribed: true,
+                    subscription_expiry: expiry.toISOString()
+                  }).eq('id', profile.id);
+                } else {
+                  await supabase.from('profiles').update({
+                    balance: (profile.balance || 0) + amount
+                  }).eq('id', profile.id);
+                }
+              }
+              
+              // Force a reload to ensure everything is in sync
+              setTimeout(() => window.location.reload(), 1500);
             } else {
               const err = await verifyRes.json();
               toast(`Payment verification failed: ${err.error}`, 'error');
@@ -283,14 +303,14 @@ export default function WalletPage({ profile }: { profile: any }) {
                   setPaymentType('topup');
                   setShowDepositModal(true);
                 }}
-                className="py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                className="relative z-50 py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
                 <Zap className="w-4 h-4" />
                 Deposit
               </button>
               <button 
                 onClick={() => setShowWithdrawModal(true)}
-                className="py-5 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+                className="relative z-50 py-5 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all flex items-center justify-center gap-2"
               >
                 Withdraw
               </button>
@@ -336,7 +356,7 @@ export default function WalletPage({ profile }: { profile: any }) {
                 setShowDepositModal(true);
               }}
               className={cn(
-                "w-full py-5 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl transition-all flex items-center justify-center gap-2",
+                "relative z-50 w-full py-5 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl transition-all flex items-center justify-center gap-2",
                 profile?.is_subscribed 
                   ? "bg-white/5 border border-white/10 text-white hover:bg-white/10" 
                   : "bg-amber-500 text-black shadow-[0_0_30px_rgba(245,158,11,0.2)] hover:scale-[1.02] active:scale-[0.98]"
@@ -352,20 +372,21 @@ export default function WalletPage({ profile }: { profile: any }) {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { label: 'Total Spent', value: `₦${stats.spent.toLocaleString()}`, icon: ArrowUpRight, color: 'text-red-400' },
-          { label: 'Total Earned', value: `₦${stats.earned.toLocaleString()}`, icon: ArrowDownLeft, color: 'text-brand-blue' },
-          { label: 'Pending', value: `₦${stats.pending.toLocaleString()}`, icon: Clock, color: 'text-amber-400' },
+          { label: 'Total Earnings', value: `₦${stats.earned.toLocaleString()}`, icon: ArrowDownLeft, color: 'text-brand-blue' },
+          { label: 'Referrals', value: profile?.referral_count || '0', icon: Users, color: 'text-purple-400' },
+          { label: 'Current Balance', value: `₦${balance.toLocaleString()}`, icon: Wallet, color: 'text-emerald-400' },
         ].map((stat, i) => (
-          <div key={i} className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className={cn("p-2 rounded-lg bg-white/5", stat.color)}>
-                <stat.icon className="w-4 h-4" />
+          <div key={i} className="p-8 rounded-[32px] bg-[#0a0a0a] border border-white/10 space-y-4 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 blur-3xl -mr-16 -mt-16 group-hover:bg-brand-blue/5 transition-colors" />
+            <div className="flex items-center justify-between relative z-10">
+              <div className={cn("p-3 rounded-2xl bg-white/5 border border-white/10", stat.color)}>
+                {typeof stat.icon === 'string' ? <span className="text-xl font-bold">{stat.icon}</span> : <stat.icon className="w-6 h-6" />}
               </div>
               <TrendingUp className="w-4 h-4 text-white/10" />
             </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-widest font-bold text-white/30">{stat.label}</p>
-              <p className="text-2xl font-display tracking-tight">{stat.value}</p>
+            <div className="relative z-10">
+              <p className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/30">{stat.label}</p>
+              <p className="text-3xl font-display italic tracking-tighter mt-1">{stat.value}</p>
             </div>
           </div>
         ))}
@@ -374,78 +395,94 @@ export default function WalletPage({ profile }: { profile: any }) {
       {/* Transactions */}
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-display uppercase tracking-widest">Transaction History</h3>
+          <h3 className="text-xl font-display uppercase tracking-widest italic">Recent Transactions</h3>
           <button className="text-[10px] uppercase tracking-widest font-bold text-brand-blue hover:underline">View All</button>
         </div>
 
-        <div className="space-y-2">
-          {loading ? (
-            [1, 2, 3].map(i => (
-              <div key={i} className="h-20 rounded-2xl bg-white/5 animate-pulse" />
-            ))
-          ) : transactions.length > 0 ? (
-            transactions.map((tx, i) => {
-              const isOutgoing = tx.from_uid === profile?.id;
-              return (
-                <motion.div
-                  key={tx.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={cn(
-                      "w-12 h-12 rounded-xl flex items-center justify-center",
-                      tx.type === 'deposit' ? "bg-brand-blue/10 text-brand-blue" :
-                      tx.type === 'withdrawal' ? "bg-amber-500/10 text-amber-500" :
-                      isOutgoing ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
-                    )}>
-                      {tx.type === 'deposit' ? <Plus className="w-6 h-6" /> :
-                       tx.type === 'withdrawal' ? <ArrowUpRight className="w-6 h-6" /> :
-                       isOutgoing ? <ArrowUpRight className="w-6 h-6" /> : <ArrowDownLeft className="w-6 h-6" />}
-                    </div>
-                    <div>
-                      <p className="font-bold tracking-tight uppercase text-xs">
-                        {tx.type === 'deposit' ? 'Wallet Deposit' : 
-                         tx.type === 'withdrawal' ? 'Withdrawal Request' :
-                         tx.type === 'tip' ? (isOutgoing ? 'Sent Tip' : 'Received Tip') : tx.type}
-                      </p>
-                      <p className="text-[10px] text-white/30 uppercase tracking-widest">
-                        {format(new Date(tx.timestamp), 'MMM dd, yyyy • HH:mm')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className={cn(
-                      "font-display text-lg",
-                      (isOutgoing && tx.type !== 'deposit') || tx.type === 'withdrawal' ? "text-red-400" : "text-brand-blue"
-                    )}>
-                      {(isOutgoing && tx.type !== 'deposit') || tx.type === 'withdrawal' ? '-' : '+'}₦{tx.amount.toLocaleString()}
-                    </p>
-                    <div className="flex items-center justify-end gap-1">
-                      {tx.status === 'completed' ? (
-                        <CheckCircle className="w-3 h-3 text-brand-blue" />
-                      ) : (
-                        <Clock className="w-3 h-3 text-amber-400" />
-                      )}
-                      <span className={cn(
-                        "text-[8px] uppercase tracking-widest font-bold",
-                        tx.status === 'completed' ? "text-white/20" : "text-amber-400/50"
-                      )}>
-                        {tx.status}
-                      </span>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })
-          ) : (
-            <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
-              <History className="w-12 h-12 text-white/20 mx-auto mb-4" />
-              <p className="text-white/40 uppercase tracking-widest text-sm">No transactions yet</p>
-            </div>
-          )}
+        <div className="bg-[#0a0a0a] border border-white/10 rounded-[32px] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-white/5">
+                  <th className="px-6 py-4 text-[10px] uppercase tracking-[0.2em] font-bold text-white/20">Type</th>
+                  <th className="px-6 py-4 text-[10px] uppercase tracking-[0.2em] font-bold text-white/20">Date</th>
+                  <th className="px-6 py-4 text-[10px] uppercase tracking-[0.2em] font-bold text-white/20">Amount</th>
+                  <th className="px-6 py-4 text-[10px] uppercase tracking-[0.2em] font-bold text-white/20">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {loading ? (
+                  [1, 2, 3].map(i => (
+                    <tr key={i} className="animate-pulse">
+                      <td colSpan={4} className="px-6 py-8"><div className="h-4 bg-white/5 rounded w-full" /></td>
+                    </tr>
+                  ))
+                ) : transactions.length > 0 ? (
+                  transactions.map((tx) => {
+                    const isOutgoing = tx.from_uid === profile?.id;
+                    return (
+                      <tr key={tx.id} className="hover:bg-white/5 transition-colors group">
+                        <td className="px-6 py-6">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-10 h-10 rounded-xl flex items-center justify-center",
+                              tx.type === 'deposit' ? "bg-brand-blue/10 text-brand-blue" :
+                              tx.type === 'withdrawal' ? "bg-amber-500/10 text-amber-500" :
+                              isOutgoing ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
+                            )}>
+                              {tx.type === 'deposit' ? <Plus className="w-5 h-5" /> :
+                               tx.type === 'withdrawal' ? <ArrowUpRight className="w-5 h-5" /> :
+                               isOutgoing ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+                            </div>
+                            <span className="font-bold tracking-tight uppercase text-[10px]">
+                              {tx.type === 'deposit' ? 'Deposit' : 
+                               tx.type === 'withdrawal' ? 'Withdrawal' :
+                               tx.type === 'tip' ? (isOutgoing ? 'Sent Tip' : 'Received Tip') : tx.type}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
+                            {format(new Date(tx.timestamp), 'MMM dd, yyyy')}
+                          </span>
+                        </td>
+                        <td className="px-6 py-6">
+                          <span className={cn(
+                            "font-display text-lg italic",
+                            (isOutgoing && tx.type !== 'deposit') || tx.type === 'withdrawal' ? "text-red-400" : "text-brand-blue"
+                          )}>
+                            {(isOutgoing && tx.type !== 'deposit') || tx.type === 'withdrawal' ? '-' : '+'}₦{tx.amount.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="flex items-center gap-2">
+                            {tx.status === 'completed' ? (
+                              <CheckCircle className="w-3 h-3 text-brand-blue" />
+                            ) : (
+                              <Clock className="w-3 h-3 text-amber-400" />
+                            )}
+                            <span className={cn(
+                              "text-[8px] uppercase tracking-widest font-bold",
+                              tx.status === 'completed' ? "text-brand-blue/60" : "text-amber-400/60"
+                            )}>
+                              {tx.status}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-20 text-center">
+                      <History className="w-12 h-12 text-white/10 mx-auto mb-4" />
+                      <p className="text-white/20 uppercase tracking-widest text-[10px] font-bold">No transactions yet</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

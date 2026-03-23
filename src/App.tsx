@@ -66,14 +66,14 @@ function SubscriptionGuard({ children, profile }: { children: React.ReactNode, p
         <div className="flex flex-col w-full max-w-xs gap-4">
           <Link 
             to="/wallet" 
-            className="py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            className="relative z-50 py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
             <Zap className="w-4 h-4" />
             Subscribe Now (₦1,500)
           </Link>
           <Link 
             to="/discovery" 
-            className="py-5 bg-white/5 border border-white/10 text-white/60 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all"
+            className="relative z-50 py-5 bg-white/5 border border-white/10 text-white/60 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all text-center"
           >
             Back to Discovery
           </Link>
@@ -181,6 +181,7 @@ function AppContent() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -255,6 +256,7 @@ function AppContent() {
       if (data) {
         console.log('Profile fetched successfully:', data);
         setProfile(data);
+        fetchUnreadCount(user.id);
 
         // Update online status
         if (isSupabaseActive) {
@@ -275,6 +277,23 @@ function AppContent() {
           window.addEventListener('beforeunload', () => {
             supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
           });
+
+          // Subscribe to notifications for unread count
+          const channel = supabase
+            .channel(`unread-notifications-${user.id}`)
+            .on(
+              'postgres_changes',
+              {
+                event: '*',
+                schema: 'public',
+                table: 'notifications',
+                filter: `user_id=eq.${user.id}`
+              },
+              () => {
+                fetchUnreadCount(user.id);
+              }
+            )
+            .subscribe();
         }
 
         // Handle Push Notifications
@@ -304,6 +323,17 @@ function AppContent() {
     }
   };
 
+  const fetchUnreadCount = async (uid: string) => {
+    if (!isSupabaseActive) return;
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', uid)
+      .eq('is_read', false);
+    
+    if (!error) setUnreadCount(count || 0);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center">
@@ -330,13 +360,13 @@ function AppContent() {
             <Route path="/email-preview" element={<EmailPreviewPage />} />
             
             {/* App Experience: Authentication required for these routes */}
-            <Route path="/discovery" element={<ProtectedRoute session={session}><Layout profile={profile}><DiscoveryPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ProfilePage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
-            <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
-            <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
-            <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute session={session}><Layout profile={profile}><SettingsPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/notifications" element={<ProtectedRoute session={session}><Layout profile={profile}><NotificationsPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/discovery" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><DiscoveryPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ProfilePage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
+            <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
+            <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
+            <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SettingsPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/notifications" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><NotificationsPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/u/:username" element={<PublicProfilePage />} />
             <Route path="/myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
           </Routes>
@@ -346,7 +376,7 @@ function AppContent() {
   );
 }
 
-function Layout({ children, profile }: { children: React.ReactNode, profile: any }) {
+function Layout({ children, profile, unreadCount }: { children: React.ReactNode, profile: any, unreadCount: number }) {
   const location = useLocation();
 
   const navItems = [
@@ -369,7 +399,9 @@ function Layout({ children, profile }: { children: React.ReactNode, profile: any
         <div className="flex items-center gap-3">
           <Link to="/notifications" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
             <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-            <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+            {unreadCount > 0 && (
+              <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+            )}
           </Link>
           
           <Link to="/settings" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
