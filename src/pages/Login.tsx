@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState(['', '', '', '', '', '', '', '']);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [resendTimer, setResendTimer] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
   const { toast } = useToast();
@@ -127,8 +127,8 @@ export default function LoginPage() {
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = otp.join('');
-    if (token.length !== 8 && token.length !== 6) {
-      toast('Please enter the code.', 'error');
+    if (token.length !== 6) {
+      toast('Please enter the 6-digit code.', 'error');
       return;
     }
     setLoading(true);
