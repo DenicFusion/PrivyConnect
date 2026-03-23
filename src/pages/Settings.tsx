@@ -257,6 +257,18 @@ export default function SettingsPage({ profile }: { profile: any }) {
                       />
                     </div>
                     <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Email Address</label>
+                      <div className="relative group">
+                        <Mail className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                        <input 
+                          type="email" 
+                          value={profile?.email || ''}
+                          readOnly
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 text-white/40 cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
                       <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Username</label>
                       <input 
                         type="text" 

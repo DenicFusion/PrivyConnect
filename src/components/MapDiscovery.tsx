@@ -193,8 +193,8 @@ export default function MapDiscovery({ profile }: { profile: any }) {
       "relative rounded-[40px] overflow-hidden border border-white/10 bg-[#0a0a0a] transition-all duration-500",
       isFullscreen ? "fixed inset-4 z-50" : "h-[700px] w-full"
     )}>
-      {/* Map UI Overlay - ONLY Radius Selector kept */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none">
+      {/* Map UI Overlay - Radius Selector and Locate Me */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none w-full px-6 flex justify-center">
         <div className="flex items-center gap-2 pointer-events-auto">
           <div className="bg-black/60 backdrop-blur-xl border border-white/10 p-1 rounded-2xl flex items-center gap-1 shadow-2xl">
             {radiusOptions.map((opt) => (
@@ -212,8 +212,45 @@ export default function MapDiscovery({ profile }: { profile: any }) {
               </button>
             ))}
           </div>
+          
+          <button
+            onClick={requestLocation}
+            className="p-3 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl text-white/60 hover:text-brand-blue transition-all shadow-2xl"
+            title="Locate Me"
+          >
+            <Navigation className="w-4 h-4" />
+          </button>
         </div>
       </div>
+
+      {/* Loading State Overlay */}
+      <AnimatePresence>
+        {loading && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[2000] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center"
+          >
+            <div className="space-y-6">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-[40px] bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center animate-pulse">
+                  <Compass className="w-10 h-10 text-brand-blue animate-spin-slow" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center shadow-lg shadow-brand-blue/20">
+                  <MapPin className="w-4 h-4 text-black" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-display uppercase tracking-tighter italic">Locating Users...</h3>
+                <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold leading-relaxed">
+                  Finding premium connections in your area
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Permission Fallback */}
       <AnimatePresence>

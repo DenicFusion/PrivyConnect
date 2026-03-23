@@ -199,7 +199,7 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleVerifyOtp} className="space-y-8">
-            <div className="flex justify-center gap-2">
+            <div className="flex justify-center gap-2 sm:gap-3">
               {otp.map((digit, i) => (
                 <input
                   key={i}
@@ -209,7 +209,7 @@ export default function LoginPage() {
                   value={digit}
                   onChange={(e) => handleOtpChange(i, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(i, e)}
-                  className="w-12 h-16 bg-white/5 border border-white/10 rounded-xl text-center text-2xl font-bold focus:outline-none focus:border-brand-blue transition-colors"
+                  className="w-10 h-14 sm:w-12 sm:h-16 bg-white/5 border border-white/10 rounded-xl text-center text-xl sm:text-2xl font-bold focus:outline-none focus:border-brand-blue transition-colors"
                   autoFocus={i === 0}
                 />
               ))}

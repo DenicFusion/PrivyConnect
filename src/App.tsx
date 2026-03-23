@@ -255,7 +255,8 @@ function AppContent() {
 
       if (data) {
         console.log('Profile fetched successfully:', data);
-        setProfile(data);
+        const profileWithEmail = { ...data, email: user.email };
+        setProfile(profileWithEmail);
         fetchUnreadCount(user.id);
 
         // Update online status

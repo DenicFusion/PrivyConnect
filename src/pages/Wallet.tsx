@@ -17,7 +17,9 @@ import {
   Clock,
   CheckCircle,
   AlertCircle,
-  Users
+  Users,
+  X,
+  ShieldCheck
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -31,6 +33,7 @@ function cn(...inputs: ClassValue[]) {
 declare global {
   interface Window {
     Korapay: any;
+    PaystackPop: any;
   }
 }
 
@@ -40,6 +43,7 @@ export default function WalletPage({ profile }: { profile: any }) {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('1500');
   const [paymentType, setPaymentType] = useState<'subscription' | 'topup'>('subscription');
+  const [paymentGateway, setPaymentGateway] = useState<'korapay' | 'paystack'>('paystack');
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -101,10 +105,44 @@ export default function WalletPage({ profile }: { profile: any }) {
 
     setIsProcessing(true);
 
+    if (paymentGateway === 'paystack') {
+      handlePaystackPayment(amount);
+    } else {
+      handleKorapayPayment(amount);
+    }
+  };
+
+  const handlePaystackPayment = (amount: number) => {
+    const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+    if (!publicKey) {
+      console.error('Paystack Public Key is missing');
+      toast('Paystack is not configured. Please contact support.', 'error');
+      setIsProcessing(false);
+      return;
+    }
+
+    const handler = window.PaystackPop.setup({
+      key: publicKey,
+      email: profile.email,
+      amount: amount * 100, // Paystack expects amount in kobo
+      currency: "NGN",
+      ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      callback: async (response: any) => {
+        console.log("Paystack success:", response);
+        await verifyPayment(response.reference, amount, 'paystack');
+      },
+      onClose: () => {
+        setIsProcessing(false);
+      }
+    });
+    handler.openIframe();
+  };
+
+  const handleKorapayPayment = (amount: number) => {
     const publicKey = import.meta.env.VITE_KORAPAY_PUBLIC_KEY;
     if (!publicKey) {
       console.error('KoraPay Public Key is missing');
-      toast('Payment system is not configured. Please contact support.', 'error');
+      toast('KoraPay is not configured. Please contact support.', 'error');
       setIsProcessing(false);
       return;
     }
@@ -112,73 +150,72 @@ export default function WalletPage({ profile }: { profile: any }) {
     try {
       window.Korapay.initialize({
         key: publicKey,
-        reference: `PC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        reference: `KP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         amount: amount,
         currency: "NGN",
         customer: {
           name: profile.display_name || profile.username,
           email: profile.email,
         },
-        notification_url: "", // Optional: We use onSuccess for simplicity in this demo
         onSuccess: async (response: any) => {
-          console.log("Payment successful:", response);
-          
-          // Optimistic UI update if possible, but let's rely on backend verification
-          try {
-            const verifyRes = await fetch('/api/payment-success', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                reference: response.reference,
-                type: paymentType,
-                amount: amount,
-                userId: profile.id,
-                email: profile.email
-              })
-            });
-
-            if (verifyRes.ok) {
-              toast('Payment successful! Your account has been updated.', 'success');
-              setShowDepositModal(false);
-              
-              // Fallback: If the backend verification is slow, we can manually update local profile state
-              // though App.tsx should handle this via real-time or re-fetch
-              if (isSupabaseActive) {
-                if (paymentType === 'subscription') {
-                  const expiry = new Date();
-                  expiry.setDate(expiry.getDate() + 7);
-                  await supabase.from('profiles').update({
-                    is_subscribed: true,
-                    subscription_expiry: expiry.toISOString()
-                  }).eq('id', profile.id);
-                } else {
-                  await supabase.from('profiles').update({
-                    balance: (profile.balance || 0) + amount
-                  }).eq('id', profile.id);
-                }
-              }
-              
-              // Force a reload to ensure everything is in sync
-              setTimeout(() => window.location.reload(), 1500);
-            } else {
-              const err = await verifyRes.json();
-              toast(`Payment verification failed: ${err.error}`, 'error');
-            }
-          } catch (err) {
-            console.error("Verification error:", err);
-            toast('Payment was successful but verification failed. Please contact support.', 'error');
-          } finally {
-            setIsProcessing(false);
-          }
+          console.log("KoraPay success:", response);
+          await verifyPayment(response.reference, amount, 'korapay');
         },
         onClose: () => {
-          console.log("Payment modal closed");
           setIsProcessing(false);
         },
       });
     } catch (err) {
       console.error("KoraPay error:", err);
-      toast('Failed to initialize payment system.', 'error');
+      toast('Failed to initialize KoraPay.', 'error');
+      setIsProcessing(false);
+    }
+  };
+
+  const verifyPayment = async (reference: string, amount: number, gateway: string) => {
+    try {
+      const verifyRes = await fetch('/api/payment-success', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference,
+          type: paymentType,
+          amount,
+          userId: profile.id,
+          email: profile.email,
+          gateway
+        })
+      });
+
+      if (verifyRes.ok) {
+        toast('Payment successful! Your account has been updated.', 'success');
+        setShowDepositModal(false);
+        
+        // Optimistic update for local UI
+        if (isSupabaseActive) {
+          if (paymentType === 'subscription') {
+            const expiry = new Date();
+            expiry.setDate(expiry.getDate() + 7);
+            await supabase.from('profiles').update({
+              is_subscribed: true,
+              subscription_expiry: expiry.toISOString()
+            }).eq('id', profile.id);
+          } else {
+            await supabase.from('profiles').update({
+              balance: (profile.balance || 0) + amount
+            }).eq('id', profile.id);
+          }
+        }
+        
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        const err = await verifyRes.json();
+        toast(`Payment verification failed: ${err.error}`, 'error');
+      }
+    } catch (err) {
+      console.error("Verification error:", err);
+      toast('Payment was successful but verification failed. Please contact support.', 'error');
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -489,111 +526,161 @@ export default function WalletPage({ profile }: { profile: any }) {
       {/* Deposit Modal */}
       <AnimatePresence>
         {showDepositModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowDepositModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => !isProcessing && setShowDepositModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-xl"
             />
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[40px] p-10 space-y-8"
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-[40px] overflow-hidden shadow-2xl"
             >
-              <div className="text-center space-y-2">
-                <div className="w-16 h-16 rounded-2xl bg-brand-blue/10 flex items-center justify-center mx-auto mb-4">
-                  <Plus className="w-8 h-8 text-brand-blue" />
-                </div>
-                <h2 className="text-3xl font-display uppercase tracking-tighter italic">
-                  {paymentType === 'subscription' ? 'Subscribe' : 'Add Funds'}
-                </h2>
-                <p className="text-white/40 text-xs uppercase tracking-widest">Secure payment via <span className="text-brand-blue">Kora Pay</span></p>
-              </div>
-
-              <div className="space-y-6">
-                <div className="flex p-1 bg-white/5 rounded-2xl border border-white/10">
-                  <button
-                    onClick={() => {
-                      setPaymentType('subscription');
-                      setDepositAmount('1500');
-                    }}
-                    className={cn(
-                      "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
-                      paymentType === 'subscription' ? "bg-white/10 text-white" : "text-white/30 hover:text-white/60"
-                    )}
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className="text-2xl font-display uppercase tracking-tighter italic text-white">
+                    {paymentType === 'subscription' ? 'Renew Access' : 'Top-up Wallet'}
+                  </h3>
+                  <button 
+                    onClick={() => setShowDepositModal(false)}
+                    disabled={isProcessing}
+                    className="p-2 hover:bg-white/5 rounded-full transition-colors disabled:opacity-50"
                   >
-                    Subscription
-                  </button>
-                  <button
-                    onClick={() => setPaymentType('topup')}
-                    className={cn(
-                      "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
-                      paymentType === 'topup' ? "bg-white/10 text-white" : "text-white/30 hover:text-white/60"
-                    )}
-                  >
-                    Wallet Top-up
+                    <X className="w-6 h-6 text-white/40" />
                   </button>
                 </div>
 
-                {paymentType === 'topup' ? (
-                  <div className="space-y-4">
-                    <div className="relative">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-bold text-white/30">₦</span>
-                      <input 
-                        type="number" 
-                        value={depositAmount}
-                        onChange={(e) => setDepositAmount(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-6 pl-12 pr-6 text-3xl font-bold focus:outline-none focus:border-brand-blue/50 transition-all"
-                      />
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      {['1000', '5000', '10000'].map(amount => (
-                        <button
-                          key={amount}
-                          onClick={() => setDepositAmount(amount)}
-                          className={cn(
-                            "py-3 rounded-xl border text-xs font-bold uppercase tracking-widest transition-all",
-                            depositAmount === amount ? "bg-brand-blue border-brand-blue text-brand-dark" : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
-                          )}
-                        >
-                          ₦{amount}
-                        </button>
-                      ))}
-                    </div>
+                <div className="space-y-6">
+                  {/* Payment Type Selection */}
+                  <div className="grid grid-cols-2 gap-3 p-1 bg-white/5 rounded-2xl border border-white/10">
+                    <button
+                      onClick={() => setPaymentType('subscription')}
+                      className={cn(
+                        "py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
+                        paymentType === 'subscription' 
+                          ? 'bg-white/10 text-white shadow-lg' 
+                          : 'text-white/30 hover:text-white'
+                      )}
+                    >
+                      Subscription
+                    </button>
+                    <button
+                      onClick={() => setPaymentType('topup')}
+                      className={cn(
+                        "py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
+                        paymentType === 'topup' 
+                          ? 'bg-white/10 text-white shadow-lg' 
+                          : 'text-white/30 hover:text-white'
+                      )}
+                    >
+                      Wallet Top-up
+                    </button>
                   </div>
-                ) : (
-                  <div className="p-6 rounded-2xl bg-brand-blue/5 border border-brand-blue/20 text-center space-y-2">
-                    <p className="text-brand-blue font-display text-4xl italic tracking-tighter">₦1,500</p>
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Weekly Premium Access</p>
-                  </div>
-                )}
-              </div>
 
-              <div className="space-y-4">
-                <button 
-                  onClick={handleDeposit}
-                  disabled={isProcessing}
-                  className={cn(
-                    "w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest rounded-2xl shadow-lg shadow-brand-blue/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-                    isProcessing && "animate-pulse"
+                  {paymentType === 'subscription' ? (
+                    <div className="p-6 bg-brand-blue/10 border border-brand-blue/20 rounded-2xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-white/60 text-xs uppercase tracking-widest font-bold">Weekly Access</span>
+                        <span className="text-2xl font-display italic text-white">₦1,500</span>
+                      </div>
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">Full access to all features for 7 days.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Amount (NGN)</label>
+                      <div className="relative">
+                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-white/40 font-bold text-xl">₦</span>
+                        <input 
+                          type="number" 
+                          value={depositAmount}
+                          onChange={(e) => setDepositAmount(e.target.value)}
+                          placeholder="Enter amount"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl py-6 pl-12 pr-6 text-white focus:outline-none focus:border-brand-blue/50 transition-all font-bold text-2xl"
+                        />
+                      </div>
+                    </div>
                   )}
-                >
-                  {isProcessing ? 'Processing...' : 'Proceed to Payment'}
-                </button>
-                <button 
-                  onClick={() => setShowDepositModal(false)}
-                  className="w-full py-5 bg-white/5 text-white/40 font-bold uppercase tracking-widest rounded-2xl hover:bg-white/10 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
 
-              <div className="flex items-center justify-center gap-4 opacity-20 grayscale">
-                <CreditCard className="w-8 h-8" />
-                <span className="text-2xl font-bold italic">Kora</span>
+                  {/* Gateway Selection */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Select Payment Method</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button
+                        onClick={() => setPaymentGateway('paystack')}
+                        className={cn(
+                          "relative p-4 rounded-2xl border transition-all text-left group",
+                          paymentGateway === 'paystack'
+                            ? 'bg-brand-blue/10 border-brand-blue/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]'
+                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                        )}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center",
+                            paymentGateway === 'paystack' ? 'bg-brand-blue text-white' : 'bg-white/10 text-white/40'
+                          )}>
+                            <CreditCard className="w-4 h-4" />
+                          </div>
+                          {paymentGateway === 'paystack' && (
+                            <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
+                          )}
+                        </div>
+                        <span className="block font-bold text-white text-[10px] uppercase tracking-widest">Paystack</span>
+                        <span className="text-[8px] text-white/40 uppercase tracking-widest">Cards, Bank</span>
+                      </button>
+
+                      <button
+                        onClick={() => setPaymentGateway('korapay')}
+                        className={cn(
+                          "relative p-4 rounded-2xl border transition-all text-left group",
+                          paymentGateway === 'korapay'
+                            ? 'bg-brand-blue/10 border-brand-blue/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]'
+                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                        )}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center",
+                            paymentGateway === 'korapay' ? 'bg-brand-blue text-white' : 'bg-white/10 text-white/40'
+                          )}>
+                            <Zap className="w-4 h-4" />
+                          </div>
+                          {paymentGateway === 'korapay' && (
+                            <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
+                          )}
+                        </div>
+                        <span className="block font-bold text-white text-[10px] uppercase tracking-widest">Kora Pay</span>
+                        <span className="text-[8px] text-white/40 uppercase tracking-widest">Fast & Secure</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleDeposit}
+                    disabled={isProcessing}
+                    className="w-full bg-brand-blue hover:bg-blue-600 text-white font-bold py-5 rounded-2xl transition-all shadow-lg shadow-brand-blue/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span className="uppercase tracking-widest text-[10px]">Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-5 h-5" />
+                        <span className="uppercase tracking-widest text-[10px]">Proceed to Payment</span>
+                      </>
+                    )}
+                  </button>
+                  
+                  <p className="text-center text-[10px] text-white/20 uppercase tracking-widest">
+                    Secure encrypted payment via {paymentGateway === 'paystack' ? 'Paystack' : 'KoraPay'}
+                  </p>
+                </div>
               </div>
             </motion.div>
           </div>

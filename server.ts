@@ -83,32 +83,59 @@ async function startServer() {
 
   // Payment Success API route
   app.post("/api/payment-success", async (req, res) => {
-    const { reference, type, amount, userId, email } = req.body;
+    const { reference, type, amount, userId, email, gateway } = req.body;
 
     if (!reference || !userId) {
       return res.status(400).json({ error: "Reference and User ID are required" });
     }
 
     try {
-      // 1. Verify payment with KoraPay
-      const korapaySecretKey = process.env.KORAPAY_SECRET_KEY;
-      if (!korapaySecretKey) {
-        console.error("KORAPAY_SECRET_KEY is missing");
-        return res.status(500).json({ error: "Payment verification failed: Server configuration error" });
+      let paymentSuccessful = false;
+
+      if (gateway === 'paystack') {
+        const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+        if (!paystackSecretKey) {
+          console.error("PAYSTACK_SECRET_KEY is missing");
+          return res.status(500).json({ error: "Payment verification failed: Server configuration error" });
+        }
+
+        const verifyResponse = await axios.get(
+          `https://api.paystack.co/transaction/verify/${reference}`,
+          {
+            headers: {
+              Authorization: `Bearer ${paystackSecretKey}`,
+            },
+          }
+        );
+
+        const paymentData = verifyResponse.data.data;
+        if (paymentData.status === "success") {
+          paymentSuccessful = true;
+        }
+      } else {
+        // Default to KoraPay
+        const korapaySecretKey = process.env.KORAPAY_SECRET_KEY;
+        if (!korapaySecretKey) {
+          console.error("KORAPAY_SECRET_KEY is missing");
+          return res.status(500).json({ error: "Payment verification failed: Server configuration error" });
+        }
+
+        const verifyResponse = await axios.get(
+          `https://api.korapay.com/merchant/api/v1/charges/${reference}`,
+          {
+            headers: {
+              Authorization: `Bearer ${korapaySecretKey}`,
+            },
+          }
+        );
+
+        const paymentData = verifyResponse.data.data;
+        if (paymentData.status === "success") {
+          paymentSuccessful = true;
+        }
       }
 
-      const verifyResponse = await axios.get(
-        `https://api.korapay.com/merchant/api/v1/charges/${reference}`,
-        {
-          headers: {
-            Authorization: `Bearer ${korapaySecretKey}`,
-          },
-        }
-      );
-
-      const paymentData = verifyResponse.data.data;
-
-      if (paymentData.status !== "success") {
+      if (!paymentSuccessful) {
         return res.status(400).json({ error: "Payment not successful" });
       }
 
@@ -134,11 +161,12 @@ async function startServer() {
 
         // Log transaction
         await supabaseAdmin.from("transactions").insert({
-          profile_id: userId,
+          from_uid: userId,
           amount: parseFloat(amount),
           type: "deposit",
           status: "completed",
-          description: `Wallet top-up via KoraPay (Ref: ${reference})`,
+          timestamp: new Date().toISOString(),
+          metadata: { gateway, reference, description: `Wallet top-up via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'}` }
         });
 
         // Send email
@@ -166,11 +194,12 @@ async function startServer() {
 
         // Log transaction
         await supabaseAdmin.from("transactions").insert({
-          profile_id: userId,
+          from_uid: userId,
           amount: 1500,
           type: "payment",
           status: "completed",
-          description: `Weekly Subscription via KoraPay (Ref: ${reference})`,
+          timestamp: new Date().toISOString(),
+          metadata: { gateway, reference, description: `Weekly Subscription via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'}` }
         });
 
         // Send email
