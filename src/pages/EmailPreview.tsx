@@ -165,6 +165,7 @@ export default function EmailPreviewPage() {
                     <li>Go to Authentication {'>'} Email Templates</li>
                     <li>Select "Magic Link" or "Confirm Signup"</li>
                     <li>Replace <code className="text-brand-blue">{'{{ .ConfirmationURL }}'}</code> with <code className="text-brand-blue">{'{{ .Token }}'}</code></li>
+                    <li><strong>Important:</strong> Go to Authentication {'>'} Providers {'>'} Email and set <code className="text-brand-blue">OTP Length</code> to <code className="text-brand-blue">6</code>.</li>
                   </ul>
                 </div>
 

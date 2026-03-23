@@ -21,7 +21,7 @@ export const EMAIL_TEMPLATES = {
                   <table width="100%" border="0" cellspacing="0" cellpadding="0">
                     <tr>
                       <td align="left" style="padding-bottom: 40px;">
-                        <img src="https://ais-pre-v6xjyrn6vf53rkaaw6virw-74458108997.europe-west2.run.app/privylogo.png" alt="PrivyConnect" style="width: 50px; height: 50px;" />
+                        <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 50px; height: 50px;" />
                       </td>
                     </tr>
                     <tr>
@@ -75,7 +75,8 @@ export const EMAIL_TEMPLATES = {
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #050505;">
           <tr>
             <td align="center" style="padding: 40px 20px;">
-              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px;">
+              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px; text-align: left;">
+                <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 40px; height: 40px; margin-bottom: 30px;" />
                 <h1 style="font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 20px; font-style: italic;">Account Verified</h1>
                 <p style="color: #ffffff60; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px;">Welcome to the elite, ${username}</p>
                 <p style="color: #ffffff40; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 40px;">Your account is now active and ready for premium connections.</p>
@@ -96,7 +97,8 @@ export const EMAIL_TEMPLATES = {
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #050505;">
           <tr>
             <td align="center" style="padding: 40px 20px;">
-              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px;">
+              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px; text-align: left;">
+                <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 40px; height: 40px; margin-bottom: 30px;" />
                 <h1 style="font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 20px; font-style: italic;">Subscription Active</h1>
                 <p style="color: #ffffff60; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px;">Plan: ${plan}</p>
                 <p style="color: #ffffff40; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 40px;">Expires on: ${expiry}</p>
@@ -117,7 +119,8 @@ export const EMAIL_TEMPLATES = {
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #050505;">
           <tr>
             <td align="center" style="padding: 40px 20px;">
-              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px;">
+              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px; text-align: left;">
+                <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 40px; height: 40px; margin-bottom: 30px;" />
                 <h1 style="font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 20px; font-style: italic;">Payment Successful</h1>
                 <p style="color: #ffffff60; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px;">Amount: ₦${amount}</p>
               </div>
@@ -137,7 +140,8 @@ export const EMAIL_TEMPLATES = {
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #050505;">
           <tr>
             <td align="center" style="padding: 40px 20px;">
-              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px;">
+              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px; text-align: left;">
+                <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 40px; height: 40px; margin-bottom: 30px;" />
                 <h1 style="font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 20px; font-style: italic;">Wallet Funded</h1>
                 <p style="color: #ffffff60; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px;">Amount: ₦${amount}</p>
               </div>
@@ -157,7 +161,8 @@ export const EMAIL_TEMPLATES = {
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #050505;">
           <tr>
             <td align="center" style="padding: 40px 20px;">
-              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px;">
+              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px; text-align: left;">
+                <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 40px; height: 40px; margin-bottom: 30px;" />
                 <h1 style="font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 20px; font-style: italic;">Withdrawal Requested</h1>
                 <p style="color: #ffffff60; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px;">Amount: ₦${amount}</p>
               </div>
@@ -177,7 +182,8 @@ export const EMAIL_TEMPLATES = {
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #050505;">
           <tr>
             <td align="center" style="padding: 40px 20px;">
-              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px;">
+              <div style="max-width: 600px; width: 100%; margin: 0 auto; background-color: #0a0a0a; border: 1px solid #ffffff10; border-radius: 40px; padding: 60px 40px; text-align: left;">
+                <img src="https://i.ibb.co/NdWvcPcm/IMG-20260323-WA0000.jpg" alt="PrivyConnect" style="width: 40px; height: 40px; margin-bottom: 30px;" />
                 <h1 style="font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 20px; font-style: italic;">Password Reset</h1>
                 <p style="color: #ffffff60; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 40px;">Click the button below to reset your password.</p>
                 <a href="{{ .ConfirmationURL }}" style="display: inline-block; background-color: #00d1ff; color: #050505; padding: 20px 40px; border-radius: 20px; text-decoration: none; font-weight: 900; text-transform: uppercase; letter-spacing: 2px;">Reset Password</a>
