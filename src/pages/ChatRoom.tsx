@@ -349,13 +349,13 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
     // Strict file type check
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'audio/mpeg'];
     if (!allowedTypes.includes(file.type)) {
-      alert('Only images (JPG, PNG, WEBP), videos (MP4), and audio (MP3) are allowed.');
+      toast('Only images (JPG, PNG, WEBP), videos (MP4), and audio (MP3) are allowed.', 'error');
       return;
     }
 
     // Max size 10MB
     if (file.size > 10 * 1024 * 1024) {
-      alert('Max file size is 10MB.');
+      toast('Max file size is 10MB.', 'error');
       return;
     }
 

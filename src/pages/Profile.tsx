@@ -304,7 +304,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     
     if (!isSupabaseActive) {
       setShowTipModal(false);
-      alert('Tip sent successfully (Mock Mode)!');
+      toast('Tip sent successfully (Mock Mode)!', 'success');
       return;
     }
 

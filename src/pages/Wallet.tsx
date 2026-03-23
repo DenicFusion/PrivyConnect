@@ -21,6 +21,7 @@ import {
 import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useToast } from '../components/Toaster';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -39,6 +40,7 @@ export default function WalletPage({ profile }: { profile: any }) {
   const [depositAmount, setDepositAmount] = useState('1500');
   const [paymentType, setPaymentType] = useState<'subscription' | 'topup'>('subscription');
   const [isProcessing, setIsProcessing] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -85,14 +87,14 @@ export default function WalletPage({ profile }: { profile: any }) {
 
   const handleDeposit = async () => {
     if (!profile?.id || !profile?.email) {
-      alert('User profile not fully loaded');
+      toast('Your profile is still loading. Please wait a moment.', 'info');
       return;
     }
     
     const amount = paymentType === 'subscription' ? 1500 : parseFloat(depositAmount);
     
     if (isNaN(amount) || amount <= 0) {
-      alert('Please enter a valid amount');
+      toast('Please enter a valid amount', 'error');
       return;
     }
 
@@ -101,7 +103,7 @@ export default function WalletPage({ profile }: { profile: any }) {
     const publicKey = import.meta.env.VITE_KORAPAY_PUBLIC_KEY;
     if (!publicKey) {
       console.error('KoraPay Public Key is missing');
-      alert('Payment system is not configured. Please contact support.');
+      toast('Payment system is not configured. Please contact support.', 'error');
       setIsProcessing(false);
       return;
     }
@@ -135,16 +137,16 @@ export default function WalletPage({ profile }: { profile: any }) {
             });
 
             if (verifyRes.ok) {
-              alert('Payment successful! Your account has been updated.');
+              toast('Payment successful! Your account has been updated.', 'success');
               setShowDepositModal(false);
               // Profile will be re-fetched by App.tsx
             } else {
               const err = await verifyRes.json();
-              alert(`Payment verification failed: ${err.error}`);
+              toast(`Payment verification failed: ${err.error}`, 'error');
             }
           } catch (err) {
             console.error("Verification error:", err);
-            alert('Payment was successful but verification failed. Please contact support.');
+            toast('Payment was successful but verification failed. Please contact support.', 'error');
           } finally {
             setIsProcessing(false);
           }
@@ -156,7 +158,7 @@ export default function WalletPage({ profile }: { profile: any }) {
       });
     } catch (err) {
       console.error("KoraPay error:", err);
-      alert('Failed to initialize payment system.');
+      toast('Failed to initialize payment system.', 'error');
       setIsProcessing(false);
     }
   };
@@ -197,12 +199,12 @@ export default function WalletPage({ profile }: { profile: any }) {
     const amount = parseFloat(withdrawAmount);
     
     if (amount > balance) {
-      alert('Insufficient balance');
+      toast('Insufficient balance', 'error');
       return;
     }
 
     if (!bankDetails.bankName || !bankDetails.accountNumber || !bankDetails.accountName) {
-      alert('Please fill in all bank details');
+      toast('Please fill in all bank details', 'error');
       return;
     }
 
@@ -217,7 +219,7 @@ export default function WalletPage({ profile }: { profile: any }) {
       };
       setTransactions(prev => [newTx, ...prev]);
       setShowWithdrawModal(false);
-      alert('Withdrawal request submitted (Mock Mode)!');
+      toast('Withdrawal request submitted (Mock Mode)!', 'success');
       return;
     }
 
@@ -234,7 +236,7 @@ export default function WalletPage({ profile }: { profile: any }) {
 
     if (!error) {
       setShowWithdrawModal(false);
-      alert('Withdrawal request submitted successfully!');
+      toast('Withdrawal request submitted successfully!', 'success');
     }
   };
 

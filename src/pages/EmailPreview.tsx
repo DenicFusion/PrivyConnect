@@ -20,9 +20,15 @@ export default function EmailPreviewPage() {
     { id: 'PASSWORD_RESET', name: 'Password Reset', icon: Mail },
   ];
 
-  const getHtml = () => {
+  const getHtml = (isForCopy = false) => {
     const t = EMAIL_TEMPLATES[selectedTemplate];
     if (typeof t === 'function') {
+      if (isForCopy) {
+        // Replace demo values with Supabase variables for the copy version
+        // @ts-ignore
+        return t('{{ .Token }}', '{{ .Data.full_name }}', '{{ .Data.amount }}', '{{ .Data.plan_name }}', '{{ .Data.location }}', '{{ .Data.device }}')
+          .replace('href="#"', 'href="{{ .ConfirmationURL }}"');
+      }
       // @ts-ignore
       return t('123456', 'Demo User', '1,500', 'Premium Weekly', 'Lagos, NG', 'iPhone 15 Pro');
     }
@@ -30,11 +36,14 @@ export default function EmailPreviewPage() {
   };
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(getHtml());
+    const html = getHtml(true);
+    navigator.clipboard.writeText(html);
     setCopied(true);
     toast('HTML copied to clipboard!', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const currentHtmlForCopy = getHtml(true);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col">
@@ -105,8 +114,37 @@ export default function EmailPreviewPage() {
               <iframe 
                 srcDoc={getHtml()} 
                 title="Email Preview"
-                className="w-full h-[800px] border-none"
+                className="w-full h-[600px] border-none"
               />
+            </div>
+
+            {/* Code Export Area */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-bold uppercase tracking-tight italic text-brand-blue">Template Source Code</h3>
+                  <p className="text-white/20 text-[10px] uppercase tracking-widest font-bold">Copy this into Supabase Email Body</p>
+                </div>
+                <button 
+                  onClick={copyToClipboard}
+                  className="flex items-center gap-2 px-4 py-2 bg-brand-blue/10 border border-brand-blue/20 text-brand-blue rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-brand-blue/20 transition-all"
+                >
+                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copied ? 'Copied' : 'Copy HTML'}
+                </button>
+              </div>
+              <div className="relative group">
+                <textarea
+                  readOnly
+                  value={currentHtmlForCopy}
+                  className="w-full h-64 bg-black/40 border border-white/10 rounded-2xl p-6 font-mono text-[10px] text-white/60 focus:outline-none focus:border-brand-blue/30 transition-all resize-none leading-relaxed"
+                />
+                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="px-3 py-1 bg-brand-blue/20 border border-brand-blue/30 rounded-lg text-[8px] font-bold text-brand-blue uppercase tracking-widest">
+                    Ready to copy
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Supabase Guide Section */}
