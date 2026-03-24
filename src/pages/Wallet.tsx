@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_TRANSACTIONS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
+import { APP_CONFIG } from '../config';
 import { 
   Wallet, 
   ArrowUpRight, 
@@ -43,7 +44,9 @@ export default function WalletPage({ profile }: { profile: any }) {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('1500');
   const [paymentType, setPaymentType] = useState<'subscription' | 'topup'>('subscription');
-  const [paymentGateway, setPaymentGateway] = useState<'korapay' | 'paystack'>('paystack');
+  const [paymentGateway, setPaymentGateway] = useState<'korapay' | 'paystack'>(
+    APP_CONFIG.PAYMENT_GATEWAY === 'korapay' ? 'korapay' : 'paystack'
+  );
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -606,58 +609,67 @@ export default function WalletPage({ profile }: { profile: any }) {
                   )}
 
                   {/* Gateway Selection */}
-                  <div className="space-y-3">
-                    <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Select Payment Method</label>
-                    <div className="grid grid-cols-2 gap-4">
-                      <button
-                        onClick={() => setPaymentGateway('paystack')}
-                        className={cn(
-                          "relative p-4 rounded-2xl border transition-all text-left group",
-                          paymentGateway === 'paystack'
-                            ? 'bg-brand-blue/10 border-brand-blue/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]'
-                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                  {(APP_CONFIG.PAYMENT_GATEWAY === 'both' || APP_CONFIG.PAYMENT_GATEWAY === 'paystack' || APP_CONFIG.PAYMENT_GATEWAY === 'korapay') && (
+                    <div className="space-y-3">
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-4">Select Payment Method</label>
+                      <div className={cn(
+                        "grid gap-4",
+                        APP_CONFIG.PAYMENT_GATEWAY === 'both' ? "grid-cols-2" : "grid-cols-1"
+                      )}>
+                        {(APP_CONFIG.PAYMENT_GATEWAY === 'both' || APP_CONFIG.PAYMENT_GATEWAY === 'paystack') && (
+                          <button
+                            onClick={() => setPaymentGateway('paystack')}
+                            className={cn(
+                              "relative p-4 rounded-2xl border transition-all text-left group",
+                              paymentGateway === 'paystack'
+                                ? 'bg-brand-blue/10 border-brand-blue/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]'
+                                : 'bg-white/5 border-white/10 hover:border-white/20'
+                            )}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className={cn(
+                                "w-8 h-8 rounded-lg flex items-center justify-center",
+                                paymentGateway === 'paystack' ? 'bg-brand-blue text-white' : 'bg-white/10 text-white/40'
+                              )}>
+                                <CreditCard className="w-4 h-4" />
+                              </div>
+                              {paymentGateway === 'paystack' && (
+                                <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
+                              )}
+                            </div>
+                            <span className="block font-bold text-white text-[10px] uppercase tracking-widest">Paystack</span>
+                            <span className="text-[8px] text-white/40 uppercase tracking-widest">Cards, Bank</span>
+                          </button>
                         )}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className={cn(
-                            "w-8 h-8 rounded-lg flex items-center justify-center",
-                            paymentGateway === 'paystack' ? 'bg-brand-blue text-white' : 'bg-white/10 text-white/40'
-                          )}>
-                            <CreditCard className="w-4 h-4" />
-                          </div>
-                          {paymentGateway === 'paystack' && (
-                            <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
-                          )}
-                        </div>
-                        <span className="block font-bold text-white text-[10px] uppercase tracking-widest">Paystack</span>
-                        <span className="text-[8px] text-white/40 uppercase tracking-widest">Cards, Bank</span>
-                      </button>
 
-                      <button
-                        onClick={() => setPaymentGateway('korapay')}
-                        className={cn(
-                          "relative p-4 rounded-2xl border transition-all text-left group",
-                          paymentGateway === 'korapay'
-                            ? 'bg-brand-blue/10 border-brand-blue/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]'
-                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                        {(APP_CONFIG.PAYMENT_GATEWAY === 'both' || APP_CONFIG.PAYMENT_GATEWAY === 'korapay') && (
+                          <button
+                            onClick={() => setPaymentGateway('korapay')}
+                            className={cn(
+                              "relative p-4 rounded-2xl border transition-all text-left group",
+                              paymentGateway === 'korapay'
+                                ? 'bg-brand-blue/10 border-brand-blue/50 shadow-[0_0_20px_rgba(37,99,235,0.1)]'
+                                : 'bg-white/5 border-white/10 hover:border-white/20'
+                            )}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className={cn(
+                                "w-8 h-8 rounded-lg flex items-center justify-center",
+                                paymentGateway === 'korapay' ? 'bg-brand-blue text-white' : 'bg-white/10 text-white/40'
+                              )}>
+                                <Zap className="w-4 h-4" />
+                              </div>
+                              {paymentGateway === 'korapay' && (
+                                <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
+                              )}
+                            </div>
+                            <span className="block font-bold text-white text-[10px] uppercase tracking-widest">Kora Pay</span>
+                            <span className="text-[8px] text-white/40 uppercase tracking-widest">Fast & Secure</span>
+                          </button>
                         )}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className={cn(
-                            "w-8 h-8 rounded-lg flex items-center justify-center",
-                            paymentGateway === 'korapay' ? 'bg-brand-blue text-white' : 'bg-white/10 text-white/40'
-                          )}>
-                            <Zap className="w-4 h-4" />
-                          </div>
-                          {paymentGateway === 'korapay' && (
-                            <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
-                          )}
-                        </div>
-                        <span className="block font-bold text-white text-[10px] uppercase tracking-widest">Kora Pay</span>
-                        <span className="text-[8px] text-white/40 uppercase tracking-widest">Fast & Secure</span>
-                      </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <button 
                     onClick={handleDeposit}

@@ -1,0 +1,6 @@
+{
+	"appId": "com.privyconnect.app",
+	"appName": "PrivyConnect",
+	"webDir": "dist",
+	"bundledWebRuntime": false
+}

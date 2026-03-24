@@ -14,4 +14,7 @@ export const APP_CONFIG = {
   // Feature Flags
   ENABLE_NOTIFICATIONS: true,
   ENABLE_ANALYTICS: false,
+
+  // Payment Gateway Configuration: 'paystack' | 'korapay' | 'both'
+  PAYMENT_GATEWAY: 'both' as 'paystack' | 'korapay' | 'both',
 };
