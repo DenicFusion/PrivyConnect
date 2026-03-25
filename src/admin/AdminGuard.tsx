@@ -13,8 +13,11 @@ export default function AdminGuard({ children, profile }: AdminGuardProps) {
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // If user is not an admin, don't even show the login
-  if (profile && profile.role !== 'admin') {
+  // Check if user is admin or the specific allowed email (case-insensitive)
+  const isAdminEmail = profile?.email?.toLowerCase() === 'denic9426@gmail.com';
+  
+  if (profile && profile.role !== 'admin' && !isAdminEmail) {
+    console.log('Admin Access Denied for:', profile?.email, 'Role:', profile?.role);
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
         <div className="text-center space-y-4">

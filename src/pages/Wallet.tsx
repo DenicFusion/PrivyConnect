@@ -124,21 +124,49 @@ export default function WalletPage({ profile }: { profile: any }) {
       return;
     }
 
-    const handler = window.PaystackPop.setup({
-      key: publicKey,
-      email: profile.email,
-      amount: amount * 100, // Paystack expects amount in kobo
-      currency: "NGN",
-      ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      callback: async (response: any) => {
-        console.log("Paystack success:", response);
-        await verifyPayment(response.reference, amount, 'paystack');
-      },
-      onClose: () => {
-        setIsProcessing(false);
+    if (!window.PaystackPop) {
+      console.error('Paystack script not loaded');
+      toast('Payment gateway is still loading. Please try again in a few seconds.', 'error');
+      setIsProcessing(false);
+      return;
+    }
+
+    try {
+      const handler = window.PaystackPop.setup({
+        key: publicKey,
+        email: profile?.email || 'customer@example.com',
+        amount: Math.round(amount * 100), // Ensure it's an integer in kobo
+        currency: "NGN",
+        ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        callback: async (response: any) => {
+          console.log("Paystack success:", response);
+          await verifyPayment(response.reference, amount, 'paystack');
+        },
+        onClose: () => {
+          console.log("Paystack closed");
+          setIsProcessing(false);
+          toast('Payment window closed', 'info');
+        }
+      });
+      
+      if (handler) {
+        if (typeof handler.open === 'function') {
+          handler.open();
+        } else if (typeof handler.openIframe === 'function') {
+          handler.openIframe();
+        } else if (typeof handler === 'function') {
+          (handler as any)();
+        } else {
+          console.log("Paystack handler initialized, but no open method found.");
+        }
+      } else {
+        throw new Error('Could not initialize Paystack handler');
       }
-    });
-    handler.openIframe();
+    } catch (err) {
+      console.error("Paystack initialization error:", err);
+      toast('Failed to start Paystack payment. Please try again.', 'error');
+      setIsProcessing(false);
+    }
   };
 
   const handleKorapayPayment = (amount: number) => {
