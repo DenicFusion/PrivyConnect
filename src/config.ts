@@ -16,5 +16,5 @@ export const APP_CONFIG = {
   ENABLE_ANALYTICS: false,
 
   // Payment Gateway Configuration: 'paystack' | 'korapay' | 'both'
-  PAYMENT_GATEWAY: 'both' as 'paystack' | 'korapay' | 'both',
+  PAYMENT_GATEWAY: 'paystack' as 'paystack' | 'korapay' | 'both',
 };
