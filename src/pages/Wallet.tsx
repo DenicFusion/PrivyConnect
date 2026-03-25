@@ -48,6 +48,25 @@ export default function WalletPage({ profile }: { profile: any }) {
     APP_CONFIG.PAYMENT_GATEWAY === 'korapay' ? 'korapay' : 'paystack'
   );
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [scriptStatus, setScriptStatus] = useState({
+    paystack: false,
+    korapay: false
+  });
+
+  useEffect(() => {
+    const checkScripts = () => {
+      setScriptStatus({
+        paystack: !!window.PaystackPop,
+        korapay: !!window.Korapay
+      });
+    };
+    
+    checkScripts();
+    const interval = setInterval(checkScripts, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -116,47 +135,55 @@ export default function WalletPage({ profile }: { profile: any }) {
   };
 
   const handlePaystackPayment = (amount: number) => {
-    const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
-    if (!publicKey) {
+    const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY?.trim();
+    console.log('Paystack: Starting payment process...', { amount, hasKey: !!publicKey });
+    
+    if (!publicKey || publicKey === '') {
       console.error('Paystack Public Key is missing');
-      toast('Paystack is not configured. Please contact support.', 'error');
+      toast('Paystack is not configured. Please check your environment variables.', 'error');
       setIsProcessing(false);
       return;
     }
 
     if (!window.PaystackPop) {
       console.error('Paystack script not loaded');
-      toast('Payment gateway is still loading. Please try again in a few seconds.', 'error');
+      toast('Paystack is still loading. Please wait a moment and try again.', 'error');
+      setIsProcessing(false);
+      return;
+    }
+
+    if (!profile?.email) {
+      console.error('Paystack: No user email found');
+      toast('User email not found. Please log in again.', 'error');
       setIsProcessing(false);
       return;
     }
 
     try {
-      console.log('Initializing Paystack with:', {
-        key: publicKey.substring(0, 10) + '...',
-        email: profile?.email,
-        amount: Math.round(amount * 100)
-      });
-
+      console.log('Paystack: Initializing popup...');
       const handler = window.PaystackPop.setup({
         key: publicKey,
-        email: profile?.email || 'customer@example.com',
-        amount: Math.round(amount * 100),
-        currency: "NGN",
+        email: profile.email,
+        amount: Math.round(amount * 100), // Amount in kobo
+        currency: 'NGN',
         ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         callback: async (response: any) => {
-          console.log("Paystack success:", response);
+          console.log('Paystack: Payment successful', response);
           await verifyPayment(response.reference, amount, 'paystack');
         },
         onClose: () => {
-          console.log("Paystack closed");
+          console.log('Paystack: Window closed');
           setIsProcessing(false);
           toast('Payment window closed', 'info');
+        },
+        onCancel: () => {
+          console.log('Paystack: Payment cancelled');
+          setIsProcessing(false);
         }
       });
-      
+
       if (handler) {
-        console.log('Paystack handler created. Attempting to open...');
+        console.log('Paystack: Handler created. Attempting to open...');
         if (typeof handler.openIframe === 'function') {
           handler.openIframe();
         } else if (typeof handler.open === 'function') {
@@ -164,67 +191,73 @@ export default function WalletPage({ profile }: { profile: any }) {
         } else if (typeof handler === 'function') {
           (handler as any)();
         } else {
-          console.warn("Paystack handler initialized, but no standard open method found. Trying direct call.");
+          console.warn("Paystack: No standard open method found. Trying direct call.");
           try {
             handler();
           } catch (e) {
-            console.error("Direct call failed:", e);
+            console.error("Paystack: Direct call failed:", e);
+            throw new Error('Could not open Paystack popup');
           }
         }
       } else {
         throw new Error('Could not initialize Paystack handler');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Paystack initialization error:", err);
-      toast('Failed to start Paystack payment. Please try again.', 'error');
+      const errorMsg = err.message || (typeof err === 'string' ? err : 'Unknown error');
+      toast(`Failed to start Paystack payment: ${errorMsg}`, 'error');
       setIsProcessing(false);
     }
   };
 
   const handleKorapayPayment = (amount: number) => {
-    const publicKey = import.meta.env.VITE_KORAPAY_PUBLIC_KEY;
-    if (!publicKey) {
+    const publicKey = import.meta.env.VITE_KORAPAY_PUBLIC_KEY?.trim();
+    console.log('KoraPay: Starting payment process...', { amount, hasKey: !!publicKey });
+    
+    if (!publicKey || publicKey === '') {
       console.error('KoraPay Public Key is missing');
-      toast('KoraPay is not configured. Please contact support.', 'error');
+      toast('KoraPay is not configured. Please check your environment variables.', 'error');
       setIsProcessing(false);
       return;
     }
 
     if (!window.Korapay) {
       console.error('KoraPay script not loaded');
-      toast('KoraPay is still loading. Please try again.', 'error');
+      toast('KoraPay is still loading. Please wait a moment and try again.', 'error');
       setIsProcessing(false);
       return;
     }
 
     try {
-      console.log('Initializing KoraPay with:', {
-        key: publicKey.substring(0, 10) + '...',
-        email: profile?.email,
-        amount
-      });
-
+      console.log('KoraPay: Initializing checkout...');
       window.Korapay.initialize({
         key: publicKey,
         reference: `KP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         amount: amount,
         currency: "NGN",
         customer: {
-          name: profile?.display_name || profile?.username || 'Customer',
+          name: profile?.full_name || profile?.display_name || profile?.username || 'Customer',
           email: profile?.email || 'customer@example.com',
         },
         onSuccess: async (response: any) => {
-          console.log("KoraPay success:", response);
-          await verifyPayment(response.reference, amount, 'korapay');
+          console.log("KoraPay: Payment successful", response);
+          await verifyPayment(response.reference || response.checkout_reference, amount, 'korapay');
         },
         onClose: () => {
-          console.log("KoraPay closed");
+          console.log("KoraPay: Checkout closed");
           setIsProcessing(false);
+          toast('Payment window closed', 'info');
         },
+        onFailed: (data: any) => {
+          console.error('KoraPay: Payment failed', data);
+          toast('Payment failed. Please try again.', 'error');
+          setIsProcessing(false);
+        }
       });
-    } catch (err) {
-      console.error("KoraPay error:", err);
-      toast('Failed to initialize KoraPay.', 'error');
+    } catch (err: any) {
+      console.error("KoraPay initialization error:", err);
+      const errorMsg = err.message || (typeof err === 'string' ? err : 'Unknown error');
+      toast(`Failed to initialize KoraPay: ${errorMsg}`, 'error');
       setIsProcessing(false);
     }
   };
