@@ -16,6 +16,17 @@ export default function AdminGuard({ children, profile }: AdminGuardProps) {
   // Check if user is admin or the specific allowed email (case-insensitive)
   const isAdminEmail = profile?.email?.toLowerCase() === 'denic9426@gmail.com';
   
+  useEffect(() => {
+    if (profile) {
+      console.log('AdminGuard Check:', {
+        email: profile.email,
+        role: profile.role,
+        isAdminEmail,
+        isAuthorized
+      });
+    }
+  }, [profile, isAdminEmail, isAuthorized]);
+
   if (profile && profile.role !== 'admin' && !isAdminEmail) {
     console.log('Admin Access Denied for:', profile?.email, 'Role:', profile?.role);
     return (
@@ -23,7 +34,11 @@ export default function AdminGuard({ children, profile }: AdminGuardProps) {
         <div className="text-center space-y-4">
           <Shield className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-display font-bold uppercase tracking-tight">Access Denied</h2>
-          <p className="text-white/40 max-w-xs mx-auto">This area is restricted to system administrators only.</p>
+          <p className="text-white/40 max-w-xs mx-auto">
+            This area is restricted to system administrators only.
+            <br />
+            <span className="text-[10px] mt-2 block opacity-50">Logged in as: {profile?.email || 'Unknown'}</span>
+          </p>
           <button 
             onClick={() => window.location.href = '/discovery'}
             className="px-6 py-2 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-xs"
