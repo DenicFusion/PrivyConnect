@@ -235,7 +235,7 @@ export default function WalletPage({ profile }: { profile: any }) {
       console.log('KoraPay: Initializing checkout...');
       Korapay.initialize({
         key: publicKey,
-        amount: Math.round(amount * 100), // convert to kobo
+        amount: amount, // KoraPay collections script seems to expect Naira, not kobo based on user feedback
         currency: 'NGN',
         reference: 'PRIVY-' + Date.now(),
         customer: { 
@@ -287,22 +287,7 @@ export default function WalletPage({ profile }: { profile: any }) {
         toast('Payment successful! Your account has been updated.', 'success');
         setShowDepositModal(false);
         
-        // Optimistic update for local UI
-        if (isSupabaseActive) {
-          if (paymentType === 'subscription') {
-            const expiry = new Date();
-            expiry.setDate(expiry.getDate() + 7);
-            await supabase.from('profiles').update({
-              is_subscribed: true,
-              subscription_expiry: expiry.toISOString()
-            }).eq('id', profile.id);
-          } else {
-            await supabase.from('profiles').update({
-              balance: (profile.balance || 0) + amount
-            }).eq('id', profile.id);
-          }
-        }
-        
+        // Redirect to discovery after success
         setTimeout(() => window.location.href = '/discovery', 1500);
       } else {
         const err = await verifyRes.json();

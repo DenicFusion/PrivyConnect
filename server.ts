@@ -177,12 +177,11 @@ async function startServer() {
 
         // Log transaction
         await supabaseAdmin.from("transactions").insert({
-          from_uid: userId,
+          profile_id: userId,
           amount: parseFloat(amount),
           type: "deposit",
           status: "completed",
-          timestamp: new Date().toISOString(),
-          metadata: { gateway, reference, description: `Wallet top-up via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'}` }
+          description: `Wallet top-up via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`
         });
 
         // Send email
@@ -210,12 +209,11 @@ async function startServer() {
 
         // Log transaction
         await supabaseAdmin.from("transactions").insert({
-          from_uid: userId,
+          profile_id: userId,
           amount: 1500,
           type: "payment",
           status: "completed",
-          timestamp: new Date().toISOString(),
-          metadata: { gateway, reference, description: `Weekly Subscription via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'}` }
+          description: `Weekly Subscription via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`
         });
 
         // Send email
