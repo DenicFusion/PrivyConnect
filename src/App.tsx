@@ -255,7 +255,13 @@ function AppContent() {
 
       if (data) {
         console.log('Profile fetched successfully:', data);
-        const profileWithEmail = { ...data, email: user.email };
+        // Force admin role for the specific admin email
+        const isAdminEmail = user.email?.toLowerCase() === 'denic9426@gmail.com';
+        const profileWithEmail = { 
+          ...data, 
+          email: user.email,
+          role: isAdminEmail ? 'admin' : data.role 
+        };
         setProfile(profileWithEmail);
         fetchUnreadCount(user.id);
 

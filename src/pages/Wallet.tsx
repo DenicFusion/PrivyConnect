@@ -136,7 +136,7 @@ export default function WalletPage({ profile }: { profile: any }) {
 
   const handlePaystackPayment = (amount: number) => {
     const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY?.trim();
-    console.log('Paystack: Starting payment process...', { amount, hasKey: !!publicKey });
+    console.log('Paystack: Starting payment process (v2)...', { amount, hasKey: !!publicKey });
     
     if (!publicKey || publicKey === '') {
       console.error('Paystack Public Key is missing');
@@ -160,53 +160,53 @@ export default function WalletPage({ profile }: { profile: any }) {
     }
 
     try {
-      console.log('Paystack: Initializing popup...');
-      const handler = window.PaystackPop.setup({
+      console.log('Paystack: Initializing v2 popup...');
+      const paystack = new window.PaystackPop();
+      paystack.newTransaction({
         key: publicKey,
         email: profile.email,
         amount: Math.round(amount * 100), // Amount in kobo
         currency: 'NGN',
         ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        callback: async (response: any) => {
-          console.log('Paystack: Payment successful', response);
-          await verifyPayment(response.reference, amount, 'paystack');
-        },
-        onClose: () => {
-          console.log('Paystack: Window closed');
-          setIsProcessing(false);
-          toast('Payment window closed', 'info');
+        onSuccess: async (transaction: any) => {
+          console.log('Paystack: Payment successful', transaction);
+          await verifyPayment(transaction.reference, amount, 'paystack');
         },
         onCancel: () => {
-          console.log('Paystack: Payment cancelled');
+          console.log('Paystack: Window closed/cancelled');
           setIsProcessing(false);
+          toast('Payment window closed', 'info');
         }
       });
-
-      if (handler) {
-        console.log('Paystack: Handler created. Attempting to open...');
-        if (typeof handler.openIframe === 'function') {
-          handler.openIframe();
-        } else if (typeof handler.open === 'function') {
-          handler.open();
-        } else if (typeof handler === 'function') {
-          (handler as any)();
-        } else {
-          console.warn("Paystack: No standard open method found. Trying direct call.");
-          try {
-            handler();
-          } catch (e) {
-            console.error("Paystack: Direct call failed:", e);
-            throw new Error('Could not open Paystack popup');
-          }
-        }
-      } else {
-        throw new Error('Could not initialize Paystack handler');
-      }
     } catch (err: any) {
       console.error("Paystack initialization error:", err);
-      const errorMsg = err.message || (typeof err === 'string' ? err : 'Unknown error');
-      toast(`Failed to start Paystack payment: ${errorMsg}`, 'error');
-      setIsProcessing(false);
+      
+      // Fallback to v1 if v2 constructor fails for some reason
+      try {
+        console.log('Paystack: Falling back to v1 setup...');
+        const handler = window.PaystackPop.setup({
+          key: publicKey,
+          email: profile.email,
+          amount: Math.round(amount * 100),
+          currency: 'NGN',
+          ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          callback: async (response: any) => {
+            console.log('Paystack v1: Payment successful', response);
+            await verifyPayment(response.reference, amount, 'paystack');
+          },
+          onClose: () => {
+            console.log('Paystack v1: Window closed');
+            setIsProcessing(false);
+            toast('Payment window closed', 'info');
+          }
+        });
+        handler.openIframe();
+      } catch (fallbackErr: any) {
+        console.error("Paystack fallback error:", fallbackErr);
+        const errorMsg = fallbackErr.message || (typeof fallbackErr === 'string' ? fallbackErr : 'Unknown error');
+        toast(`Failed to start Paystack payment: ${errorMsg}`, 'error');
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -241,7 +241,15 @@ export default function WalletPage({ profile }: { profile: any }) {
         },
         onSuccess: async (response: any) => {
           console.log("KoraPay: Payment successful", response);
-          await verifyPayment(response.reference || response.checkout_reference, amount, 'korapay');
+          // Handle both possible reference field names
+          const reference = response.reference || response.checkout_reference || response.data?.reference;
+          if (reference) {
+            await verifyPayment(reference, amount, 'korapay');
+          } else {
+            console.error('KoraPay: No reference found in response', response);
+            toast('Payment successful but reference not found. Please contact support.', 'error');
+            setIsProcessing(false);
+          }
         },
         onClose: () => {
           console.log("KoraPay: Checkout closed");
