@@ -39,12 +39,24 @@ export default function AdminGuard({ children, profile }: AdminGuardProps) {
             <br />
             <span className="text-[10px] mt-2 block opacity-50">Logged in as: {profile?.email || 'Unknown'}</span>
           </p>
-          <button 
-            onClick={() => window.location.href = '/discovery'}
-            className="px-6 py-2 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-xs"
-          >
-            Return to Safety
-          </button>
+          <div className="flex flex-col gap-3 max-w-xs mx-auto">
+            <button 
+              onClick={() => window.location.href = '/discovery'}
+              className="px-6 py-3 bg-brand-blue text-brand-dark rounded-xl font-bold uppercase tracking-widest text-[10px] hover:scale-105 transition-transform"
+            >
+              Return to Safety
+            </button>
+            <button 
+              onClick={async () => {
+                const { supabase } = await import('../lib/supabase');
+                await supabase.auth.signOut();
+                window.location.href = '/';
+              }}
+              className="px-6 py-3 bg-white/5 border border-white/10 text-white/60 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors"
+            >
+              Logout & Switch Account
+            </button>
+          </div>
         </div>
       </div>
     );

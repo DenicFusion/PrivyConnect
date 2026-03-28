@@ -221,7 +221,10 @@ export default function WalletPage({ profile }: { profile: any }) {
       return;
     }
 
-    if (!window.Korapay) {
+    // Check for both possible names for KoraPay object
+    const Korapay = window.Korapay || (window as any).KoraPay;
+
+    if (!Korapay) {
       console.error('KoraPay script not loaded');
       toast('KoraPay is still loading. Please wait a moment and try again.', 'error');
       setIsProcessing(false);
@@ -230,10 +233,10 @@ export default function WalletPage({ profile }: { profile: any }) {
 
     try {
       console.log('KoraPay: Initializing checkout...');
-      window.Korapay.initialize({
+      Korapay.initialize({
         key: publicKey,
         reference: `KP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        amount: amount,
+        amount: Math.round(amount * 100), // Amount in kobo
         currency: "NGN",
         customer: {
           name: profile?.full_name || profile?.display_name || profile?.username || 'Customer',
