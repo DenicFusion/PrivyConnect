@@ -235,12 +235,12 @@ export default function WalletPage({ profile }: { profile: any }) {
       console.log('KoraPay: Initializing checkout...');
       Korapay.initialize({
         key: publicKey,
-        reference: `KP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        amount: Math.round(amount * 100), // Amount in kobo
-        currency: "NGN",
-        customer: {
+        amount: Math.round(amount * 100), // convert to kobo
+        currency: 'NGN',
+        reference: 'PRIVY-' + Date.now(),
+        customer: { 
           name: profile?.full_name || profile?.display_name || profile?.username || 'Customer',
-          email: profile?.email || 'customer@example.com',
+          email: profile?.email || 'customer@example.com' 
         },
         onSuccess: async (response: any) => {
           console.log("KoraPay: Payment successful", response);
@@ -258,11 +258,6 @@ export default function WalletPage({ profile }: { profile: any }) {
           console.log("KoraPay: Checkout closed");
           setIsProcessing(false);
           toast('Payment window closed', 'info');
-        },
-        onFailed: (data: any) => {
-          console.error('KoraPay: Payment failed', data);
-          toast('Payment failed. Please try again.', 'error');
-          setIsProcessing(false);
         }
       });
     } catch (err: any) {
@@ -308,7 +303,7 @@ export default function WalletPage({ profile }: { profile: any }) {
           }
         }
         
-        setTimeout(() => window.location.reload(), 1500);
+        setTimeout(() => window.location.href = '/discovery', 1500);
       } else {
         const err = await verifyRes.json();
         toast(`Payment verification failed: ${err.error}`, 'error');
