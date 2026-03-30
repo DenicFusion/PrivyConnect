@@ -112,16 +112,19 @@ async function startServer() {
             );
 
             const paymentData = verifyResponse.data.data;
-            console.log("Paystack verification response:", paymentData.status);
+            console.log("Paystack verification response status:", paymentData.status);
+            console.log("Paystack amount (kobo):", paymentData.amount);
             
             if (paymentData.status === "success") {
               // Verify amount (Paystack is in kobo)
               const expectedKobo = Math.round(parseFloat(amount) * 100);
+              console.log(`Comparing Paystack amount ${paymentData.amount} with expected ${expectedKobo}`);
+              
               if (Math.abs(paymentData.amount - expectedKobo) < 100) { // Allow 1 naira difference for rounding
                 paymentSuccessful = true;
               } else {
                 console.error(`Paystack amount mismatch: Expected ${expectedKobo}, got ${paymentData.amount}`);
-                return res.status(400).json({ error: "Payment amount mismatch" });
+                return res.status(400).json({ error: `Amount mismatch. Expected ${expectedKobo} kobo, got ${paymentData.amount} kobo.` });
               }
             } else {
               console.error("Paystack verification failed: Status is not success", paymentData.status);
@@ -150,15 +153,21 @@ async function startServer() {
 
             const paymentData = verifyResponse.data.data;
             console.log("KoraPay verification response status:", paymentData.status);
+            console.log("KoraPay amount:", paymentData.amount);
 
-            if (paymentData.status === "success") {
+            if (paymentData.status === "success" || paymentData.status === "captured") {
               // KoraPay amount is in Naira (based on user feedback and script usage)
+              // But some endpoints might return Kobo, so we check both
               const expectedNaira = parseFloat(amount);
-              if (Math.abs(paymentData.amount - expectedNaira) < 1) {
+              const expectedKobo = expectedNaira * 100;
+              
+              console.log(`Comparing KoraPay amount ${paymentData.amount} with expected Naira ${expectedNaira} or Kobo ${expectedKobo}`);
+              
+              if (Math.abs(paymentData.amount - expectedNaira) < 1 || Math.abs(paymentData.amount - expectedKobo) < 100) {
                 paymentSuccessful = true;
               } else {
                 console.error(`KoraPay amount mismatch: Expected ${expectedNaira}, got ${paymentData.amount}`);
-                return res.status(400).json({ error: "Payment amount mismatch" });
+                return res.status(400).json({ error: `Amount mismatch. Expected ${expectedNaira} Naira, got ${paymentData.amount}.` });
               }
             } else {
               console.error("KoraPay verification failed: Status is not success", paymentData.status);
@@ -171,7 +180,7 @@ async function startServer() {
 
       if (!paymentSuccessful) {
         console.error(`Payment verification failed for ${gateway} ref: ${reference}`);
-        return res.status(400).json({ error: "Payment verification failed" });
+        return res.status(400).json({ error: "Payment verification failed or status not successful" });
       }
 
       console.log(`Payment verified successfully. Updating Supabase for user ${userId}...`);
@@ -179,6 +188,10 @@ async function startServer() {
       // 2. Update Supabase based on type
       if (type === "topup") {
         const depositAmount = parseFloat(amount);
+        if (isNaN(depositAmount)) {
+          console.error("Invalid amount for topup:", amount);
+          return res.status(400).json({ error: "Invalid amount" });
+        }
         
         // Update balance using RPC or direct update
         // We'll fetch first to be safe, but a direct increment would be better if we had an RPC
@@ -272,10 +285,10 @@ async function startServer() {
       }
 
       console.log("Payment processing completed successfully");
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (error: any) {
       console.error("Error in /api/payment-success:", error.message || error);
-      res.status(500).json({ error: "Failed to process payment success: " + (error.message || "Unknown error") });
+      return res.status(500).json({ error: "Failed to process payment success: " + (error.message || "Unknown error") });
     }
   });
 

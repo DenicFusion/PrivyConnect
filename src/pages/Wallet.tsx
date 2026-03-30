@@ -291,8 +291,14 @@ export default function WalletPage({ profile }: { profile: any }) {
         // Redirect to discovery after success
         setTimeout(() => window.location.href = '/discovery', 1500);
       } else {
-        const err = await verifyRes.json();
-        toast(`Payment verification failed: ${err.error}`, 'error');
+        let errorMsg = 'Unknown error';
+        try {
+          const err = await verifyRes.json();
+          errorMsg = err.error || err.message || JSON.stringify(err);
+        } catch (e) {
+          errorMsg = `Status ${verifyRes.status}`;
+        }
+        toast(`Payment verification failed: ${errorMsg}`, 'error');
       }
     } catch (err) {
       console.error("Verification error:", err);
