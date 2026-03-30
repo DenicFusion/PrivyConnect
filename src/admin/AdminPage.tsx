@@ -397,7 +397,7 @@ function DashboardView({ stats, transactions }: { stats: any, transactions: any[
 
 function UserManagementView({ users: initialUsers }: { users: any[] }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'verified' | 'unverified' | 'active' | 'suspended'>('all');
+  const [filter, setFilter] = useState<'all' | 'verified' | 'unverified' | 'active' | 'suspended' | 'subscribers'>('all');
   const [users, setUsers] = useState(initialUsers);
 
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
@@ -412,6 +412,7 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
     if (filter === 'unverified') filtered = filtered.filter(u => !u.is_verified);
     if (filter === 'active') filtered = filtered.filter(u => !u.is_suspended);
     if (filter === 'suspended') filtered = filtered.filter(u => u.is_suspended);
+    if (filter === 'subscribers') filtered = filtered.filter(u => u.is_subscribed);
 
     setUsers(filtered);
   }, [searchQuery, filter, initialUsers]);
@@ -502,7 +503,7 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
-          {(['all', 'verified', 'unverified', 'active', 'suspended'] as const).map((f) => (
+          {(['all', 'verified', 'unverified', 'active', 'suspended', 'subscribers'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -564,6 +565,12 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
                       {user.is_verified ? <Shield className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
                       {user.is_verified ? 'Verified Creator' : 'Standard User'}
                     </div>
+                    {user.is_subscribed && user.subscription_expiry && (
+                      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl text-[9px] uppercase tracking-widest font-bold w-fit bg-amber-500/10 border border-amber-500/20 text-amber-500">
+                        <Zap className="w-3.5 h-3.5" />
+                        Active Sub ({Math.max(0, Math.ceil((new Date(user.subscription_expiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))}d left)
+                      </div>
+                    )}
                     {user.is_suspended && (
                       <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl text-[9px] uppercase tracking-widest font-bold w-fit bg-red-500/10 border border-red-500/20 text-red-500">
                         <Ban className="w-3.5 h-3.5" />

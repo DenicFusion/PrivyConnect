@@ -38,7 +38,7 @@ declare global {
   }
 }
 
-export default function WalletPage({ profile }: { profile: any }) {
+export default function WalletPage({ profile, onUpdate }: { profile: any, onUpdate?: () => void }) {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDepositModal, setShowDepositModal] = useState(false);
@@ -104,13 +104,14 @@ export default function WalletPage({ profile }: { profile: any }) {
         table: 'transactions' 
       }, () => {
         fetchTransactions();
+        if (onUpdate) onUpdate(); // Also refresh profile when transactions change
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile?.id]);
+  }, [profile?.id, onUpdate]);
 
   const handleDeposit = async () => {
     if (!profile?.id || !profile?.email) {
@@ -287,6 +288,9 @@ export default function WalletPage({ profile }: { profile: any }) {
       if (verifyRes.ok) {
         toast('Payment successful! Your account has been updated.', 'success');
         setShowDepositModal(false);
+        
+        // Trigger profile refresh
+        if (onUpdate) onUpdate();
         
         // Redirect to discovery after success
         setTimeout(() => window.location.href = '/discovery', 1500);
@@ -465,9 +469,17 @@ export default function WalletPage({ profile }: { profile: any }) {
                   )}
                 </div>
                 {profile?.subscription_expiry && profile?.is_subscribed && (
-                  <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
-                    Expires: {format(new Date(profile.subscription_expiry), 'MMM dd, yyyy')}
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
+                      Expires: {format(new Date(profile.subscription_expiry), 'MMM dd, yyyy')}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3 h-3 text-brand-blue" />
+                      <span className="text-[10px] text-brand-blue uppercase tracking-widest font-bold">
+                        {Math.max(0, Math.ceil((new Date(profile.subscription_expiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} Days Remaining
+                      </span>
+                    </div>
+                  </div>
                 )}
               </div>
               <div className="p-4 bg-white/5 rounded-3xl border border-white/10">

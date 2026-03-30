@@ -209,15 +209,19 @@ async function startServer() {
         const currentBalance = parseFloat(profile.balance?.toString() || "0");
         const newBalance = currentBalance + depositAmount;
 
-        const { error: updateError } = await supabaseAdmin
+        const { data: updatedProfile, error: updateError } = await supabaseAdmin
           .from("profiles")
           .update({ balance: newBalance })
-          .eq("id", userId);
+          .eq("id", userId)
+          .select()
+          .single();
 
         if (updateError) {
           console.error("Error updating profile balance:", updateError);
           throw updateError;
         }
+
+        console.log(`Balance updated successfully for user ${userId}. New balance: ${updatedProfile.balance}`);
 
         // Log transaction
         const { error: txError } = await supabaseAdmin.from("transactions").insert({
@@ -247,18 +251,22 @@ async function startServer() {
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + 7);
 
-        const { error: updateError } = await supabaseAdmin
+        const { data: updatedProfile, error: updateError } = await supabaseAdmin
           .from("profiles")
           .update({
             is_subscribed: true,
             subscription_expiry: expiryDate.toISOString(),
           })
-          .eq("id", userId);
+          .eq("id", userId)
+          .select()
+          .single();
 
         if (updateError) {
           console.error("Error updating subscription status:", updateError);
           throw updateError;
         }
+
+        console.log(`Subscription updated successfully for user ${userId}. Expiry: ${updatedProfile.subscription_expiry}`);
 
         // Log transaction
         const { error: txError } = await supabaseAdmin.from("transactions").insert({

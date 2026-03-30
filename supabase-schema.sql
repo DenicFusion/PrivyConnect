@@ -255,8 +255,10 @@ ALTER TABLE public.login_activity ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own login activity" ON public.login_activity
     FOR SELECT USING (auth.uid() = user_id);
 
--- 14. Enable Realtime for Notifications
+-- 14. Enable Realtime for Notifications, Profiles, and Transactions
 ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.transactions;
 
 -- 15. Search Nearby Users Function (Haversine Formula)
 CREATE OR REPLACE FUNCTION public.search_nearby_users(

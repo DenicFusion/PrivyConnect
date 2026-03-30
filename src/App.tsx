@@ -317,6 +317,27 @@ function AppContent() {
             console.log('Foreground message received:', payload);
             toast(payload.notification.body, 'info');
           });
+
+          // Real-time profile updates
+          const profileChannel = supabase
+            .channel(`profile-updates-${user.id}`)
+            .on(
+              'postgres_changes',
+              {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `id=eq.${user.id}`
+              },
+              (payload) => {
+                console.log('Real-time profile update received:', payload.new);
+                setProfile((prev: any) => ({
+                  ...prev,
+                  ...payload.new
+                }));
+              }
+            )
+            .subscribe();
         }
       }
     } catch (err) {
@@ -371,7 +392,16 @@ function AppContent() {
             <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ProfilePage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
-            <Route path="/wallet" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><WalletPage profile={profile} /></Layout></ProtectedRoute>} />
+            <Route path="/wallet" element={
+              <ProtectedRoute session={session}>
+                <Layout profile={profile} unreadCount={unreadCount}>
+                  <WalletPage 
+                    profile={profile} 
+                    onUpdate={() => session?.user?.id && fetchProfile(session.user.id)} 
+                  />
+                </Layout>
+              </ProtectedRoute>
+            } />
             <Route path="/settings" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SettingsPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><NotificationsPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/u/:username" element={<PublicProfilePage />} />
