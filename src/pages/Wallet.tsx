@@ -82,8 +82,8 @@ export default function WalletPage({ profile }: { profile: any }) {
       const { data, error } = await supabase
         .from('transactions')
         .select('*')
-        .or(`from_uid.eq.${profile.id},to_uid.eq.${profile.id}`)
-        .order('timestamp', { ascending: false });
+        .eq('profile_id', profile.id)
+        .order('created_at', { ascending: false });
 
       if (!error && data) {
         setTransactions(data);
@@ -221,10 +221,7 @@ export default function WalletPage({ profile }: { profile: any }) {
       return;
     }
 
-    // Check for both possible names for KoraPay object
-    const Korapay = window.Korapay || (window as any).KoraPay;
-
-    if (!Korapay) {
+    if (!window.Korapay) {
       console.error('KoraPay script not loaded');
       toast('KoraPay is still loading. Please wait a moment and try again.', 'error');
       setIsProcessing(false);
@@ -233,19 +230,18 @@ export default function WalletPage({ profile }: { profile: any }) {
 
     try {
       console.log('KoraPay: Initializing checkout...');
-      Korapay.initialize({
+      window.Korapay.initialize({
         key: publicKey,
-        amount: amount, // KoraPay collections script seems to expect Naira, not kobo based on user feedback
+        amount: amount, // KoraPay expects Naira
         currency: 'NGN',
-        reference: 'PRIVY-' + Date.now(),
+        reference: `KORA-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         customer: { 
-          name: profile?.full_name || profile?.display_name || profile?.username || 'Customer',
+          name: profile?.display_name || profile?.username || 'Customer',
           email: profile?.email || 'customer@example.com' 
         },
         onSuccess: async (response: any) => {
           console.log("KoraPay: Payment successful", response);
-          // Handle both possible reference field names
-          const reference = response.reference || response.checkout_reference || response.data?.reference;
+          const reference = response.reference || response.checkout_reference || (response.data && response.data.reference);
           if (reference) {
             await verifyPayment(reference, amount, 'korapay');
           } else {
@@ -253,6 +249,11 @@ export default function WalletPage({ profile }: { profile: any }) {
             toast('Payment successful but reference not found. Please contact support.', 'error');
             setIsProcessing(false);
           }
+        },
+        onFailed: (response: any) => {
+          console.error("KoraPay: Payment failed", response);
+          setIsProcessing(false);
+          toast('Payment failed. Please try again.', 'error');
         },
         onClose: () => {
           console.log("KoraPay: Checkout closed");
@@ -537,7 +538,6 @@ export default function WalletPage({ profile }: { profile: any }) {
                   ))
                 ) : transactions.length > 0 ? (
                   transactions.map((tx) => {
-                    const isOutgoing = tx.from_uid === profile?.id;
                     return (
                       <tr key={tx.id} className="hover:bg-white/5 transition-colors group">
                         <td className="px-6 py-6">
@@ -546,30 +546,30 @@ export default function WalletPage({ profile }: { profile: any }) {
                               "w-10 h-10 rounded-xl flex items-center justify-center",
                               tx.type === 'deposit' ? "bg-brand-blue/10 text-brand-blue" :
                               tx.type === 'withdrawal' ? "bg-amber-500/10 text-amber-500" :
-                              isOutgoing ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
+                              tx.type === 'payment' ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
                             )}>
                               {tx.type === 'deposit' ? <Plus className="w-5 h-5" /> :
                                tx.type === 'withdrawal' ? <ArrowUpRight className="w-5 h-5" /> :
-                               isOutgoing ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+                               tx.type === 'payment' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
                             </div>
                             <span className="font-bold tracking-tight uppercase text-[10px]">
                               {tx.type === 'deposit' ? 'Deposit' : 
                                tx.type === 'withdrawal' ? 'Withdrawal' :
-                               tx.type === 'tip' ? (isOutgoing ? 'Sent Tip' : 'Received Tip') : tx.type}
+                               tx.type === 'tip' ? 'Tip' : tx.type}
                             </span>
                           </div>
                         </td>
                         <td className="px-6 py-6">
                           <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
-                            {format(new Date(tx.timestamp), 'MMM dd, yyyy')}
+                            {format(new Date(tx.created_at), 'MMM dd, yyyy')}
                           </span>
                         </td>
                         <td className="px-6 py-6">
                           <span className={cn(
                             "font-display text-lg italic",
-                            (isOutgoing && tx.type !== 'deposit') || tx.type === 'withdrawal' ? "text-red-400" : "text-brand-blue"
+                            tx.type === 'payment' || tx.type === 'withdrawal' ? "text-red-400" : "text-brand-blue"
                           )}>
-                            {(isOutgoing && tx.type !== 'deposit') || tx.type === 'withdrawal' ? '-' : '+'}₦{tx.amount.toLocaleString()}
+                            {tx.type === 'payment' || tx.type === 'withdrawal' ? '-' : '+'}₦{tx.amount.toLocaleString()}
                           </span>
                         </td>
                         <td className="px-6 py-6">
