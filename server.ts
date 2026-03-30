@@ -81,6 +81,18 @@ async function startServer() {
     });
   });
 
+  // Debug API route
+  app.get("/api/debug-config", (req, res) => {
+    res.json({
+      supabaseUrl: process.env.VITE_SUPABASE_URL ? `${process.env.VITE_SUPABASE_URL.substring(0, 15)}...` : 'MISSING',
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      hasPaystackKey: !!process.env.PAYSTACK_SECRET_KEY,
+      hasKorapayKey: !!process.env.KORAPAY_SECRET_KEY,
+      nodeEnv: process.env.NODE_ENV,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // Payment Success API route
   app.post("/api/payment-success", async (req, res) => {
     const { reference, type, amount, userId, email, gateway } = req.body;
