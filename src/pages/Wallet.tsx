@@ -49,6 +49,8 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   );
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [debugStatus, setDebugStatus] = useState<any>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [scriptStatus, setScriptStatus] = useState({
     paystack: false,
     korapay: false
@@ -68,6 +70,39 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   }, []);
 
   const { toast } = useToast();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if (onUpdate) await onUpdate();
+      toast('Wallet data refreshed', 'success');
+    } catch (err) {
+      toast('Failed to refresh data', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const checkBackend = async () => {
+    try {
+      const res = await fetch('/api/debug-config');
+      const data = await res.json();
+      setDebugStatus(data);
+      setShowDebug(true);
+    } catch (err) {
+      toast('Failed to reach backend', 'error');
+    }
+  };
+
+  const testDb = async () => {
+    try {
+      const res = await fetch('/api/test-db');
+      const data = await res.json();
+      toast(data.message, data.status === 'ok' ? 'success' : 'error');
+    } catch (err) {
+      toast('Failed to test DB connection', 'error');
+    }
+  };
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -401,10 +436,78 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
             <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Manage your earnings & deposits</p>
           </div>
         </div>
-        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-          <Shield className="w-6 h-6 text-brand-blue" />
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
+          >
+            <Zap className={cn("w-5 h-5 text-white/40 group-hover:text-brand-blue transition-colors", isRefreshing && "animate-spin")} />
+          </button>
+          
+          {profile?.role === 'admin' && (
+            <button 
+              onClick={checkBackend}
+              className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-2xl hover:bg-amber-500/10 transition-all group"
+            >
+              <Shield className="w-5 h-5 text-amber-500/40 group-hover:text-amber-500 transition-colors" />
+            </button>
+          )}
+          
+          <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+            <Shield className="w-6 h-6 text-brand-blue" />
+          </div>
         </div>
       </div>
+
+      {/* Debug Info */}
+      <AnimatePresence>
+        {showDebug && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="p-6 bg-amber-500/5 border border-amber-500/10 rounded-3xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-amber-500 font-bold uppercase tracking-widest text-[10px]">Backend Debug Console</h3>
+                <button onClick={() => setShowDebug(false)} className="text-white/20 hover:text-white"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5">
+                  <div className="text-[8px] text-white/30 uppercase mb-1">Paystack Key</div>
+                  <div className={cn("text-[10px] font-mono", debugStatus?.hasPaystackKey ? "text-green-500" : "text-red-500")}>
+                    {debugStatus?.hasPaystackKey ? "PRESENT" : "MISSING"}
+                  </div>
+                </div>
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5">
+                  <div className="text-[8px] text-white/30 uppercase mb-1">KoraPay Key</div>
+                  <div className={cn("text-[10px] font-mono", debugStatus?.hasKorapayKey ? "text-green-500" : "text-red-500")}>
+                    {debugStatus?.hasKorapayKey ? "PRESENT" : "MISSING"}
+                  </div>
+                </div>
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5">
+                  <div className="text-[8px] text-white/30 uppercase mb-1">Supabase Key</div>
+                  <div className={cn("text-[10px] font-mono", debugStatus?.hasServiceKey ? "text-green-500" : "text-red-500")}>
+                    {debugStatus?.hasServiceKey ? "PRESENT" : "MISSING"}
+                  </div>
+                </div>
+                <div className="p-3 bg-black/40 rounded-xl border border-white/5">
+                  <div className="text-[8px] text-white/30 uppercase mb-1">Env</div>
+                  <div className="text-[10px] font-mono text-brand-blue uppercase">{debugStatus?.nodeEnv}</div>
+                </div>
+              </div>
+              <button 
+                onClick={testDb}
+                className="w-full py-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-amber-500/20 transition-all"
+              >
+                Test Database Write Access
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Balance Card */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
