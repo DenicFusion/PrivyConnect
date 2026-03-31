@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { createServer as createViteServer } from "vite";
@@ -31,6 +32,7 @@ import { sendEmail, EmailType } from "./server/services/emailService.ts";
 
 async function startServer() {
   const app = express();
+  app.use(cors());
   // Use raw body for webhook signature verification
   app.use(express.json({
     verify: (req: any, res, buf) => {
@@ -286,6 +288,7 @@ async function startServer() {
                 headers: {
                   Authorization: `Bearer ${paystackSecretKey}`,
                 },
+                timeout: 10000, // 10s timeout
               }
             );
 
@@ -322,6 +325,7 @@ async function startServer() {
                 headers: {
                   Authorization: `Bearer ${korapaySecretKey}`,
                 },
+                timeout: 10000, // 10s timeout
               }
             );
 
@@ -477,11 +481,10 @@ async function startServer() {
         }
       }
 
-      console.log("Payment processing completed successfully");
-      return res.json({ success: true });
+      return res.json({ success: true, message: "Payment processed successfully" });
     } catch (error: any) {
-      console.error("Error in /api/payment-success:", error.message || error);
-      return res.status(500).json({ error: "Failed to process payment success: " + (error.message || "Unknown error") });
+      console.error("CRITICAL: payment-success route error:", error);
+      return res.status(500).json({ error: "Internal server error during verification", details: error.message });
     }
   });
 

@@ -85,13 +85,22 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   };
 
   const checkBackend = async () => {
+    console.log('Checking backend connection...');
     try {
       const res = await fetch('/api/debug-config');
-      const data = await res.json();
-      setDebugStatus(data);
-      setShowDebug(true);
-    } catch (err) {
-      toast('Failed to reach backend', 'error');
+      if (res.ok) {
+        const data = await res.json();
+        setDebugStatus(data);
+        setShowDebug(true);
+        toast('Backend is reachable!', 'success');
+      } else {
+        const text = await res.text();
+        console.error('Backend check failed:', res.status, text);
+        toast(`Backend check failed: Status ${res.status}`, 'error');
+      }
+    } catch (err: any) {
+      console.error('Backend check error:', err);
+      toast(`Failed to reach backend: ${err.message || 'Unknown error'}. If you are on Vercel, make sure your backend is running on Cloud Run and reachable.`, 'error');
     }
   };
 
@@ -225,9 +234,11 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         onSuccess: (transaction: any) => {
           console.log('Paystack: Payment successful (frontend callback)', transaction);
-          setPendingReference(transaction.reference);
+          const reference = transaction.reference;
+          setPendingReference(reference);
           setIsProcessing(true);
           toast('Payment received! Waiting for verification...', 'info');
+          verifyPayment(reference, amount, 'paystack');
         },
         onCancel: () => {
           console.log('Paystack: Window closed/cancelled');
@@ -249,9 +260,11 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
           ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           callback: (response: any) => {
             console.log('Paystack v1: Payment successful (frontend callback)', response);
-            setPendingReference(response.reference);
+            const reference = response.reference;
+            setPendingReference(reference);
             setIsProcessing(true);
             toast('Payment received! Waiting for verification...', 'info');
+            verifyPayment(reference, amount, 'paystack');
           },
           onClose: () => {
             console.log('Paystack v1: Window closed');
@@ -305,6 +318,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
             setPendingReference(reference);
             setIsProcessing(true);
             toast('Payment received! Waiting for verification...', 'info');
+            verifyPayment(reference, amount, 'korapay');
           } else {
             console.error('KoraPay: No reference found in response', response);
             toast('Payment successful but reference not found. Please contact support.', 'error');
@@ -331,6 +345,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   };
 
   const verifyPayment = async (reference: string, amount: number, gateway: string) => {
+    console.log(`Starting verification for ${gateway} payment. Ref: ${reference}, Amount: ${amount}`);
     try {
       const verifyRes = await fetch('/api/payment-success', {
         method: 'POST',
@@ -346,27 +361,35 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
       });
 
       if (verifyRes.ok) {
+        const data = await verifyRes.json();
+        console.log("Verification success:", data);
         toast('Payment successful! Your account has been updated.', 'success');
         setShowDepositModal(false);
         
         // Trigger profile refresh
         if (onUpdate) onUpdate();
         
-        // Redirect to discovery after success
+        // Redirect after success
         setTimeout(() => window.location.href = '/discovery', 1500);
       } else {
-        let errorMsg = 'Unknown error';
+        let errorMsg = `Status ${verifyRes.status}`;
         try {
-          const err = await verifyRes.json();
-          errorMsg = err.error || err.message || JSON.stringify(err);
+          const text = await verifyRes.text();
+          console.error("Verification failed response text:", text);
+          try {
+            const err = JSON.parse(text);
+            errorMsg = err.error || err.message || errorMsg;
+          } catch (e) {
+            errorMsg = text.substring(0, 100);
+          }
         } catch (e) {
-          errorMsg = `Status ${verifyRes.status}`;
+          console.error("Failed to read response body:", e);
         }
         toast(`Payment verification failed: ${errorMsg}`, 'error');
       }
-    } catch (err) {
-      console.error("Verification error:", err);
-      toast('Payment was successful but verification failed. Please contact support.', 'error');
+    } catch (err: any) {
+      console.error("Verification fetch error:", err);
+      toast(`Failed to reach backend for verification: ${err.message || 'Unknown error'}`, 'error');
     } finally {
       setIsProcessing(false);
     }
