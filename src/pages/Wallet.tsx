@@ -48,6 +48,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
     APP_CONFIG.PAYMENT_GATEWAY === 'korapay' ? 'korapay' : 'paystack'
   );
   const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingReference, setPendingReference] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [debugStatus, setDebugStatus] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -132,21 +133,39 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
 
     // Real-time updates
     const channel = supabase
-      .channel('transactions-changes')
+      .channel(`wallet-tx-${profile.id}`)
       .on('postgres_changes', { 
-        event: '*', 
+        event: 'INSERT', 
         schema: 'public', 
-        table: 'transactions' 
-      }, () => {
+        table: 'transactions',
+        filter: `profile_id=eq.${profile.id}`
+      }, (payload) => {
+        console.log('New transaction detected:', payload.new);
         fetchTransactions();
-        if (onUpdate) onUpdate(); // Also refresh profile when transactions change
+        if (onUpdate) onUpdate();
+        
+        // If this is our pending transaction, show success
+        if (pendingReference && payload.new.reference === pendingReference) {
+          toast('Payment verified! Your balance has been updated.', 'success');
+          setPendingReference(null);
+          setIsProcessing(false);
+          setShowDepositModal(false);
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'wallet',
+        filter: `profile_id=eq.${profile.id}`
+      }, () => {
+        if (onUpdate) onUpdate();
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile?.id, onUpdate]);
+  }, [profile?.id, onUpdate, pendingReference]);
 
   const handleDeposit = async () => {
     if (!profile?.id || !profile?.email) {
@@ -204,9 +223,11 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         amount: Math.round(amount * 100), // Amount in kobo
         currency: 'NGN',
         ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        onSuccess: async (transaction: any) => {
-          console.log('Paystack: Payment successful', transaction);
-          await verifyPayment(transaction.reference, amount, 'paystack');
+        onSuccess: (transaction: any) => {
+          console.log('Paystack: Payment successful (frontend callback)', transaction);
+          setPendingReference(transaction.reference);
+          setIsProcessing(true);
+          toast('Payment received! Waiting for verification...', 'info');
         },
         onCancel: () => {
           console.log('Paystack: Window closed/cancelled');
@@ -226,9 +247,11 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
           amount: Math.round(amount * 100),
           currency: 'NGN',
           ref: `PS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          callback: async (response: any) => {
-            console.log('Paystack v1: Payment successful', response);
-            await verifyPayment(response.reference, amount, 'paystack');
+          callback: (response: any) => {
+            console.log('Paystack v1: Payment successful (frontend callback)', response);
+            setPendingReference(response.reference);
+            setIsProcessing(true);
+            toast('Payment received! Waiting for verification...', 'info');
           },
           onClose: () => {
             console.log('Paystack v1: Window closed');
@@ -275,11 +298,13 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
           name: profile?.display_name || profile?.username || 'Customer',
           email: profile?.email || 'customer@example.com' 
         },
-        onSuccess: async (response: any) => {
-          console.log("KoraPay: Payment successful", response);
+        onSuccess: (response: any) => {
+          console.log("KoraPay: Payment successful (frontend callback)", response);
           const reference = response.reference || response.checkout_reference || (response.data && response.data.reference);
           if (reference) {
-            await verifyPayment(reference, amount, 'korapay');
+            setPendingReference(reference);
+            setIsProcessing(true);
+            toast('Payment received! Waiting for verification...', 'info');
           } else {
             console.error('KoraPay: No reference found in response', response);
             toast('Payment successful but reference not found. Please contact support.', 'error');
@@ -347,7 +372,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
     }
   };
 
-  const balance = profile?.balance || 0;
+  const balance = profile?.wallet?.balance || profile?.balance || 0;
 
   // Calculate dynamic stats
   const stats = transactions.reduce((acc, tx) => {
@@ -410,11 +435,10 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
     const { error } = await supabase
       .from('transactions')
       .insert({
-        from_uid: profile.id,
+        profile_id: profile.id,
         amount: amount,
         type: 'withdrawal',
         status: 'pending',
-        timestamp: new Date().toISOString(),
         metadata: bankDetails
       });
 
@@ -639,6 +663,23 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
           <button className="text-[10px] uppercase tracking-widest font-bold text-brand-blue hover:underline">View All</button>
         </div>
 
+        {pendingReference && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-6 bg-brand-blue/10 border border-brand-blue/20 rounded-3xl flex items-center justify-between"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full border-2 border-brand-blue border-t-transparent animate-spin" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-brand-blue">Verifying Payment...</p>
+                <p className="text-[10px] text-white/40 uppercase tracking-widest">Reference: {pendingReference}</p>
+              </div>
+            </div>
+            <p className="text-[10px] text-white/40 uppercase tracking-widest italic">Please do not refresh</p>
+          </motion.div>
+        )}
+
         <div className="bg-[#0a0a0a] border border-white/10 rounded-[32px] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -667,15 +708,16 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                               "w-10 h-10 rounded-xl flex items-center justify-center",
                               tx.type === 'deposit' ? "bg-brand-blue/10 text-brand-blue" :
                               tx.type === 'withdrawal' ? "bg-amber-500/10 text-amber-500" :
-                              tx.type === 'payment' ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
+                              (tx.type === 'payment' || tx.type === 'subscription') ? "bg-red-500/10 text-red-500" : "bg-brand-blue/10 text-brand-blue"
                             )}>
                               {tx.type === 'deposit' ? <Plus className="w-5 h-5" /> :
                                tx.type === 'withdrawal' ? <ArrowUpRight className="w-5 h-5" /> :
-                               tx.type === 'payment' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+                               (tx.type === 'payment' || tx.type === 'subscription') ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
                             </div>
                             <span className="font-bold tracking-tight uppercase text-[10px]">
                               {tx.type === 'deposit' ? 'Deposit' : 
                                tx.type === 'withdrawal' ? 'Withdrawal' :
+                               tx.type === 'subscription' ? 'Subscription' :
                                tx.type === 'tip' ? 'Tip' : tx.type}
                             </span>
                           </div>
@@ -688,9 +730,9 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                         <td className="px-6 py-6">
                           <span className={cn(
                             "font-display text-lg italic",
-                            tx.type === 'payment' || tx.type === 'withdrawal' ? "text-red-400" : "text-brand-blue"
+                            (tx.type === 'payment' || tx.type === 'subscription' || tx.type === 'withdrawal') ? "text-red-400" : "text-brand-blue"
                           )}>
-                            {tx.type === 'payment' || tx.type === 'withdrawal' ? '-' : '+'}₦{tx.amount.toLocaleString()}
+                            {(tx.type === 'payment' || tx.type === 'subscription' || tx.type === 'withdrawal') ? '-' : '+'}₦{tx.amount.toLocaleString()}
                           </span>
                         </td>
                         <td className="px-6 py-6">

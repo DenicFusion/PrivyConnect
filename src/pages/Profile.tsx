@@ -311,13 +311,13 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     const { error } = await supabase
       .from('transactions')
       .insert({
-        from_uid: myProfile.id,
-        to_uid: uid,
+        profile_id: myProfile.id,
+        sender_id: myProfile.id,
+        receiver_id: uid,
         amount: amount,
         commission: commission,
         type: 'tip',
-        status: 'completed',
-        timestamp: new Date().toISOString()
+        status: 'completed'
       });
     
     if (!error) {

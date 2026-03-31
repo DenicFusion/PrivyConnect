@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     is_verified BOOLEAN DEFAULT FALSE,
     is_subscribed BOOLEAN DEFAULT FALSE,
+    subscription_status TEXT DEFAULT 'inactive' CHECK (subscription_status IN ('active', 'inactive', 'pending', 'expired')),
     subscription_expiry TIMESTAMPTZ,
     profile_mode TEXT DEFAULT 'public' CHECK (profile_mode IN ('public', 'private', 'incognito')),
     is_public BOOLEAN DEFAULT TRUE,
@@ -39,10 +40,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    sender_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    receiver_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     amount DECIMAL(12, 2) NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal', 'payment', 'tip')),
+    type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal', 'payment', 'tip', 'subscription')),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
+    reference TEXT UNIQUE,
     description TEXT,
+    metadata JSONB DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -124,6 +129,10 @@ BEGIN
         COALESCE(NEW.raw_user_meta_data->>'avatar_url', ''),
         'user'
     );
+    
+    INSERT INTO public.wallet (profile_id)
+    VALUES (NEW.id);
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -255,10 +264,25 @@ ALTER TABLE public.login_activity ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own login activity" ON public.login_activity
     FOR SELECT USING (auth.uid() = user_id);
 
--- 14. Enable Realtime for Notifications, Profiles, and Transactions
+-- 14. Wallet Table
+CREATE TABLE IF NOT EXISTS public.wallet (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE NOT NULL,
+    balance DECIMAL(12, 2) DEFAULT 0.00 NOT NULL,
+    currency TEXT DEFAULT 'NGN',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.wallet ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own wallet" ON public.wallet
+    FOR SELECT USING (auth.uid() = profile_id);
+
+-- 15. Enable Realtime for Notifications, Profiles, Transactions, and Wallet
 ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.transactions;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.wallet;
 
 -- 15. Search Nearby Users Function (Haversine Formula)
 CREATE OR REPLACE FUNCTION public.search_nearby_users(

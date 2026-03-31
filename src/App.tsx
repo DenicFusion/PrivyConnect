@@ -40,7 +40,7 @@ function SubscriptionGuard({ children, profile }: { children: React.ReactNode, p
   
   if (!profile) return null;
 
-  if (!profile.is_subscribed) {
+  if (!profile.is_subscribed && profile.subscription_status !== 'active') {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center space-y-8">
         <div className="relative">
@@ -223,7 +223,7 @@ function AppContent() {
 
       let { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('*, wallet(balance)')
         .eq('id', user.id)
         .single();
 
@@ -239,7 +239,7 @@ function AppContent() {
               created_at: new Date().toISOString()
             }
           ])
-          .select()
+          .select('*, wallet(balance)')
           .single();
         
         if (createError) {
@@ -334,6 +334,22 @@ function AppContent() {
                 setProfile((prev: any) => ({
                   ...prev,
                   ...payload.new
+                }));
+              }
+            )
+            .on(
+              'postgres_changes',
+              {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'wallet',
+                filter: `profile_id=eq.${user.id}`
+              },
+              (payload) => {
+                console.log('Real-time wallet update received:', payload.new);
+                setProfile((prev: any) => ({
+                  ...prev,
+                  wallet: payload.new
                 }));
               }
             )

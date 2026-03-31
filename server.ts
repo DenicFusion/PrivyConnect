@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
 import cron from "node-cron";
+import crypto from "crypto";
 import { supabaseAdmin } from "./server/services/supabaseService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,7 +31,12 @@ import { sendEmail, EmailType } from "./server/services/emailService.ts";
 
 async function startServer() {
   const app = express();
-  app.use(express.json()); // Add JSON parser
+  // Use raw body for webhook signature verification
+  app.use(express.json({
+    verify: (req: any, res, buf) => {
+      req.rawBody = buf;
+    }
+  }));
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -105,7 +111,153 @@ async function startServer() {
     }
   });
 
-  // Payment Success API route
+  // Paystack Webhook Endpoint
+  app.post("/api/webhook/paystack", async (req: any, res) => {
+    const signature = req.headers["x-paystack-signature"];
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+
+    if (!signature || !secret) {
+      console.error("Paystack Webhook: Missing signature or secret key");
+      return res.status(400).send("Unauthorized");
+    }
+
+    // Verify signature
+    const hash = crypto
+      .createHmac("sha512", secret)
+      .update(req.rawBody)
+      .digest("hex");
+
+    if (hash !== signature) {
+      console.error("Paystack Webhook: Invalid signature");
+      return res.status(400).send("Unauthorized");
+    }
+
+    const event = req.body;
+    console.log(`Paystack Webhook Event: ${event.event}`);
+
+    if (event.event === "charge.success") {
+      const { reference, amount, customer, metadata } = event.data;
+      const userId = metadata?.user_id;
+
+      if (!userId) {
+        console.error("Paystack Webhook: Missing user_id in metadata");
+        return res.status(200).send("OK"); // Still send OK to Paystack
+      }
+
+      try {
+        // 1. Verify transaction with Paystack API (Double check)
+        const verifyResponse = await axios.get(
+          `https://api.paystack.co/transaction/verify/${reference}`,
+          {
+            headers: {
+              Authorization: `Bearer ${secret}`,
+            },
+          }
+        );
+
+        const paymentData = verifyResponse.data.data;
+
+        if (paymentData.status !== "success") {
+          console.error(`Paystack Webhook: Transaction ${reference} not successful in verification`);
+          return res.status(200).send("OK");
+        }
+
+        // 2. Check if transaction already processed (Idempotency)
+        const { data: existingTx, error: checkError } = await supabaseAdmin
+          .from("transactions")
+          .select("id")
+          .eq("reference", reference)
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+        if (existingTx) {
+          console.log(`Paystack Webhook: Transaction ${reference} already processed`);
+          return res.status(200).send("OK");
+        }
+
+        // 3. Process the payment
+        const paidAmount = paymentData.amount / 100; // Convert kobo to Naira
+        const type = metadata?.type || "topup";
+
+        console.log(`Processing ${type} for user ${userId} with amount ${paidAmount}`);
+
+        if (type === "subscription") {
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + 7); // Weekly
+
+          // Update profile
+          const { error: profileError } = await supabaseAdmin
+            .from("profiles")
+            .update({
+              is_subscribed: true,
+              subscription_status: "active",
+              subscription_expiry: expiryDate.toISOString(),
+            })
+            .eq("id", userId);
+
+          if (profileError) throw profileError;
+        } else {
+          // Top-up wallet
+          // We use a transaction or just update the wallet table
+          const { data: wallet, error: walletFetchError } = await supabaseAdmin
+            .from("wallet")
+            .select("balance")
+            .eq("profile_id", userId)
+            .single();
+
+          if (walletFetchError) throw walletFetchError;
+
+          const newBalance = parseFloat(wallet.balance.toString()) + paidAmount;
+
+          const { error: walletUpdateError } = await supabaseAdmin
+            .from("wallet")
+            .update({ balance: newBalance, updated_at: new Date().toISOString() })
+            .eq("profile_id", userId);
+
+          if (walletUpdateError) throw walletUpdateError;
+        }
+
+        // 4. Log transaction
+        const { error: txError } = await supabaseAdmin.from("transactions").insert({
+          profile_id: userId,
+          amount: paidAmount,
+          type: type === "subscription" ? "subscription" : "deposit",
+          status: "completed",
+          reference: reference,
+          description: `${type === 'subscription' ? 'Subscription' : 'Wallet top-up'} via Paystack`,
+          metadata: { ...metadata, gateway: "paystack" }
+        });
+
+        if (txError) throw txError;
+
+        console.log(`Paystack Webhook: Successfully processed ${reference} for user ${userId}`);
+
+        // Send email
+        if (customer.email) {
+          try {
+            await sendEmail({
+              to: customer.email,
+              subject: type === "subscription" ? "Subscription Confirmed! 💎" : "Wallet Funded 💰",
+              type: type === "subscription" ? "subscription_success" : "wallet_funded",
+              data: type === "subscription" 
+                ? { plan: "Weekly Subscription", expiryDate: new Date().toDateString() }
+                : { amount: `₦${paidAmount}` },
+            });
+          } catch (e) {
+            console.error("Email sending failed:", e);
+          }
+        }
+
+      } catch (error: any) {
+        console.error(`Paystack Webhook Processing Error: ${error.message}`);
+        return res.status(500).send("Internal Server Error");
+      }
+    }
+
+    res.status(200).send("OK");
+  });
+
+  // Payment Success API route (Keep for frontend polling if needed, but webhook is source of truth)
   app.post("/api/payment-success", async (req, res) => {
     const { reference, type, amount, userId, email, gateway } = req.body;
 
@@ -201,6 +353,19 @@ async function startServer() {
 
       console.log(`Payment verified successfully. Updating Supabase for user ${userId}...`);
 
+      // 1. Check if transaction already processed (Idempotency)
+      const { data: existingTx, error: checkError } = await supabaseAdmin
+        .from("transactions")
+        .select("id")
+        .eq("reference", reference)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+      if (existingTx) {
+        console.log(`Payment Success Callback: Transaction ${reference} already processed`);
+        return res.json({ success: true, message: "Already processed" });
+      }
+
       // 2. Update Supabase based on type
       if (type === "topup") {
         const depositAmount = parseFloat(amount);
@@ -209,37 +374,34 @@ async function startServer() {
           return res.status(400).json({ error: "Invalid amount" });
         }
         
-        // Update balance using RPC or direct update
-        console.log(`Attempting to update balance for user ${userId} by +${depositAmount}...`);
+        // Update balance in wallet table
+        console.log(`Attempting to update wallet balance for user ${userId} by +${depositAmount}...`);
         
-        const { data: profile, error: fetchError } = await supabaseAdmin
-          .from("profiles")
-          .select("balance, username")
-          .eq("id", userId)
+        const { data: wallet, error: fetchError } = await supabaseAdmin
+          .from("wallet")
+          .select("balance")
+          .eq("profile_id", userId)
           .single();
 
         if (fetchError) {
-          console.error(`CRITICAL: Profile fetch failed for ${userId}:`, fetchError);
-          return res.status(404).json({ error: "User profile not found in database" });
+          console.error(`CRITICAL: Wallet fetch failed for ${userId}:`, fetchError);
+          return res.status(404).json({ error: "User wallet not found in database" });
         }
 
-        console.log(`Found profile for ${profile.username}. Current balance: ${profile.balance}`);
-        const currentBalance = parseFloat(profile.balance?.toString() || "0");
+        const currentBalance = parseFloat(wallet.balance?.toString() || "0");
         const newBalance = currentBalance + depositAmount;
 
-        const { data: updatedProfile, error: updateError } = await supabaseAdmin
-          .from("profiles")
-          .update({ balance: newBalance })
-          .eq("id", userId)
-          .select()
-          .single();
+        const { error: updateError } = await supabaseAdmin
+          .from("wallet")
+          .update({ balance: newBalance, updated_at: new Date().toISOString() })
+          .eq("profile_id", userId);
 
         if (updateError) {
-          console.error(`CRITICAL: Balance update failed for ${userId}:`, updateError);
+          console.error(`CRITICAL: Wallet update failed for ${userId}:`, updateError);
           return res.status(500).json({ error: "Database update failed" });
         }
 
-        console.log(`SUCCESS: Balance updated for ${userId}. New balance: ${updatedProfile.balance}`);
+        console.log(`SUCCESS: Wallet updated for ${userId}. New balance: ${newBalance}`);
 
         // Log transaction
         const { error: txError } = await supabaseAdmin.from("transactions").insert({
@@ -247,7 +409,9 @@ async function startServer() {
           amount: depositAmount,
           type: "deposit",
           status: "completed",
-          description: `Wallet top-up via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`
+          reference: reference,
+          description: `Wallet top-up via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`,
+          metadata: { gateway, reference, type: "topup" }
         });
 
         if (txError) console.error("Error logging transaction:", txError);
@@ -273,6 +437,7 @@ async function startServer() {
           .from("profiles")
           .update({
             is_subscribed: true,
+            subscription_status: "active",
             subscription_expiry: expiryDate.toISOString(),
           })
           .eq("id", userId)
@@ -290,9 +455,11 @@ async function startServer() {
         const { error: txError } = await supabaseAdmin.from("transactions").insert({
           profile_id: userId,
           amount: 1500,
-          type: "payment",
+          type: "subscription",
           status: "completed",
-          description: `Weekly Subscription via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`
+          reference: reference,
+          description: `Weekly Subscription via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`,
+          metadata: { gateway, reference, type: "subscription" }
         });
 
         if (txError) console.error("Error logging transaction:", txError);
@@ -325,7 +492,7 @@ async function startServer() {
       const { data: expiredProfiles, error } = await supabaseAdmin
         .from("profiles")
         .select("id, email, username")
-        .eq("is_subscribed", true)
+        .eq("subscription_status", "active")
         .lt("subscription_expiry", new Date().toISOString());
 
       if (error) throw error;
@@ -335,7 +502,7 @@ async function startServer() {
           // 1. Update profile status
           await supabaseAdmin
             .from("profiles")
-            .update({ is_subscribed: false })
+            .update({ is_subscribed: false, subscription_status: "expired" })
             .eq("id", profile.id);
 
           // 2. Send expiry email
