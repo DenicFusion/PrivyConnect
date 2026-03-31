@@ -278,105 +278,47 @@ async function startServer() {
     res.status(200).send("OK");
   });
 
-  // Payment Success API route (Keep for frontend polling if needed, but webhook is source of truth)
+  // Payment Success API route (Follows the "Master Fix" logic)
   app.post("/api/payment-success", async (req, res) => {
-    const { reference, type, amount, userId, email, gateway } = req.body;
+    const { reference, user_id, type } = req.body;
 
-    console.log(`Payment Success Callback: ${gateway} | Ref: ${reference} | Type: ${type} | User: ${userId}`);
+    console.log(`Payment Success Callback: Ref: ${reference} | Type: ${type} | User: ${user_id}`);
 
-    if (!reference || !userId || !amount || !type || !gateway) {
+    if (!reference || !user_id || !type) {
       console.error("Missing required fields in payment-success callback:", req.body);
-      return res.status(400).json({ error: "Missing required payment details (ref, userId, amount, type, gateway)" });
+      return res.status(400).json({ error: "Missing required payment details (reference, user_id, type)" });
     }
 
     try {
-      console.log(`Starting verification for ${gateway} payment. Ref: ${reference}, User: ${userId}, Amount: ${amount}`);
-      let paymentSuccessful = false;
-
-      if (gateway === 'paystack') {
-        const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-        if (!paystackSecretKey) {
-          console.error("CRITICAL: PAYSTACK_SECRET_KEY is missing. Cannot verify payment.");
-          return res.status(500).json({ error: "Server configuration error: Paystack key missing" });
-        } else {
-          try {
-            console.log(`Verifying Paystack ref: ${reference}...`);
-            const verifyResponse = await axios.get(
-              `https://api.paystack.co/transaction/verify/${reference}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${paystackSecretKey}`,
-                },
-                timeout: 10000, // 10s timeout
-              }
-            );
-
-            const paymentData = verifyResponse.data.data;
-            console.log("Paystack verification response status:", paymentData.status);
-            
-            if (paymentData.status === "success") {
-              // Verify amount (Paystack is in kobo)
-              const expectedKobo = Math.round(parseFloat(amount) * 100);
-              if (Math.abs(paymentData.amount - expectedKobo) < 100) { 
-                paymentSuccessful = true;
-              } else {
-                console.error(`Paystack amount mismatch: Expected ${expectedKobo}, got ${paymentData.amount}`);
-                return res.status(400).json({ error: "Amount mismatch" });
-              }
-            }
-          } catch (error: any) {
-            console.error("Paystack verification API error:", error.response?.data || error.message);
-            return res.status(400).json({ error: "Paystack verification failed" });
-          }
-        }
-      } else {
-        // KoraPay
-        const korapaySecretKey = process.env.KORAPAY_SECRET_KEY;
-        if (!korapaySecretKey) {
-          console.error("CRITICAL: KORAPAY_SECRET_KEY is missing. Cannot verify payment.");
-          return res.status(500).json({ error: "Server configuration error: KoraPay key missing" });
-        } else {
-          try {
-            console.log(`Verifying KoraPay ref: ${reference}...`);
-            const verifyResponse = await axios.get(
-              `https://api.korapay.com/merchant/api/v1/charges/${reference}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${korapaySecretKey}`,
-                },
-                timeout: 10000, // 10s timeout
-              }
-            );
-
-            const paymentData = verifyResponse.data.data;
-            console.log("KoraPay verification response status:", paymentData.status);
-
-            if (paymentData.status === "success" || paymentData.status === "captured") {
-              const expectedNaira = parseFloat(amount);
-              const expectedKobo = expectedNaira * 100;
-              
-              if (Math.abs(paymentData.amount - expectedNaira) < 1 || Math.abs(paymentData.amount - expectedKobo) < 100) {
-                paymentSuccessful = true;
-              } else {
-                console.error(`KoraPay amount mismatch: Expected ${expectedNaira}, got ${paymentData.amount}`);
-                return res.status(400).json({ error: "Amount mismatch" });
-              }
-            }
-          } catch (error: any) {
-            console.error("KoraPay verification API error:", error.response?.data || error.message);
-            return res.status(400).json({ error: "KoraPay verification failed" });
-          }
-        }
+      // 1. Verify payment with Paystack
+      const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecretKey) {
+        console.error("CRITICAL: PAYSTACK_SECRET_KEY is missing.");
+        return res.status(500).json({ error: "Server configuration error" });
       }
 
-      if (!paymentSuccessful) {
-        console.error(`Payment verification failed for ${gateway} ref: ${reference}`);
-        return res.status(400).json({ error: "Payment verification failed or status not successful" });
+      console.log(`Verifying Paystack ref: ${reference}...`);
+      const verifyResponse = await axios.get(
+        `https://api.paystack.co/transaction/verify/${reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${paystackSecretKey}`,
+          },
+          timeout: 10000,
+        }
+      );
+
+      const data = verifyResponse.data;
+      
+      if (!data.status || data.data.status !== "success") {
+        console.error(`Payment not verified for ref: ${reference}`);
+        return res.status(400).json({ success: false, message: "Payment not verified" });
       }
 
-      console.log(`Payment verified successfully. Updating Supabase for user ${userId}...`);
+      const amount = data.data.amount / 100; // convert from kobo
+      console.log(`Payment verified: ₦${amount} for user ${user_id}`);
 
-      // 1. Check if transaction already processed (Idempotency)
+      // 2. Prevent duplicate transactions (Idempotency)
       const { data: existingTx, error: checkError } = await supabaseAdmin
         .from("transactions")
         .select("id")
@@ -385,125 +327,87 @@ async function startServer() {
 
       if (checkError) throw checkError;
       if (existingTx) {
-        console.log(`Payment Success Callback: Transaction ${reference} already processed`);
-        return res.json({ success: true, message: "Already processed" });
+        console.log(`Transaction ${reference} already processed`);
+        return res.status(200).json({ success: true, message: "Already processed" });
       }
 
-      // 2. Update Supabase based on type
-      if (type === "topup") {
-        const depositAmount = parseFloat(amount);
-        if (isNaN(depositAmount)) {
-          console.error("Invalid amount for topup:", amount);
-          return res.status(400).json({ error: "Invalid amount" });
+      // 3. Save Transaction
+      const { error: txError } = await supabaseAdmin.from("transactions").insert([
+        {
+          user_id,
+          amount,
+          reference,
+          status: "success",
+          type,
+        },
+      ]);
+
+      if (txError) {
+        console.error("Error saving transaction:", txError);
+        // Fallback to profile_id if user_id column doesn't exist
+        if (txError.message?.includes('column "user_id"')) {
+          await supabaseAdmin.from("transactions").insert([{
+            profile_id: user_id,
+            amount,
+            reference,
+            status: "success",
+            type,
+          }]);
+        } else {
+          throw txError;
         }
-        
-        // Update balance in wallet table
-        console.log(`Attempting to update wallet balance for user ${userId} by +${depositAmount}...`);
-        
-        const { data: wallet, error: fetchError } = await supabaseAdmin
-          .from("wallet")
-          .select("balance")
-          .eq("profile_id", userId)
-          .single();
+      }
 
-        if (fetchError) {
-          console.error(`CRITICAL: Wallet fetch failed for ${userId}:`, fetchError);
-          return res.status(404).json({ error: "User wallet not found in database" });
-        }
-
-        const currentBalance = parseFloat(wallet.balance?.toString() || "0");
-        const newBalance = currentBalance + depositAmount;
-
-        const { error: updateError } = await supabaseAdmin
-          .from("wallet")
-          .update({ balance: newBalance, updated_at: new Date().toISOString() })
-          .eq("profile_id", userId);
-
-        if (updateError) {
-          console.error(`CRITICAL: Wallet update failed for ${userId}:`, updateError);
-          return res.status(500).json({ error: "Database update failed" });
-        }
-
-        console.log(`SUCCESS: Wallet updated for ${userId}. New balance: ${newBalance}`);
-
-        // Log transaction
-        const { error: txError } = await supabaseAdmin.from("transactions").insert({
-          profile_id: userId,
-          amount: depositAmount,
-          type: "deposit",
-          status: "completed",
-          reference: reference,
-          description: `Wallet top-up via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`,
-          metadata: { gateway, reference, type: "topup" }
+      // 4. Update Wallet OR Subscription
+      if (type === "deposit" || type === "topup") {
+        console.log(`Updating wallet for user ${user_id} by +₦${amount}...`);
+        const { error: rpcError } = await supabaseAdmin.rpc("increment_wallet", {
+          user_id_input: user_id,
+          amount_input: amount,
         });
 
-        if (txError) console.error("Error logging transaction:", txError);
-
-        // Send email
-        try {
-          await sendEmail({
-            to: email,
-            subject: "Wallet Funded 💰",
-            type: "wallet_funded",
-            data: { amount: `₦${depositAmount}`, balance: `₦${newBalance}` },
-          });
-        } catch (e) {
-          console.error("Email sending failed:", e);
+        if (rpcError) {
+          console.error("RPC increment_wallet failed, falling back to manual update:", rpcError);
+          const { data: wallet } = await supabaseAdmin.from("wallet").select("balance").eq("profile_id", user_id).single();
+          if (wallet) {
+            const newBalance = (parseFloat(wallet.balance) || 0) + amount;
+            await supabaseAdmin.from("wallet").update({ balance: newBalance }).eq("profile_id", user_id);
+          } else {
+            // Try user_id column
+            const { data: wallet2 } = await supabaseAdmin.from("wallet").select("balance").eq("user_id", user_id).single();
+            if (wallet2) {
+              const newBalance = (parseFloat(wallet2.balance) || 0) + amount;
+              await supabaseAdmin.from("wallet").update({ balance: newBalance }).eq("user_id", user_id);
+            }
+          }
         }
+      }
 
-      } else if (type === "subscription") {
-        console.log(`Attempting to activate subscription for user ${userId}...`);
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + 7);
-
-        const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      if (type === "subscription") {
+        console.log(`Activating subscription for user ${user_id}...`);
+        const { error: subError } = await supabaseAdmin
           .from("profiles")
           .update({
-            is_subscribed: true,
             subscription_status: "active",
-            subscription_expiry: expiryDate.toISOString(),
+            is_subscribed: true,
+            subscription_expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
           })
-          .eq("id", userId)
-          .select()
-          .single();
+          .eq("id", user_id);
 
-        if (updateError) {
-          console.error(`CRITICAL: Subscription update failed for ${userId}:`, updateError);
-          return res.status(500).json({ error: "Database update failed" });
-        }
-
-        console.log(`SUCCESS: Subscription activated for ${userId}. Expiry: ${updatedProfile.subscription_expiry}`);
-
-        // Log transaction
-        const { error: txError } = await supabaseAdmin.from("transactions").insert({
-          profile_id: userId,
-          amount: 1500,
-          type: "subscription",
-          status: "completed",
-          reference: reference,
-          description: `Weekly Subscription via ${gateway === 'paystack' ? 'Paystack' : 'KoraPay'} (Ref: ${reference})`,
-          metadata: { gateway, reference, type: "subscription" }
-        });
-
-        if (txError) console.error("Error logging transaction:", txError);
-
-        // Send email
-        try {
-          await sendEmail({
-            to: email,
-            subject: "Subscription Confirmed! 💎",
-            type: "subscription_success",
-            data: { plan: "Weekly Subscription", expiryDate: expiryDate.toDateString() },
-          });
-        } catch (e) {
-          console.error("Email sending failed:", e);
-        }
+        if (subError) throw subError;
       }
 
-      return res.json({ success: true, message: "Payment processed successfully" });
+      return res.status(200).json({
+        success: true,
+        message: "Payment verified and updated",
+      });
+
     } catch (error: any) {
-      console.error("CRITICAL: payment-success route error:", error);
-      return res.status(500).json({ error: "Internal server error during verification", details: error.message });
+      console.error("ERROR in payment-success:", error.response?.data || error.message);
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+      });
     }
   });
 

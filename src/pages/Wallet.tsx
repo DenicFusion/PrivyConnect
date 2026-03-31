@@ -358,11 +358,8 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reference,
-          type: paymentType,
-          amount,
-          userId: profile.id,
-          email: profile.email,
-          gateway
+          user_id: profile.id,
+          type: paymentType, // "subscription" or "deposit"
         })
       });
 
