@@ -43,7 +43,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   const [loading, setLoading] = useState(true);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('1500');
-  const [paymentType, setPaymentType] = useState<'subscription' | 'topup'>('subscription');
+  const [paymentType, setPaymentType] = useState<'subscription' | 'deposit'>('subscription');
   const [paymentGateway, setPaymentGateway] = useState<'korapay' | 'paystack'>(
     APP_CONFIG.PAYMENT_GATEWAY === 'korapay' ? 'korapay' : 'paystack'
   );
@@ -582,7 +582,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
             <div className="grid grid-cols-2 gap-4">
               <button 
                 onClick={() => {
-                  setPaymentType('topup');
+                  setPaymentType('deposit');
                   setShowDepositModal(true);
                 }}
                 className="relative z-50 py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
@@ -839,10 +839,10 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                       Subscription
                     </button>
                     <button
-                      onClick={() => setPaymentType('topup')}
+                      onClick={() => setPaymentType('deposit')}
                       className={cn(
                         "py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
-                        paymentType === 'topup' 
+                        paymentType === 'deposit' 
                           ? 'bg-white/10 text-white shadow-lg' 
                           : 'text-white/30 hover:text-white'
                       )}

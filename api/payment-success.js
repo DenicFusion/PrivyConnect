@@ -74,7 +74,7 @@ export default async function handler(req, res) {
     ]);
 
     // 💰 UPDATE WALLET
-    if (type === "deposit") {
+    if (type === "deposit" || type === "topup") {
       await supabase.rpc("increment_wallet", {
         user_id_input: user_id,
         amount_input: amount,
