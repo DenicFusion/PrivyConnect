@@ -32,7 +32,21 @@ import { sendEmail, EmailType } from "./server/services/emailService.ts";
 
 async function startServer() {
   const app = express();
-  app.use(cors());
+  
+  // Robust CORS configuration
+  app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-paystack-signature', 'x-korapay-signature'],
+    credentials: true
+  }));
+
+  // Request logging middleware
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+  });
+
   // Use raw body for webhook signature verification
   app.use(express.json({
     verify: (req: any, res, buf) => {
@@ -48,6 +62,11 @@ async function startServer() {
   });
 
   const PORT = 3000;
+
+  // Ping endpoint for connectivity testing
+  app.get("/api/ping", (req, res) => {
+    res.json({ status: "ok", message: "Backend is reachable", timestamp: new Date().toISOString() });
+  });
 
   // Email API route
   app.post("/api/send-email", async (req, res) => {

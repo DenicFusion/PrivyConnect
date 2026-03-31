@@ -347,10 +347,13 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   };
 
   const verifyPayment = async (reference: string, amount: number, gateway: string) => {
-    console.log(`Starting verification for ${gateway} payment. Ref: ${reference}, Amount: ${amount}`);
     const backendUrl = APP_CONFIG.BACKEND_URL || '';
+    const fullUrl = `${backendUrl}/api/payment-success`;
+    console.log(`Starting verification for ${gateway} payment. Ref: ${reference}, Amount: ${amount}`);
+    console.log(`Targeting backend URL: ${fullUrl}`);
+    
     try {
-      const verifyRes = await fetch(`${backendUrl}/api/payment-success`, {
+      const verifyRes = await fetch(fullUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -392,7 +395,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
       }
     } catch (err: any) {
       console.error("Verification fetch error:", err);
-      toast(`Failed to reach backend for verification: ${err.message || 'Unknown error'}`, 'error');
+      toast(`Failed to reach backend for verification: ${err.message || 'Unknown error'} (URL: ${fullUrl})`, 'error');
     } finally {
       setIsProcessing(false);
     }
