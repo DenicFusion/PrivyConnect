@@ -1,3 +1,4 @@
+import { APP_CONFIG } from '../config';
 
 /**
  * Frontend Email Service for PrivyConnect
@@ -31,8 +32,9 @@ interface SendEmailOptions {
  * Sends a transactional email via the backend
  */
 export async function sendEmail({ to, subject, type, data }: SendEmailOptions) {
+  const backendUrl = APP_CONFIG.BACKEND_URL || '';
   try {
-    const response = await fetch('/api/send-email', {
+    const response = await fetch(`${backendUrl}/api/send-email`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

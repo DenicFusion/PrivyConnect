@@ -10,6 +10,7 @@ import { twMerge } from 'tailwind-merge';
 import { uploadBlobToR2, uploadToR2 } from '../lib/storage';
 import imageCompression from 'browser-image-compression';
 import { useToast } from '../components/Toaster';
+import { APP_CONFIG } from '../config';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -452,7 +453,8 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         // Send Push Notification to other user
         if (otherUser?.push_token) {
           try {
-            await fetch('/api/send-notification', {
+            const backendUrl = APP_CONFIG.BACKEND_URL || '';
+            await fetch(`${backendUrl}/api/send-notification`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

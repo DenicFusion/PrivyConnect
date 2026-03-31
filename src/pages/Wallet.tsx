@@ -86,8 +86,9 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
 
   const checkBackend = async () => {
     console.log('Checking backend connection...');
+    const backendUrl = APP_CONFIG.BACKEND_URL || '';
     try {
-      const res = await fetch('/api/debug-config');
+      const res = await fetch(`${backendUrl}/api/debug-config`);
       if (res.ok) {
         const data = await res.json();
         setDebugStatus(data);
@@ -105,8 +106,9 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   };
 
   const testDb = async () => {
+    const backendUrl = APP_CONFIG.BACKEND_URL || '';
     try {
-      const res = await fetch('/api/test-db');
+      const res = await fetch(`${backendUrl}/api/test-db`);
       const data = await res.json();
       toast(data.message, data.status === 'ok' ? 'success' : 'error');
     } catch (err) {
@@ -346,8 +348,9 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
 
   const verifyPayment = async (reference: string, amount: number, gateway: string) => {
     console.log(`Starting verification for ${gateway} payment. Ref: ${reference}, Amount: ${amount}`);
+    const backendUrl = APP_CONFIG.BACKEND_URL || '';
     try {
-      const verifyRes = await fetch('/api/payment-success', {
+      const verifyRes = await fetch(`${backendUrl}/api/payment-success`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
