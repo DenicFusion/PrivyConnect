@@ -360,6 +360,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
           reference,
           user_id: profile.id,
           type: paymentType, // "subscription" or "deposit"
+          gateway, // "paystack" or "korapay"
         })
       });
 
