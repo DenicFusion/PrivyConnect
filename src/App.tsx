@@ -29,6 +29,7 @@ import AdminGuard from './admin/AdminGuard';
 import VerifySuccessPage from './pages/VerifySuccess';
 import EmailPreviewPage from './pages/EmailPreview';
 import LoginPage from './pages/Login';
+import ResetPasswordPage from './pages/ResetPassword';
 import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
 import PublicProfilePage from './pages/PublicProfile';
@@ -378,6 +379,95 @@ function AppContent() {
     if (!error) setUnreadCount(count || 0);
   };
 
+  useEffect(() => {
+    if (!profile?.id || !isSupabaseActive) return;
+
+    const checkSubscriptionStatus = async () => {
+      const now = new Date();
+      const expiryDate = profile.subscription_expiry ? new Date(profile.subscription_expiry) : null;
+      
+      if (!expiryDate) return;
+
+      const timeLeft = expiryDate.getTime() - now.getTime();
+      const hoursLeft = timeLeft / (1000 * 60 * 60);
+
+      // 1. Handle Auto-Renewal
+      if (hoursLeft <= 0 && profile.auto_renew && profile.wallet?.balance >= 1500) {
+        try {
+          console.log('Attempting auto-renewal for:', profile.id);
+          const newExpiry = new Date();
+          newExpiry.setDate(newExpiry.getDate() + 7); // 1 week
+
+          // Use a transaction-like approach
+          const { error: renewError } = await supabase.rpc('handle_subscription_renewal', {
+            user_id: profile.id,
+            amount: 1500,
+            new_expiry: newExpiry.toISOString()
+          });
+
+          if (!renewError) {
+            toast('Subscription auto-renewed successfully!', 'success');
+            fetchProfile(profile.id);
+            
+            // Notify user
+            await supabase.from('notifications').insert({
+              user_id: profile.id,
+              type: 'subscription',
+              title: 'Subscription Auto-Renewed',
+              message: 'Your weekly subscription has been automatically renewed using your wallet balance.',
+              link: '/wallet'
+            });
+          }
+        } catch (err) {
+          console.error('Auto-renewal failed:', err);
+        }
+      }
+
+      // 2. Handle Retention Alerts (48h and 24h)
+      if (hoursLeft > 0 && hoursLeft <= 48) {
+        const alertType = hoursLeft <= 24 ? 'retention_24h' : 'retention_48h';
+        
+        // Check if already notified for this expiry
+        const { data: existingNotif } = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', profile.id)
+          .eq('type', 'retention')
+          .gte('created_at', new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString())
+          .maybeSingle();
+
+        if (!existingNotif) {
+          const message = hoursLeft <= 24 
+            ? "Your subscription expires in less than 24 hours. Renew now to stay connected!"
+            : "Your subscription expires in 48 hours. Don't lose your premium benefits!";
+          
+          await supabase.from('notifications').insert({
+            user_id: profile.id,
+            type: 'retention',
+            title: 'Subscription Expiring Soon',
+            message,
+            link: '/wallet'
+          });
+          
+          // Also trigger email via our API
+          fetch('/api/send-notification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'retention',
+              recipientId: profile.id,
+              message
+            })
+          }).catch(console.error);
+        }
+      }
+    };
+
+    checkSubscriptionStatus();
+    const interval = setInterval(checkSubscriptionStatus, 1000 * 60 * 60); // Check every hour
+    return () => clearInterval(interval);
+  }, [profile?.id, profile?.subscription_expiry, profile?.auto_renew, profile?.wallet?.balance]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center">
@@ -400,6 +490,7 @@ function AppContent() {
             {/* Website Experience: Landing page is public */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/verify-success" element={<VerifySuccessPage />} />
             <Route path="/email-preview" element={<EmailPreviewPage />} />
             
@@ -431,6 +522,7 @@ function AppContent() {
 
 function Layout({ children, profile, unreadCount }: { children: React.ReactNode, profile: any, unreadCount: number }) {
   const location = useLocation();
+  const isDiscoveryPage = location.pathname === '/discovery';
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/discovery' },
@@ -441,31 +533,33 @@ function Layout({ children, profile, unreadCount }: { children: React.ReactNode,
 
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 overflow-x-hidden">
-      {/* Top Bar */}
-      <header className="h-20 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
-        <div className="flex-1 flex items-center">
-          <Link to="/discovery" className="max-w-[50%]">
-            <PrivyLogo className="scale-90 origin-left drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
-          </Link>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <Link to="/notifications" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
-            <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-            {unreadCount > 0 && (
-              <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
-            )}
-          </Link>
+      {/* Top Bar - Only visible on Discovery page */}
+      {isDiscoveryPage && (
+        <header className="h-20 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
+          <div className="flex-1 flex items-center">
+            <Link to="/discovery" className="max-w-[50%]">
+              <PrivyLogo className="scale-90 origin-left drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
+            </Link>
+          </div>
           
-          <Link to="/settings" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
-            <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-          </Link>
-          
-          <button onClick={() => logOut()} className="p-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-colors group">
-            <LogOut className="w-5 h-5 text-red-500/70 group-hover:text-red-500" />
-          </button>
-        </div>
-      </header>
+          <div className="flex items-center gap-3">
+            <Link to="/notifications" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
+              <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+              {unreadCount > 0 && (
+                <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+              )}
+            </Link>
+            
+            <Link to="/settings" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
+              <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
+            </Link>
+            
+            <button onClick={() => logOut()} className="p-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-colors group">
+              <LogOut className="w-5 h-5 text-red-500/70 group-hover:text-red-500" />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8">

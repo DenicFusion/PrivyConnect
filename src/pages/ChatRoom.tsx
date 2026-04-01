@@ -427,7 +427,7 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
           file_url: fileUrl,
           voice_url: voiceUrl,
           message_type: messageType,
-          created_at: new Date().toISOString()
+          status: 'sent'
         })
         .select()
         .single();
@@ -441,7 +441,8 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
       // Replace optimistic message with real one
       setMessages(prev => prev.map(m => m.id === tempId ? sentMsg : m));
 
-      if (!error) {
+      // Update Chat last message
+      try {
         await supabase
           .from('chats')
           .update({
@@ -449,8 +450,13 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
             last_timestamp: new Date().toISOString()
           })
           .eq('id', chatId);
+      } catch (chatError) {
+        console.error('Error updating chat last message:', chatError);
+      }
 
-        // Send Push Notification to other user
+      // Send Notification
+      if (APP_CONFIG.ENABLE_NOTIFICATIONS) {
+        // 1. Try Push Notification if token exists
         if (otherUser?.push_token) {
           try {
             const backendUrl = APP_CONFIG.BACKEND_URL || '';
@@ -467,6 +473,20 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
           } catch (err) {
             console.error('Error triggering push notification:', err);
           }
+        }
+
+        // 2. Always insert into notifications table as fallback/in-app alert
+        try {
+          await supabase.from('notifications').insert({
+            user_id: otherUser.id,
+            type: 'message',
+            title: 'New Message',
+            message: `${profile.display_name || profile.username} sent you a message`,
+            link: `/chat/${chatId}`,
+            is_read: false
+          });
+        } catch (dbNotifError) {
+          console.error('Database notification failed:', dbNotifError);
         }
       }
     } catch (err) {
@@ -861,32 +881,36 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
             />
             
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
-              {uploading ? (
+              {uploading && (
                 <Loader2 className="w-6 h-6 text-brand-blue animate-spin" />
-              ) : (
-                <button 
-                  type="button" 
-                  onMouseDown={startRecording}
-                  onMouseUp={stopRecording}
-                  disabled={!isSubscribed}
-                  className={cn(
-                    "p-3 transition-all hover:scale-110 active:scale-90 disabled:opacity-20",
-                    isRecording ? "text-red-500" : "text-white/20 hover:text-brand-blue"
-                  )}
-                >
-                  <Mic className="w-6 h-6" />
-                </button>
               )}
             </div>
           </div>
 
-          <button 
-            type="submit"
-            disabled={!isSubscribed || (!newMessage.trim() && !audioBlob && !previewFile) || uploading}
-            className="p-4 bg-brand-blue text-brand-dark rounded-[20px] shadow-[0_10px_30px_rgba(0,209,255,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
-          >
-            <Send className="w-6 h-6" />
-          </button>
+          {newMessage.trim() || audioBlob || previewFile ? (
+            <button 
+              type="submit"
+              disabled={!isSubscribed || uploading}
+              className="p-4 bg-brand-blue text-brand-dark rounded-[20px] shadow-[0_10px_30px_rgba(0,209,255,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
+            >
+              <Send className="w-6 h-6" />
+            </button>
+          ) : (
+            <button 
+              type="button" 
+              onMouseDown={startRecording}
+              onMouseUp={stopRecording}
+              disabled={!isSubscribed || uploading}
+              className={cn(
+                "p-4 rounded-[20px] transition-all hover:scale-110 active:scale-90 disabled:opacity-20 shadow-lg",
+                isRecording 
+                  ? "bg-red-500 text-white animate-pulse shadow-red-500/20" 
+                  : "bg-white/5 text-white/20 hover:text-brand-blue hover:bg-white/10"
+              )}
+            >
+              <Mic className="w-6 h-6" />
+            </button>
+          )}
         </form>
       </div>
     </div>

@@ -249,6 +249,11 @@ CREATE POLICY "Users can update own notifications" ON public.notifications
 CREATE POLICY "Users can delete own notifications" ON public.notifications
     FOR DELETE USING (auth.uid() = user_id);
 
+CREATE POLICY "Users can create notifications" ON public.notifications
+    FOR INSERT WITH CHECK (auth.uid() = user_id OR EXISTS (
+        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'
+    ));
+
 -- 13. Login Activity Table
 CREATE TABLE IF NOT EXISTS public.login_activity (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -348,6 +353,44 @@ BEGIN
         )
     ) < radius_km
     ORDER BY distance ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 16. Handle Subscription Renewal Function
+CREATE OR REPLACE FUNCTION public.handle_subscription_renewal(
+    user_id UUID,
+    amount DECIMAL(12, 2),
+    new_expiry TIMESTAMPTZ
+)
+RETURNS VOID AS $$
+DECLARE
+    current_balance DECIMAL(12, 2);
+BEGIN
+    -- 1. Get current balance
+    SELECT balance INTO current_balance FROM public.wallet WHERE profile_id = user_id;
+    
+    -- 2. Check if enough balance
+    IF current_balance < amount THEN
+        RAISE EXCEPTION 'Insufficient balance for auto-renewal';
+    END IF;
+    
+    -- 3. Deduct from wallet
+    UPDATE public.wallet 
+    SET balance = balance - amount, updated_at = NOW()
+    WHERE profile_id = user_id;
+    
+    -- 4. Create transaction record
+    INSERT INTO public.transactions (profile_id, amount, type, status, description, reference)
+    VALUES (user_id, amount, 'subscription', 'completed', 'Auto-renewal of weekly subscription', 'auto_' || encode(gen_random_bytes(6), 'hex'));
+    
+    -- 5. Update profile
+    UPDATE public.profiles
+    SET 
+        is_subscribed = TRUE,
+        subscription_status = 'active',
+        subscription_expiry = new_expiry,
+        updated_at = NOW()
+    WHERE id = user_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

@@ -150,14 +150,30 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         schema: 'public', 
         table: 'transactions',
         filter: `profile_id=eq.${profile.id}`
-      }, (payload) => {
+      }, async (payload) => {
         console.log('New transaction detected:', payload.new);
         fetchTransactions();
         if (onUpdate) onUpdate();
         
+        // Create in-app notification for the transaction
+        try {
+          await supabase.from('notifications').insert({
+            user_id: profile.id,
+            type: payload.new.type === 'deposit' ? 'tip' : 'subscription',
+            title: payload.new.type === 'deposit' ? 'Deposit Successful' : 'Subscription Active',
+            message: payload.new.type === 'deposit' 
+              ? `Your deposit of ₦${payload.new.amount.toLocaleString()} was successful.`
+              : `Your subscription has been activated successfully.`,
+            link: '/wallet',
+            is_read: false
+          });
+        } catch (err) {
+          console.error('Failed to create notification:', err);
+        }
+        
         // If this is our pending transaction, show success
         if (pendingReference && payload.new.reference === pendingReference) {
-          toast('Payment verified! Your balance has been updated.', 'success');
+          toast('Payment verified! Your account has been updated.', 'success');
           setPendingReference(null);
           setIsProcessing(false);
           setShowDepositModal(false);
@@ -641,21 +657,59 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
               </div>
             </div>
 
-            <button 
-              onClick={() => {
-                setPaymentType('subscription');
-                setShowDepositModal(true);
-              }}
-              className={cn(
-                "relative z-50 w-full py-5 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl transition-all flex items-center justify-center gap-2",
-                profile?.is_subscribed 
-                  ? "bg-white/5 border border-white/10 text-white hover:bg-white/10" 
-                  : "bg-amber-500 text-black shadow-[0_0_30px_rgba(245,158,11,0.2)] hover:scale-[1.02] active:scale-[0.98]"
-              )}
-            >
-              <Zap className="w-4 h-4" />
-              {profile?.is_subscribed ? "Renew Subscription" : "Subscribe Now (₦1,500)"}
-            </button>
+                      <div className="pt-4 flex flex-col md:flex-row gap-4">
+                        <button 
+                          onClick={() => {
+                            setPaymentType('subscription');
+                            setShowDepositModal(true);
+                          }}
+                          className={cn(
+                            "flex-1 py-5 font-bold uppercase tracking-[0.2em] text-xs rounded-2xl transition-all flex items-center justify-center gap-2",
+                            profile?.is_subscribed 
+                              ? "bg-white/5 border border-white/10 text-white hover:bg-white/10" 
+                              : "bg-amber-500 text-black shadow-[0_0_30px_rgba(245,158,11,0.2)] hover:scale-[1.02] active:scale-[0.98]"
+                          )}
+                        >
+                          <Zap className="w-4 h-4" />
+                          {profile?.is_subscribed ? "Renew Subscription" : "Subscribe Now (₦1,500)"}
+                        </button>
+                        
+                        <div className="flex-1 flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-2xl">
+                          <div className="flex items-center gap-3">
+                            <ShieldCheck className="w-5 h-5 text-brand-blue" />
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest">Auto-Subscribe</p>
+                              <p className="text-[8px] text-white/40 uppercase tracking-widest">Pay from wallet</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={async () => {
+                              if (!profile?.id) return;
+                              const newValue = !profile.auto_renew;
+                              const { error } = await supabase
+                                .from('profiles')
+                                .update({ auto_renew: newValue })
+                                .eq('id', profile.id);
+                              
+                              if (error) {
+                                toast(error.message, 'error');
+                              } else {
+                                toast(`Auto-subscribe ${newValue ? 'enabled' : 'disabled'}`, 'success');
+                                if (onUpdate) onUpdate();
+                              }
+                            }}
+                            className={cn(
+                              "w-12 h-6 rounded-full transition-all relative",
+                              profile?.auto_renew ? "bg-brand-blue" : "bg-white/10"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-1 w-4 h-4 rounded-full bg-white transition-all",
+                              profile?.auto_renew ? "right-1" : "left-1"
+                            )} />
+                          </button>
+                        </div>
+                      </div>
           </div>
         </div>
       </div>
