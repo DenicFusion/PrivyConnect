@@ -1,10 +1,4 @@
-import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 export default async function handler(req, res) {
   // Allow CORS
@@ -21,23 +15,61 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { reference, user_id, type } = req.body;
+    // 🔍 CHECK ENVIRONMENT VARIABLES
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+
+    if (!supabaseUrl || !supabaseKey || !paystackKey) {
+      console.error("Missing environment variables:", { 
+        supabaseUrl: !!supabaseUrl, 
+        supabaseKey: !!supabaseKey, 
+        paystackKey: !!paystackKey 
+      });
+      return res.status(500).json({ 
+        success: false, 
+        message: "Server configuration error: Missing environment variables on Vercel" 
+      });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 🔍 PARSE BODY (Vercel usually does this, but let's be safe)
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        console.error("Failed to parse body:", e);
+      }
+    }
+    
+    const { reference, user_id, type } = body || {};
 
     if (!reference) {
       return res.status(400).json({ success: false, message: "No reference provided" });
     }
 
-    // 🔍 VERIFY PAYMENT WITH PAYSTACK
+// 🔍 VERIFY PAYMENT WITH PAYSTACK
+    console.log("Verifying reference:", reference);
+    
     const verifyRes = await fetch(
-      `https://api.paystack.co/transaction/verify/${reference}`,
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
       {
         headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          Authorization: `Bearer ${paystackKey}`,
         },
       }
     );
 
+    if (!verifyRes.ok) {
+      const errorText = await verifyRes.text();
+      console.error("Paystack verification failed:", verifyRes.status, errorText);
+      return res.status(400).json({ success: false, message: "Paystack verification failed" });
+    }
+
     const data = await verifyRes.json();
+    console.log("Paystack response data:", JSON.stringify(data));
 
     if (!data.status || data.data.status !== "success") {
       return res.status(400).json({
