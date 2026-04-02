@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
 
 -- 3. Chats Table
 CREATE TABLE IF NOT EXISTS public.chats (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     participants UUID[] NOT NULL,
     last_message TEXT,
     last_timestamp TIMESTAMPTZ DEFAULT NOW(),
@@ -63,15 +63,36 @@ CREATE TABLE IF NOT EXISTS public.chats (
 -- 4. Messages Table
 CREATE TABLE IF NOT EXISTS public.messages (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    chat_id UUID REFERENCES public.chats(id) ON DELETE CASCADE NOT NULL,
+    chat_id TEXT REFERENCES public.chats(id) ON DELETE CASCADE NOT NULL,
     sender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
     content TEXT,
     file_url TEXT,
     voice_url TEXT,
     message_type TEXT DEFAULT 'text' CHECK (message_type IN ('text', 'image', 'video', 'audio', 'voice', 'system')),
     status TEXT DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'read')),
+    reactions JSONB DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 17. Blocked Users Table
+CREATE TABLE IF NOT EXISTS public.blocked_users (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    blocked_user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, blocked_user_id)
+);
+
+ALTER TABLE public.blocked_users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own blocked users" ON public.blocked_users
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can block users" ON public.blocked_users
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can unblock users" ON public.blocked_users
+    FOR DELETE USING (auth.uid() = user_id);
 
 -- 5. Enable Row Level Security (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;

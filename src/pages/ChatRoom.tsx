@@ -229,36 +229,60 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         return;
       }
 
-      // Get other user info
-      const { data: chat } = await supabase
-        .from('chats')
-        .select('*')
-        .eq('id', chatId)
-        .single();
-      
-      if (chat) {
-        const otherUid = chat.participants.find((id: string) => id !== profile.id);
-        const { data: user } = await supabase
-          .from('profiles')
+      try {
+        // Get chat or create if doesn't exist
+        let { data: chat } = await supabase
+          .from('chats')
           .select('*')
-          .eq('id', otherUid)
-          .single();
-        setOtherUser(user);
-      }
+          .eq('id', chatId)
+          .maybeSingle();
+        
+        if (!chat && chatId) {
+          const ids = chatId.split('_');
+          if (ids.length === 2) {
+            const { data: newChat, error: insertError } = await supabase
+              .from('chats')
+              .insert({
+                id: chatId,
+                participants: ids,
+                last_message: 'Started a conversation',
+                last_timestamp: new Date().toISOString()
+              })
+              .select()
+              .single();
+            if (!insertError) chat = newChat;
+          }
+        }
 
-      // Get messages
-      const { data: msgs } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('chat_id', chatId)
-        .order('created_at', { ascending: true });
-      
-      if (msgs) {
-        setMessages(msgs);
-        markMessagesAsRead(msgs);
+        if (chat) {
+          const otherUid = chat.participants.find((id: string) => id !== profile.id);
+          if (otherUid) {
+            const { data: user } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', otherUid)
+              .maybeSingle();
+            if (user) setOtherUser(user);
+          }
+        }
+
+        // Get messages
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('chat_id', chatId)
+          .order('created_at', { ascending: true });
+        
+        if (msgs) {
+          setMessages(msgs);
+          markMessagesAsRead(msgs);
+        }
+      } catch (err) {
+        console.error("Error fetching chat data:", err);
+      } finally {
+        setLoading(false);
+        scrollToBottom('auto');
       }
-      setLoading(false);
-      scrollToBottom('auto');
     };
 
     fetchChatData();
@@ -371,8 +395,8 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
     setUploading(true);
     setUploadProgress(10);
 
-    let fileUrl = '';
-    let voiceUrl = '';
+    let fileUrl: string | null = null;
+    let voiceUrl: string | null = null;
     let messageType = 'text';
 
     try {

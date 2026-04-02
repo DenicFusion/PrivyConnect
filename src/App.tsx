@@ -496,7 +496,8 @@ function AppContent() {
             
             {/* App Experience: Authentication required for these routes */}
             <Route path="/discovery" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><DiscoveryPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ProfilePage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute session={session}><Navigate to={profile?.id ? `/profile/${profile.id}` : '/discovery'} replace /></ProtectedRoute>} />
+            <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><ProfilePage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/wallet" element={

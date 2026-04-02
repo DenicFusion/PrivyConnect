@@ -64,6 +64,9 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         return;
       }
 
+      // If we don't have myProfile yet, wait
+      if (!myProfile && isSupabaseActive) return;
+
       if (!isSupabaseActive) {
         const mockUser = MOCK_USERS.find(u => u.id === uid) || MOCK_USERS[0];
         setUser(mockUser);
@@ -90,6 +93,8 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         
         if (error) {
           console.error('ProfilePage: Error fetching user:', error);
+          toast('User not found', 'error');
+          navigate('/discovery');
         } else if (data) {
           setUser(data);
           setEditForm({
@@ -104,7 +109,8 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           });
 
           // Check if we should show lock modal
-          if (!isOwnProfile && !isSubscribed) {
+          const isOwn = uid === myProfile?.id;
+          if (!isOwn && !isSubscribed) {
             setShowLockModal(true);
           }
         }
@@ -116,7 +122,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     };
 
     fetchUser();
-  }, [uid, myProfile, isSubscribed]);
+  }, [uid, myProfile, isSubscribed, navigate, toast]);
 
   useEffect(() => {
     const checkIsSaved = async () => {
@@ -251,10 +257,10 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         .from('chats')
         .select('*')
         .eq('id', chatId)
-        .single();
+        .maybeSingle();
       
       if (!existingChat) {
-        await supabase
+        const { error: insertError } = await supabase
           .from('chats')
           .insert({
             id: chatId,
@@ -262,11 +268,12 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             last_message: quickMessage || 'Started a conversation',
             last_timestamp: new Date().toISOString(),
           });
+        if (insertError) throw insertError;
       }
 
       // 2. Send initial message if provided
       if (quickMessage.trim()) {
-        await supabase
+        const { error: msgError } = await supabase
           .from('messages')
           .insert({
             chat_id: chatId,
@@ -275,6 +282,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             message_type: 'text',
             created_at: new Date().toISOString()
           });
+        if (msgError) throw msgError;
 
         // Update chat last message
         await supabase
