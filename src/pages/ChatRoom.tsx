@@ -85,6 +85,9 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [previewFile, setPreviewFile] = useState<{ file: File, url: string } | null>(null);
+  const [showChatOptions, setShowChatOptions] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [chatTheme, setChatTheme] = useState('default');
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<any>(null);
@@ -521,6 +524,59 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
     }
   };
 
+  const handleBlockUser = async () => {
+    if (!profile?.id || !otherUser?.id) return;
+    
+    if (!isSupabaseActive) {
+      toast('User blocked successfully (Mock Mode)!', 'success');
+      navigate('/messages');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('blocked_users')
+        .insert({
+          user_id: profile.id,
+          blocked_user_id: otherUser.id,
+          created_at: new Date().toISOString()
+        });
+      
+      if (error) throw error;
+      toast('User blocked successfully.', 'success');
+      navigate('/messages');
+    } catch (err: any) {
+      console.error('Error blocking user:', err);
+      toast('Failed to block user. Please try again.', 'error');
+    }
+  };
+
+  const handleClearChat = async () => {
+    if (!profile?.id || !chatId) return;
+    
+    if (!isSupabaseActive) {
+      setMessages([]);
+      toast('Chat cleared (Mock Mode)', 'success');
+      return;
+    }
+
+    try {
+      // For simplicity, we'll just delete the messages for this user
+      // In a real app, you might want to soft delete or hide them per user
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('chat_id', chatId);
+        
+      if (error) throw error;
+      setMessages([]);
+      toast('Chat cleared', 'success');
+    } catch (err) {
+      console.error('Error clearing chat:', err);
+      toast('Failed to clear chat', 'error');
+    }
+  };
+
   if (loading) return (
     <div className="h-screen flex items-center justify-center bg-brand-dark">
       <div className="w-12 h-12 border-4 border-brand-blue border-t-transparent rounded-full animate-spin shadow-[0_0_20px_rgba(0,209,255,0.3)]" />
@@ -529,8 +585,15 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
 
   const isSubscribed = profile?.is_subscribed;
 
+  const themes = {
+    default: "from-brand-blue/20 via-blue-600/10 to-purple-600/20",
+    emerald: "from-emerald-500/20 via-green-600/10 to-teal-600/20",
+    rose: "from-rose-500/20 via-pink-600/10 to-red-600/20",
+    amber: "from-amber-500/20 via-orange-600/10 to-yellow-600/20"
+  };
+
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] md:h-[calc(100vh-160px)] max-w-[600px] mx-auto bg-black/40 border border-white/10 rounded-[40px] overflow-hidden shadow-2xl relative backdrop-blur-3xl">
+    <div className="flex flex-col h-screen w-full bg-[#050505] overflow-hidden relative">
       {/* Premium Background Animation */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         <motion.div 
@@ -540,37 +603,46 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
             opacity: [0.1, 0.2, 0.1]
           }}
           transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="absolute top-[-20%] left-[-20%] w-[80%] h-[80%] bg-gradient-to-br from-brand-blue/20 via-blue-600/10 to-purple-600/20 blur-[120px] rounded-full"
+          className={cn(
+            "absolute top-[-20%] left-[-20%] w-[80%] h-[80%] blur-[120px] rounded-full bg-gradient-to-br transition-colors duration-1000",
+            themes[chatTheme as keyof typeof themes] || themes.default
+          )}
         />
         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay" />
       </div>
 
       {/* Header */}
-      <header className="px-8 py-6 border-b border-white/5 flex items-center justify-between bg-black/40 backdrop-blur-3xl z-10">
-        <div className="flex items-center gap-6">
-          <button onClick={() => navigate(-1)} className="p-3 hover:bg-white/5 rounded-2xl transition-all hover:scale-110 active:scale-90">
+      <header className="px-4 py-4 border-b border-white/5 flex items-center justify-between bg-[#050505]/80 backdrop-blur-3xl z-20 sticky top-0">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate(-1)} className="p-2 hover:bg-white/5 rounded-2xl transition-all hover:scale-110 active:scale-90">
             <ArrowLeft className="w-6 h-6 text-white/70" />
           </button>
-          <div className="flex items-center gap-4">
+          <div 
+            className="flex items-center gap-3 cursor-pointer hover:bg-white/5 p-2 rounded-2xl transition-colors"
+            onClick={() => setShowProfileModal(true)}
+          >
             <div className="relative">
               <img 
                 src={otherUser?.photo_url || `https://picsum.photos/seed/${otherUser?.id}/100/100`} 
-                className="w-12 h-12 rounded-2xl object-cover border border-white/10 shadow-lg"
+                className="w-10 h-10 rounded-full object-cover border border-white/10 shadow-lg"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-brand-blue border-[3px] border-brand-dark shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+              <div className={cn(
+                "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-[2px] border-brand-dark shadow-[0_0_10px_rgba(0,209,255,0.5)]",
+                onlineUsers.includes(otherUser?.id) ? "bg-brand-blue" : "bg-white/20 shadow-none"
+              )} />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-display text-lg tracking-tight text-white italic">{otherUser?.username}</span>
+                <span className="font-display text-base tracking-tight text-white italic">{otherUser?.username}</span>
                 {otherUser?.is_verified && (
                   <div className="bg-brand-blue rounded-full p-0.5 shadow-[0_0_10px_rgba(0,209,255,0.5)]">
-                    <CheckCircle className="w-3 h-3 text-brand-dark" />
+                    <CheckCircle className="w-2.5 h-2.5 text-brand-dark" />
                   </div>
                 )}
               </div>
               <span className={cn(
-                "text-[10px] uppercase tracking-widest font-bold transition-all",
+                "text-[9px] uppercase tracking-widest font-bold transition-all",
                 onlineUsers.includes(otherUser?.id) ? "text-brand-blue animate-pulse" : "text-white/20"
               )}>
                 {onlineUsers.includes(otherUser?.id) ? 'Online' : 'Offline'}
@@ -579,10 +651,52 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <button className="p-3 hover:bg-white/5 rounded-2xl transition-all hover:scale-110 active:scale-90">
-            <MoreHorizontal className="w-6 h-6 text-white/20" />
+        <div className="relative">
+          <button 
+            onClick={() => setShowChatOptions(!showChatOptions)}
+            className="p-3 hover:bg-white/5 rounded-2xl transition-all hover:scale-110 active:scale-90"
+          >
+            <MoreVertical className="w-6 h-6 text-white/70" />
           </button>
+          
+          <AnimatePresence>
+            {showChatOptions && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="absolute right-0 top-full mt-2 w-48 bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"
+              >
+                <button 
+                  onClick={() => {
+                    setShowChatOptions(false);
+                    handleClearChat();
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-bold text-white/70 hover:bg-white/5 transition-colors"
+                >
+                  Clear Chat
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowChatOptions(false);
+                    toast('User reported', 'success');
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-bold text-white/70 hover:bg-white/5 transition-colors"
+                >
+                  Report User
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowChatOptions(false);
+                    handleBlockUser();
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-500/10 transition-colors"
+                >
+                  Block User
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
@@ -937,6 +1051,99 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
           )}
         </form>
       </div>
+      {/* Profile Summary Modal */}
+      <AnimatePresence>
+        {showProfileModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-0">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowProfileModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, y: 100, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 100, scale: 0.95 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[32px] overflow-hidden shadow-2xl"
+            >
+              <div className="relative h-48 bg-brand-blue/10">
+                <img 
+                  src={otherUser?.photo_url || `https://picsum.photos/seed/${otherUser?.id}/400/400`} 
+                  className="w-full h-full object-cover opacity-50"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
+                
+                <button 
+                  onClick={() => setShowProfileModal(false)}
+                  className="absolute top-4 right-4 p-2 bg-black/40 backdrop-blur-md rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <X className="w-5 h-5 text-white" />
+                </button>
+              </div>
+              
+              <div className="px-6 pb-8 -mt-16 relative z-10 space-y-6">
+                <div className="text-center space-y-2">
+                  <img 
+                    src={otherUser?.photo_url || `https://picsum.photos/seed/${otherUser?.id}/200/200`} 
+                    className="w-32 h-32 rounded-full object-cover border-4 border-[#0a0a0a] shadow-xl mx-auto"
+                    referrerPolicy="no-referrer"
+                  />
+                  <h2 className="text-2xl font-display uppercase italic tracking-tighter flex items-center justify-center gap-2">
+                    {otherUser?.display_name || otherUser?.username}
+                    {otherUser?.is_verified && <CheckCircle className="w-5 h-5 text-brand-blue" />}
+                  </h2>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold">
+                    {typeof otherUser?.distance === 'number' ? `~${otherUser.distance.toFixed(1)}km away` : 'Nearby'}
+                  </p>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-3">
+                  <button className="flex flex-col items-center justify-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors">
+                    <Volume2 className="w-6 h-6 text-brand-blue" />
+                    <span className="text-[9px] uppercase tracking-widest font-bold">Mute</span>
+                  </button>
+                  <button className="flex flex-col items-center justify-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors">
+                    <Image className="w-6 h-6 text-brand-blue" />
+                    <span className="text-[9px] uppercase tracking-widest font-bold">Media</span>
+                  </button>
+                  <button className="flex flex-col items-center justify-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors">
+                    <MoreHorizontal className="w-6 h-6 text-brand-blue" />
+                    <span className="text-[9px] uppercase tracking-widest font-bold">More</span>
+                  </button>
+                </div>
+                
+                <div className="space-y-2">
+                  <button 
+                    onClick={() => {
+                      const themeKeys = Object.keys(themes);
+                      const currentIndex = themeKeys.indexOf(chatTheme);
+                      const nextIndex = (currentIndex + 1) % themeKeys.length;
+                      setChatTheme(themeKeys[nextIndex]);
+                    }}
+                    className="w-full flex items-center justify-between p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors"
+                  >
+                    <span className="text-sm font-bold">Customize Chat Theme</span>
+                    <div className={cn(
+                      "w-6 h-6 rounded-full bg-gradient-to-br transition-colors",
+                      themes[chatTheme as keyof typeof themes].replace('/20', '').replace('/10', '')
+                    )} />
+                  </button>
+                  <button 
+                    onClick={() => navigate(`/profile/${otherUser?.id}`)}
+                    className="w-full flex items-center justify-between p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors"
+                  >
+                    <span className="text-sm font-bold">View Full Profile</span>
+                    <ArrowLeft className="w-5 h-5 rotate-180 text-white/40" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

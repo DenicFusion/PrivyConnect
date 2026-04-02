@@ -75,7 +75,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           display_name: mockUser.display_name || mockUser.username,
           bio: mockUser.bio || '',
           photo_url: mockUser.photo_url || '',
-          preferences: mockUser.preferences || [],
+          preferences: Array.isArray(mockUser.preferences) ? mockUser.preferences : (mockUser.preferences?.interests || []),
           is_public: true,
           hide_online_status: false,
           profile_mode: mockUser.profile_mode || 'public'
@@ -102,7 +102,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             display_name: data.display_name || data.username,
             bio: data.bio || '',
             photo_url: data.photo_url || '',
-            preferences: data.preferences || [],
+            preferences: Array.isArray(data.preferences) ? data.preferences : (data.preferences?.interests || []),
             is_public: data.is_public ?? true,
             hide_online_status: data.hide_online_status ?? false,
             profile_mode: data.profile_mode || 'public'
@@ -563,7 +563,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                         Preferences
                       </h3>
                       <div className="flex flex-wrap gap-3">
-                        {(user.preferences || ['Travel', 'Dining', 'Luxury', 'Tech']).map((tag: string) => (
+                        {(Array.isArray(user.preferences) ? user.preferences : (user.preferences?.interests || ['Travel', 'Dining', 'Luxury', 'Tech'])).map((tag: string) => (
                           <span key={tag} className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] uppercase tracking-[0.2em] font-bold text-white/60 hover:bg-white/10 transition-colors cursor-default">
                             {tag}
                           </span>

@@ -484,7 +484,7 @@ function UserCard({ user, index, isSubscribed, onLockedClick }: {
           <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] font-bold text-white/40">
             <div className="flex items-center gap-1.5">
               <MapPin className="w-3 h-3 text-brand-blue" />
-              <span>{user.distance ? `~${user.distance.toFixed(1)}km away` : 'Nearby'}</span>
+              <span>{typeof user.distance === 'number' ? `~${user.distance.toFixed(1)}km away` : 'Nearby'}</span>
             </div>
             {(user.is_online && !user.hide_online_status) && (
               <div className="flex items-center gap-1.5">

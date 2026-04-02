@@ -524,6 +524,7 @@ function AppContent() {
 function Layout({ children, profile, unreadCount }: { children: React.ReactNode, profile: any, unreadCount: number }) {
   const location = useLocation();
   const isDiscoveryPage = location.pathname === '/discovery';
+  const isChatRoom = location.pathname.startsWith('/chat/');
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/discovery' },
@@ -533,7 +534,7 @@ function Layout({ children, profile, unreadCount }: { children: React.ReactNode,
   ];
 
   return (
-    <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 overflow-x-hidden">
+    <div className={cn("flex flex-col min-h-screen overflow-x-hidden", !isChatRoom && "pb-20 md:pb-0 md:pl-20")}>
       {/* Top Bar - Only visible on Discovery page */}
       {isDiscoveryPage && (
         <header className="h-20 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
@@ -563,7 +564,7 @@ function Layout({ children, profile, unreadCount }: { children: React.ReactNode,
       )}
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8">
+      <main className={cn("flex-1 w-full", !isChatRoom && "max-w-7xl mx-auto p-4 md:p-8")}>
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
@@ -571,6 +572,7 @@ function Layout({ children, profile, unreadCount }: { children: React.ReactNode,
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
+            className={cn(isChatRoom && "h-full flex flex-col")}
           >
             {children}
           </motion.div>
@@ -578,46 +580,48 @@ function Layout({ children, profile, unreadCount }: { children: React.ReactNode,
       </main>
 
       {/* Navigation - Mobile Bottom / Desktop Side */}
-      <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#050505]/95 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around px-4 z-50 md:top-0 md:bottom-0 md:right-auto md:w-20 md:flex-col md:border-t-0 md:border-r md:h-full">
-        <div className="hidden md:flex flex-col items-center py-8 gap-8">
-           <PrivyLogo className="md:flex-col md:gap-1 drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
-        </div>
-        
-        <div className="flex flex-1 justify-around md:flex-col md:justify-center md:gap-10">
-          {navItems.map((item) => {
-            const isActive = item.path === '/discovery' 
-              ? location.pathname === '/discovery'
-              : item.path === '/chats'
-                ? location.pathname.startsWith('/chats') || location.pathname.startsWith('/chat/')
-                : location.pathname.startsWith(item.path);
-            const Icon = item.icon;
-            
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={cn(
-                  "flex flex-col items-center gap-1.5 p-2 transition-all group relative",
-                  isActive ? "text-brand-blue" : "text-white/30 hover:text-white"
-                )}
-              >
-                <div className={cn(
-                  "p-2.5 rounded-2xl transition-all duration-500",
-                  isActive ? "bg-brand-blue/10 shadow-[0_0_20px_rgba(0,209,255,0.15)]" : "group-hover:bg-white/5"
-                )}>
-                  <Icon className={cn("w-6 h-6 transition-transform duration-500", isActive && "scale-110")} />
-                </div>
-                {isActive && (
-                  <motion.div 
-                    layoutId="nav-glow"
-                    className="absolute -bottom-1 w-1 h-1 bg-brand-blue rounded-full shadow-[0_0_10px_rgba(0,209,255,1)]"
-                  />
-                )}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      {!isChatRoom && (
+        <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#050505]/95 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around px-4 z-50 md:top-0 md:bottom-0 md:right-auto md:w-20 md:flex-col md:border-t-0 md:border-r md:h-full">
+          <div className="hidden md:flex flex-col items-center py-8 gap-8">
+             <PrivyLogo className="md:flex-col md:gap-1 drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
+          </div>
+          
+          <div className="flex flex-1 justify-around md:flex-col md:justify-center md:gap-10">
+            {navItems.map((item) => {
+              const isActive = item.path === '/discovery' 
+                ? location.pathname === '/discovery'
+                : item.path === '/chats'
+                  ? location.pathname.startsWith('/chats') || location.pathname.startsWith('/chat/')
+                  : location.pathname.startsWith(item.path);
+              const Icon = item.icon;
+              
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 p-2 transition-all group relative",
+                    isActive ? "text-brand-blue" : "text-white/30 hover:text-white"
+                  )}
+                >
+                  <div className={cn(
+                    "p-2.5 rounded-2xl transition-all duration-500",
+                    isActive ? "bg-brand-blue/10 shadow-[0_0_20px_rgba(0,209,255,0.15)]" : "group-hover:bg-white/5"
+                  )}>
+                    <Icon className={cn("w-6 h-6 transition-transform duration-500", isActive && "scale-110")} />
+                  </div>
+                  {isActive && (
+                    <motion.div 
+                      layoutId="nav-glow"
+                      className="absolute -bottom-1 w-1 h-1 bg-brand-blue rounded-full shadow-[0_0_10px_rgba(0,209,255,1)]"
+                    />
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

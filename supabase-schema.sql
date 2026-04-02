@@ -117,6 +117,12 @@ CREATE POLICY "Users can view own transactions" ON public.transactions
 CREATE POLICY "Users can view their own chats" ON public.chats
     FOR SELECT USING (auth.uid() = ANY(participants));
 
+CREATE POLICY "Users can create chats" ON public.chats
+    FOR INSERT WITH CHECK (auth.uid() = ANY(participants));
+
+CREATE POLICY "Users can update their own chats" ON public.chats
+    FOR UPDATE USING (auth.uid() = ANY(participants));
+
 -- Messages: Participants only
 CREATE POLICY "Users can view messages in their chats" ON public.messages
     FOR SELECT USING (
