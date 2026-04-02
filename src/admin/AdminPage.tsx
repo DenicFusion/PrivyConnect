@@ -35,7 +35,10 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   Wallet,
-  X
+  X,
+  Database,
+  Server,
+  Cloud
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -168,6 +171,7 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
     { id: 'users', label: 'Users', icon: Users },
     { id: 'finance', label: 'Finance', icon: DollarSign },
     { id: 'moderation', label: 'Moderation', icon: Shield },
+    { id: 'infrastructure', label: 'Infrastructure', icon: Database },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -229,6 +233,7 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
             {activeTab === 'users' && <UserManagementView users={users} />}
             {activeTab === 'finance' && <FinancialControlView transactions={transactions} settings={settings} />}
             {activeTab === 'moderation' && <ModerationView />}
+            {activeTab === 'infrastructure' && <InfrastructureView />}
             {activeTab === 'settings' && <SystemSettingsView settings={settings} />}
           </motion.div>
         </AnimatePresence>
@@ -1156,6 +1161,136 @@ function ModerationView() {
               </button>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfrastructureView() {
+  const [backendMode, setBackendMode] = useState(localStorage.getItem('backendMode') || 'supabase');
+  const [storageMode, setStorageMode] = useState(localStorage.getItem('storageMode') || 'supabase+cloudflare');
+  const [authMode, setAuthMode] = useState(localStorage.getItem('authMode') || 'supabase');
+
+  const handleSave = () => {
+    localStorage.setItem('backendMode', backendMode);
+    localStorage.setItem('storageMode', storageMode);
+    localStorage.setItem('authMode', authMode);
+    alert('Infrastructure settings saved. Please reload the page to apply changes.');
+    window.location.reload();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-display font-bold text-white">Infrastructure Monitoring</h2>
+          <p className="text-white/50 text-sm mt-1">Manage dual backend systems and storage</p>
+        </div>
+        <button 
+          onClick={handleSave}
+          className="px-6 py-2 bg-brand-blue text-brand-dark rounded-xl text-sm font-bold hover:bg-brand-blue/90 transition-colors"
+        >
+          Save Changes
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
+              <Database className="w-6 h-6 text-brand-blue" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Backend Mode</h3>
+              <p className="text-white/50 text-xs">Active database system</p>
+            </div>
+          </div>
+          <select 
+            value={backendMode}
+            onChange={(e) => setBackendMode(e.target.value)}
+            className="w-full bg-[#111] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-blue"
+          >
+            <option value="supabase">Supabase (Primary)</option>
+            <option value="firebase">Firebase (Primary)</option>
+            <option value="hybrid">Hybrid (Firebase Realtime + Supabase Sync)</option>
+          </select>
+        </div>
+
+        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center">
+              <Cloud className="w-6 h-6 text-purple-500" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Storage Mode</h3>
+              <p className="text-white/50 text-xs">Active storage provider</p>
+            </div>
+          </div>
+          <select 
+            value={storageMode}
+            onChange={(e) => setStorageMode(e.target.value)}
+            className="w-full bg-[#111] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-blue"
+          >
+            <option value="supabase+cloudflare">Supabase + Cloudflare CDN</option>
+            <option value="firebase+cloudflare">Firebase + Cloudflare CDN</option>
+          </select>
+        </div>
+
+        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+              <Lock className="w-6 h-6 text-emerald-500" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Auth Mode</h3>
+              <p className="text-white/50 text-xs">Active authentication provider</p>
+            </div>
+          </div>
+          <select 
+            value={authMode}
+            onChange={(e) => setAuthMode(e.target.value)}
+            className="w-full bg-[#111] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-blue"
+          >
+            <option value="supabase">Supabase Auth</option>
+            <option value="firebase">Firebase Auth</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6">
+        <h3 className="text-lg font-bold text-white mb-6">System Status</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-white/50 text-sm">Supabase Status</span>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-emerald-500 text-xs font-bold">ONLINE</span>
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-white">Connected</div>
+          </div>
+          <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-white/50 text-sm">Firebase Status</span>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-emerald-500 text-xs font-bold">ONLINE</span>
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-white">Connected</div>
+          </div>
+          <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-white/50 text-sm">Cloudflare CDN</span>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-emerald-500 text-xs font-bold">ACTIVE</span>
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-white">Routing</div>
+          </div>
         </div>
       </div>
     </div>

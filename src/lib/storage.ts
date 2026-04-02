@@ -1,78 +1,54 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { APP_CONFIG } from '../config';
+import { storage as firebaseStorage } from './firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { supabase } from './supabase';
 
-// Cloudflare R2 Configuration
-// These should be set in your environment variables
-const R2_ACCOUNT_ID = process.env.VITE_R2_ACCOUNT_ID || import.meta.env.VITE_R2_ACCOUNT_ID || '';
-const R2_ACCESS_KEY_ID = process.env.VITE_R2_ACCESS_KEY_ID || import.meta.env.VITE_R2_ACCESS_KEY_ID || '';
-const R2_SECRET_ACCESS_KEY = process.env.VITE_R2_SECRET_ACCESS_KEY || import.meta.env.VITE_R2_SECRET_ACCESS_KEY || '';
-const R2_BUCKET_NAME = process.env.VITE_R2_BUCKET_NAME || import.meta.env.VITE_R2_BUCKET_NAME || '';
-const R2_PUBLIC_URL = process.env.VITE_R2_PUBLIC_URL || import.meta.env.VITE_R2_PUBLIC_URL || ''; // Custom domain or R2 public URL
+// Cloudflare CDN URL (e.g., https://cdn.yourdomain.com)
+const CLOUDFLARE_CDN_URL = import.meta.env.VITE_CLOUDFLARE_CDN_URL || '';
 
-const s3Client = new S3Client({
-  region: "auto",
-  endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: R2_ACCESS_KEY_ID,
-    secretAccessKey: R2_SECRET_ACCESS_KEY,
-  },
-  forcePathStyle: true,
-});
+export async function uploadToStorage(file: File | Blob, path: string, fileName?: string): Promise<string> {
+  const name = fileName || (file instanceof File ? file.name : `file-${Date.now()}`);
+  const fullPath = `${path}/${Date.now()}-${name}`;
 
-export async function uploadToR2(file: File, path: string): Promise<string> {
-  if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET_NAME) {
-    console.warn("R2 storage not configured. Using mock upload.");
-    return URL.createObjectURL(file);
-  }
+  let rawUrl = '';
 
-  const fileName = `${Date.now()}-${file.name}`;
-  const fullPath = `${path}/${fileName}`;
-
-  try {
-    const command = new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
-      Key: fullPath,
-      Body: new Uint8Array(await file.arrayBuffer()),
-      ContentType: file.type,
-    });
-
-    await s3Client.send(command);
+  if (APP_CONFIG.storageMode === 'firebase+cloudflare') {
+    const storageRef = ref(firebaseStorage, fullPath);
+    await uploadBytes(storageRef, file);
+    rawUrl = await getDownloadURL(storageRef);
+  } else {
+    // Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('media') // Assuming 'media' is the default bucket
+      .upload(fullPath, file);
+      
+    if (error) throw error;
     
-    // Return the public URL
-    return `${R2_PUBLIC_URL}/${fullPath}`;
-  } catch (error: any) {
-    console.error("Error uploading to R2:", error);
-    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-      console.error("This is likely a CORS issue. Please ensure your R2 bucket CORS policy allows this origin.");
-    }
-    throw error;
+    const { data: { publicUrl } } = supabase.storage
+      .from('media')
+      .getPublicUrl(fullPath);
+      
+    rawUrl = publicUrl;
   }
+
+  // If Cloudflare CDN is configured, replace the base URL
+  if (CLOUDFLARE_CDN_URL) {
+    try {
+      const urlObj = new URL(rawUrl);
+      return `${CLOUDFLARE_CDN_URL}${urlObj.pathname}${urlObj.search}`;
+    } catch (e) {
+      return rawUrl;
+    }
+  }
+
+  return rawUrl;
+}
+
+// Keep old function names for backward compatibility
+export async function uploadToR2(file: File, path: string): Promise<string> {
+  return uploadToStorage(file, path);
 }
 
 export async function uploadBlobToR2(blob: Blob, path: string, fileName: string): Promise<string> {
-  if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET_NAME) {
-    console.warn("R2 storage not configured. Using mock upload.");
-    return URL.createObjectURL(blob);
-  }
-
-  const fullPath = `${path}/${Date.now()}-${fileName}`;
-
-  try {
-    const command = new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
-      Key: fullPath,
-      Body: new Uint8Array(await blob.arrayBuffer()),
-      ContentType: blob.type,
-    });
-
-    await s3Client.send(command);
-    
-    // Return the public URL
-    return `${R2_PUBLIC_URL}/${fullPath}`;
-  } catch (error: any) {
-    console.error("Error uploading blob to R2:", error);
-    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-      console.error("This is likely a CORS issue. Please ensure your R2 bucket CORS policy allows this origin.");
-    }
-    throw error;
-  }
+  return uploadToStorage(blob, path, fileName);
 }
