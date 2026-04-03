@@ -35,10 +35,7 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   Wallet,
-  X,
-  Database,
-  Server,
-  Cloud
+  X
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
