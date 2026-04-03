@@ -8,9 +8,9 @@ export const APP_CONFIG = {
   USE_SUPABASE: true,
   
   // Dual Backend Configuration
-  backendMode: (localStorage.getItem('backendMode') as 'supabase' | 'firebase' | 'hybrid') || 'supabase',
-  storageMode: (localStorage.getItem('storageMode') as 'supabase+cloudflare' | 'firebase+cloudflare') || 'supabase+cloudflare',
-  authMode: (localStorage.getItem('authMode') as 'supabase' | 'firebase') || 'supabase',
+  backendMode: (localStorage.getItem('backendMode') as 'supabase' | 'firebase' | 'hybrid') || 'firebase',
+  storageMode: (localStorage.getItem('storageMode') as 'supabase+cloudflare' | 'firebase+cloudflare') || 'firebase+cloudflare',
+  authMode: (localStorage.getItem('authMode') as 'supabase' | 'firebase') || 'firebase',
 
   // App Metadata
   NAME: 'PrivyConnect',
