@@ -52,10 +52,36 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   const [showDebug, setShowDebug] = useState(false);
   const [debugStatus, setDebugStatus] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [subscriptionPrice, setSubscriptionPrice] = useState(1500);
   const [scriptStatus, setScriptStatus] = useState({
     paystack: false,
     korapay: false
   });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      if (!isSupabaseActive) return;
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'paystack_plan')
+        .single();
+      
+      if (data?.value?.amount) {
+        setSubscriptionPrice(data.value.amount);
+      } else {
+        const { data: subData } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'subscription_price')
+          .single();
+        if (subData?.value?.amount) {
+          setSubscriptionPrice(subData.value.amount);
+        }
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     const checkScripts = () => {
@@ -200,7 +226,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
       return;
     }
     
-    const amount = paymentType === 'subscription' ? 1500 : parseFloat(depositAmount);
+    const amount = paymentType === 'subscription' ? subscriptionPrice : parseFloat(depositAmount);
     
     if (isNaN(amount) || amount <= 0) {
       toast('Please enter a valid amount', 'error');
@@ -209,7 +235,56 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
 
     setIsProcessing(true);
 
-    if (paymentGateway === 'paystack') {
+    if (paymentType === 'subscription' && paymentGateway === 'paystack') {
+      // Use backend to initiate subscription with plan
+      try {
+        const backendUrl = APP_CONFIG.BACKEND_URL || '';
+        
+        // Fetch plan code from settings
+        const { data: settingsData } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'paystack_plan')
+          .single();
+          
+        const planCode = settingsData?.value?.code;
+        
+        if (!planCode) {
+          toast('Subscription plan is not configured yet.', 'error');
+          setIsProcessing(false);
+          return;
+        }
+
+        const res = await fetch(`${backendUrl}/api/initiate-subscription`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: profile.email,
+            amount,
+            plan: planCode,
+            user_id: profile.id,
+            interval: settingsData?.value?.interval || 'monthly'
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status && data.data?.authorization_url) {
+            window.location.href = data.data.authorization_url;
+          } else {
+            toast('Failed to get authorization URL', 'error');
+            setIsProcessing(false);
+          }
+        } else {
+          toast('Failed to initiate subscription', 'error');
+          setIsProcessing(false);
+        }
+      } catch (err) {
+        console.error('Subscription initiation error:', err);
+        toast('Error initiating subscription', 'error');
+        setIsProcessing(false);
+      }
+    } else if (paymentGateway === 'paystack') {
       handlePaystackPayment(amount);
     } else {
       handleKorapayPayment(amount);
@@ -671,7 +746,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                           )}
                         >
                           <Zap className="w-4 h-4" />
-                          {profile?.is_subscribed ? "Renew Subscription" : "Subscribe Now (₦1,500)"}
+                          {profile?.is_subscribed ? "Renew Subscription" : `Subscribe Now (₦${subscriptionPrice.toLocaleString()})`}
                         </button>
                         
                         <div className="flex-1 flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-2xl">
@@ -909,10 +984,10 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                   {paymentType === 'subscription' ? (
                     <div className="p-6 bg-brand-blue/10 border border-brand-blue/20 rounded-2xl">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-white/60 text-xs uppercase tracking-widest font-bold">Weekly Access</span>
-                        <span className="text-2xl font-display italic text-white">₦1,500</span>
+                        <span className="text-white/60 text-xs uppercase tracking-widest font-bold">Subscription Access</span>
+                        <span className="text-2xl font-display italic text-white">₦{subscriptionPrice.toLocaleString()}</span>
                       </div>
-                      <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">Full access to all features for 7 days.</p>
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">Full access to all features.</p>
                     </div>
                   ) : (
                     <div className="space-y-2">

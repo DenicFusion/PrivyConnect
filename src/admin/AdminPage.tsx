@@ -35,7 +35,10 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   Wallet,
-  X
+  X,
+  Database,
+  Server,
+  Cloud
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -679,12 +682,20 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
 function FinancialControlView({ transactions: initialTransactions, settings }: { transactions: any[], settings: any }) {
   const [subPrice, setSubPrice] = useState(settings?.subscription_price?.amount?.toString() || '1500');
   const [commission, setCommission] = useState(settings?.platform_commission?.percentage?.toString() || '25');
+  const [paystackPlan, setPaystackPlan] = useState(settings?.paystack_plan || {
+    code: '',
+    name: '',
+    amount: '',
+    interval: 'monthly',
+    description: ''
+  });
   const [txFilter, setTxFilter] = useState<'all' | 'subscription' | 'tip' | 'withdrawal'>('all');
   const [transactions, setTransactions] = useState(initialTransactions);
 
   useEffect(() => {
     if (settings?.subscription_price?.amount) setSubPrice(settings.subscription_price.amount.toString());
     if (settings?.platform_commission?.percentage) setCommission(settings.platform_commission.percentage.toString());
+    if (settings?.paystack_plan) setPaystackPlan(settings.paystack_plan);
   }, [settings]);
 
   useEffect(() => {
@@ -819,6 +830,83 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
             <div className="p-6 rounded-3xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all group">
               <p className="text-[10px] uppercase tracking-widest font-bold text-white/20 mb-1 group-hover:text-brand-blue transition-colors">Subs Processed Today</p>
               <p className="text-3xl font-display font-bold font-mono">₦45,000</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-8 rounded-[40px] bg-white/5 border border-white/10 space-y-8 relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 opacity-5">
+          <CreditCard className="w-24 h-24" />
+        </div>
+        <div className="space-y-1 relative z-10">
+          <h3 className="text-xl font-display font-bold uppercase tracking-widest">Paystack Subscription Plan</h3>
+          <p className="text-[10px] text-white/30 uppercase tracking-[0.2em]">Configure automated recurring billing</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-2">Plan Code (e.g. PLN_xxxx)</p>
+            <input 
+              type="text" 
+              value={paystackPlan.code || ''} 
+              onChange={(e) => setPaystackPlan({ ...paystackPlan, code: e.target.value })}
+              placeholder="PLN_xxxxxxxxxxxx"
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-mono font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+            />
+          </div>
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-2">Plan Name</p>
+            <input 
+              type="text" 
+              value={paystackPlan.name || ''} 
+              onChange={(e) => setPaystackPlan({ ...paystackPlan, name: e.target.value })}
+              placeholder="e.g. Premium Access"
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+            />
+          </div>
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-2">Plan Amount (₦)</p>
+            <input 
+              type="number" 
+              value={paystackPlan.amount || ''} 
+              onChange={(e) => setPaystackPlan({ ...paystackPlan, amount: Number(e.target.value) })}
+              placeholder="2500"
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-mono font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+            />
+          </div>
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-2">Billing Interval</p>
+            <select 
+              value={paystackPlan.interval || 'monthly'} 
+              onChange={(e) => setPaystackPlan({ ...paystackPlan, interval: e.target.value })}
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all appearance-none" 
+            >
+              <option value="hourly">Hourly</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="biannually">Biannually</option>
+              <option value="annually">Annually</option>
+            </select>
+          </div>
+          <div className="md:col-span-2 space-y-3">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-white/30 ml-2">Description</p>
+            <div className="flex items-center gap-3">
+              <input 
+                type="text" 
+                value={paystackPlan.description || ''} 
+                onChange={(e) => setPaystackPlan({ ...paystackPlan, description: e.target.value })}
+                placeholder="Subscription to the website"
+                className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+              />
+              <button 
+                onClick={() => updateSetting('paystack_plan', paystackPlan)}
+                className="px-8 py-4 bg-brand-blue text-brand-dark rounded-2xl text-sm font-bold uppercase tracking-widest hover:bg-brand-blue/90 transition-all"
+              >
+                Save Plan
+              </button>
             </div>
           </div>
         </div>

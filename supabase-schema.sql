@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     is_subscribed BOOLEAN DEFAULT FALSE,
     subscription_status TEXT DEFAULT 'inactive' CHECK (subscription_status IN ('active', 'inactive', 'pending', 'expired')),
     subscription_expiry TIMESTAMPTZ,
+    authorization_code TEXT,
+    next_billing_date TIMESTAMPTZ,
     profile_mode TEXT DEFAULT 'public' CHECK (profile_mode IN ('public', 'private', 'incognito')),
     is_public BOOLEAN DEFAULT TRUE,
     hide_online_status BOOLEAN DEFAULT FALSE,

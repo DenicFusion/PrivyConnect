@@ -132,6 +132,79 @@ async function startServer() {
     }
   });
 
+  // Initiate Subscription API route
+  app.post("/api/initiate-subscription", async (req, res) => {
+    const { email, amount, plan, user_id, interval } = req.body;
+    
+    if (!email || !amount || !plan || !user_id) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      const response = await axios.post(
+        "https://api.paystack.co/transaction/initialize",
+        {
+          email,
+          amount: amount * 100, // Convert to kobo
+          plan,
+          callback_url: `${req.headers.origin || "https://yourapp.com"}/verify-subscription`,
+          channels: ["card"], // Force card payments only
+          metadata: {
+            user_id,
+            type: "subscription",
+            interval: interval || 'monthly'
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      return res.status(200).json(response.data);
+    } catch (error: any) {
+      console.error("Initialization failed:", error.response?.data || error.message);
+      return res.status(500).json({ error: "Initialization failed" });
+    }
+  });
+
+  // Verify Subscription API route
+  app.get("/api/verify-subscription", async (req, res) => {
+    const { reference } = req.query;
+
+    if (!reference) {
+      return res.status(400).json({ error: "Reference is required" });
+    }
+
+    try {
+      const verifyRes = await axios.get(
+        `https://api.paystack.co/transaction/verify/${reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          },
+        }
+      );
+
+      const data = verifyRes.data;
+
+      if (data.data.status === "success") {
+        return res.status(200).json({
+          success: true,
+          message: "Subscription activated",
+          data: data.data
+        });
+      }
+
+      return res.status(400).json({ success: false, message: "Verification failed" });
+    } catch (error: any) {
+      console.error("Verification failed:", error.response?.data || error.message);
+      return res.status(500).json({ error: "Verification failed" });
+    }
+  });
+
   // Paystack Webhook Endpoint
   app.post("/api/webhook/paystack", async (req: any, res) => {
     const signature = req.headers["x-paystack-signature"];
@@ -204,8 +277,28 @@ async function startServer() {
 
         if (type === "subscription") {
           const expiryDate = new Date();
-          expiryDate.setDate(expiryDate.getDate() + 7); // Weekly
+          const interval = metadata?.interval || 'monthly';
+          
+          if (interval === 'hourly') {
+            expiryDate.setHours(expiryDate.getHours() + 1);
+          } else if (interval === 'daily') {
+            expiryDate.setDate(expiryDate.getDate() + 1);
+          } else if (interval === 'weekly') {
+            expiryDate.setDate(expiryDate.getDate() + 7);
+          } else if (interval === 'monthly') {
+            expiryDate.setMonth(expiryDate.getMonth() + 1);
+          } else if (interval === 'quarterly') {
+            expiryDate.setMonth(expiryDate.getMonth() + 3);
+          } else if (interval === 'biannually') {
+            expiryDate.setMonth(expiryDate.getMonth() + 6);
+          } else if (interval === 'annually') {
+            expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+          } else {
+            expiryDate.setMonth(expiryDate.getMonth() + 1); // Default to monthly
+          }
 
+          const authCode = paymentData.authorization?.authorization_code;
+          
           // Update profile
           const { error: profileError } = await supabaseAdmin
             .from("profiles")
@@ -213,6 +306,8 @@ async function startServer() {
               is_subscribed: true,
               subscription_status: "active",
               subscription_expiry: expiryDate.toISOString(),
+              authorization_code: authCode || null,
+              next_billing_date: expiryDate.toISOString(),
             })
             .eq("id", userId);
 
@@ -272,6 +367,50 @@ async function startServer() {
       } catch (error: any) {
         console.error(`Paystack Webhook Processing Error: ${error.message}`);
         return res.status(500).send("Internal Server Error");
+      }
+    } else if (event.event === "invoice.update") {
+      if (event.data.status === "success") {
+        const { customer, subscription, amount } = event.data;
+        const customerEmail = customer.email;
+        
+        try {
+          // Find user by email
+          const { data: profile, error: profileError } = await supabaseAdmin
+            .from("profiles")
+            .select("id")
+            .eq("email", customerEmail)
+            .maybeSingle();
+            
+          if (profile && !profileError) {
+            const nextBillingDate = new Date(subscription.next_payment_date);
+            
+            // Update subscription
+            await supabaseAdmin
+              .from("profiles")
+              .update({
+                is_subscribed: true,
+                subscription_status: "active",
+                subscription_expiry: nextBillingDate.toISOString(),
+                next_billing_date: nextBillingDate.toISOString(),
+              })
+              .eq("id", profile.id);
+              
+            // Log transaction
+            await supabaseAdmin.from("transactions").insert({
+              profile_id: profile.id,
+              amount: amount / 100,
+              type: "subscription",
+              status: "completed",
+              reference: `auto_renew_${event.data.id}`,
+              description: "Subscription Auto-Renewal via Paystack",
+              metadata: { gateway: "paystack", invoice_id: event.data.id }
+            });
+            
+            console.log(`Subscription renewed for user ${profile.id}`);
+          }
+        } catch (err) {
+          console.error("Error processing invoice.update:", err);
+        }
       }
     }
 

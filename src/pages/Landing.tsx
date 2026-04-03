@@ -9,6 +9,34 @@ export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [subscriptionPrice, setSubscriptionPrice] = useState(1500);
+  const [subscriptionInterval, setSubscriptionInterval] = useState('week');
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      if (!isSupabaseActive) return;
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'paystack_plan')
+        .single();
+      
+      if (data?.value?.amount) {
+        setSubscriptionPrice(data.value.amount);
+        setSubscriptionInterval(data.value.interval === 'monthly' ? 'month' : data.value.interval === 'weekly' ? 'week' : data.value.interval === 'daily' ? 'day' : data.value.interval === 'hourly' ? 'hour' : data.value.interval === 'quarterly' ? 'quarter' : data.value.interval === 'biannually' ? 'half-year' : data.value.interval === 'annually' ? 'year' : 'month');
+      } else {
+        const { data: subData } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'subscription_price')
+          .single();
+        if (subData?.value?.amount) {
+          setSubscriptionPrice(subData.value.amount);
+        }
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -270,8 +298,8 @@ export default function LandingPage() {
               <div className="space-y-2">
                 <h3 className="text-3xl font-display uppercase italic">Premium Access</h3>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-display italic">₦1,500</span>
-                  <span className="text-white/40 uppercase tracking-widest text-[10px] font-bold">/ week</span>
+                  <span className="text-5xl font-display italic">₦{subscriptionPrice.toLocaleString()}</span>
+                  <span className="text-white/40 uppercase tracking-widest text-[10px] font-bold">/ {subscriptionInterval}</span>
                 </div>
               </div>
               <ul className="space-y-4">

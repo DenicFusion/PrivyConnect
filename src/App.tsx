@@ -27,6 +27,7 @@ import WalletPage from './pages/Wallet';
 import AdminPage from './admin/AdminPage';
 import AdminGuard from './admin/AdminGuard';
 import VerifySuccessPage from './pages/VerifySuccess';
+import VerifySubscriptionPage from './pages/VerifySubscription';
 import EmailPreviewPage from './pages/EmailPreview';
 import LoginPage from './pages/Login';
 import ResetPasswordPage from './pages/ResetPassword';
@@ -492,6 +493,7 @@ function AppContent() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/verify-success" element={<VerifySuccessPage />} />
+            <Route path="/verify-subscription" element={<VerifySubscriptionPage />} />
             <Route path="/email-preview" element={<EmailPreviewPage />} />
             
             {/* App Experience: Authentication required for these routes */}
