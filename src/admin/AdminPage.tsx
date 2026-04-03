@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useToast } from '../components/Toaster';
 
 import { PrivyLogo } from '../components/Logo';
 
@@ -186,7 +187,7 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
               <h1 className="text-5xl font-display font-extrabold uppercase tracking-tighter mb-2 italic">
                 Command <span className="text-brand-blue">Center</span>
               </h1>
-              <p className="text-white/40 font-light text-sm uppercase tracking-[0.3em]">System Administration & Global Analytics</p>
+              <p className="text-white/40 font-light text-sm uppercase tracking-[0.3em]">Welcome back Denic • System Administration</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -680,6 +681,7 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
 }
 
 function FinancialControlView({ transactions: initialTransactions, settings }: { transactions: any[], settings: any }) {
+  const { toast } = useToast();
   const [subPrice, setSubPrice] = useState(settings?.subscription_price?.amount?.toString() || '1500');
   const [commission, setCommission] = useState(settings?.platform_commission?.percentage?.toString() || '25');
   const [paystackPlan, setPaystackPlan] = useState(settings?.paystack_plan || {
@@ -729,8 +731,10 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
             description: 'Platform Treasury Disbursement'
           });
         if (error) throw error;
+        toast('Withdrawal successful!', 'success');
       } catch (error) {
         console.error('Error processing withdrawal:', error);
+        toast('Error processing withdrawal', 'error');
       }
     }
 
@@ -747,9 +751,10 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
         .from('system_settings')
         .upsert({ key, value, updated_at: new Date().toISOString() });
       if (error) throw error;
-      alert(`Setting ${key} updated successfully!`);
+      toast(`Setting ${key} updated successfully!`, 'success');
     } catch (error) {
       console.error(`Error updating setting ${key}:`, error);
+      toast(`Error updating setting ${key}`, 'error');
     }
   };
 
@@ -1251,6 +1256,7 @@ function ModerationView() {
 }
 
 function SystemSettingsView({ settings }: { settings: any }) {
+  const { toast } = useToast();
   const [flags, setFlags] = useState(settings?.feature_flags || { chat: true, tipping: true, discovery: true, notifications: true });
   const [maintenanceMode, setMaintenanceMode] = useState(settings?.maintenance_mode || false);
   const [minWithdrawal, setMinWithdrawal] = useState(settings?.min_withdrawal || 5000);
@@ -1274,8 +1280,10 @@ function SystemSettingsView({ settings }: { settings: any }) {
           .from('system_settings')
           .upsert({ key: 'feature_flags', value: newFlags, updated_at: new Date().toISOString() });
         if (error) throw error;
+        toast(`Feature flag ${flag} updated`, 'success');
       } catch (error) {
         console.error(`Error toggling flag ${flag}:`, error);
+        toast(`Error toggling flag ${flag}`, 'error');
       }
     }
   };
@@ -1290,8 +1298,10 @@ function SystemSettingsView({ settings }: { settings: any }) {
           .from('system_settings')
           .upsert({ key: 'maintenance_mode', value: newVal, updated_at: new Date().toISOString() });
         if (error) throw error;
+        toast(`Maintenance mode ${newVal ? 'enabled' : 'disabled'}`, 'success');
       } catch (error) {
         console.error('Error toggling maintenance mode:', error);
+        toast('Error toggling maintenance mode', 'error');
       }
     }
   };
@@ -1304,8 +1314,10 @@ function SystemSettingsView({ settings }: { settings: any }) {
           supabase.from('system_settings').upsert({ key: 'min_withdrawal', value: Number(minWithdrawal), updated_at: new Date().toISOString() }),
           supabase.from('system_settings').upsert({ key: 'max_withdrawal', value: Number(maxWithdrawal), updated_at: new Date().toISOString() })
         ]);
+        toast('Withdrawal limits saved successfully', 'success');
       } catch (error) {
         console.error('Error saving withdrawal limits:', error);
+        toast('Error saving withdrawal limits', 'error');
       }
     }
     setTimeout(() => setIsSaving(false), 1000);
