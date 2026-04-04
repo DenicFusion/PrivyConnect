@@ -460,6 +460,7 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         .single();
 
       if (error) {
+        console.error('Supabase insert error:', error);
         setMessages(prev => prev.filter(m => m.id !== tempId));
         toast('Failed to send message', 'error');
         throw error;

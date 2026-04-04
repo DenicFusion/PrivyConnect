@@ -114,7 +114,7 @@ export default function ResetPasswordPage() {
           </div>
         </div>
 
-        <form onSubmit={handleResetPassword} className="space-y-4 text-left">
+        <form onSubmit={handleResetPassword} className="space-y-6 text-left">
           <div className="space-y-4">
             <div className="relative">
               <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
@@ -156,14 +156,14 @@ export default function ResetPasswordPage() {
           <button 
             type="submit"
             disabled={loading}
-            className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+            className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 shadow-[0_20px_40px_rgba(0,209,255,0.2)]"
           >
             {loading ? 'Updating...' : 'Update Password'}
           </button>
 
           <Link 
             to="/login"
-            className="block w-full py-2 text-white/20 font-bold uppercase tracking-widest text-[9px] hover:text-white transition-colors text-center"
+            className="block w-full py-2 text-white/40 font-bold uppercase tracking-widest text-[10px] hover:text-white transition-colors text-center"
           >
             Back to Login
           </Link>

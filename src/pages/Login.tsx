@@ -4,13 +4,11 @@ import { supabase, signIn, isSupabaseActive } from '../lib/supabase';
 import { Logo } from '../components/Logo';
 import { useToast } from '../components/Toaster';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, User, Key, ArrowLeft, Shield, Smartphone, Globe, Eye, EyeOff } from 'lucide-react';
+import { Mail, Key, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<'login' | 'signup' | 'select' | 'forgot'>('select');
+  const [mode, setMode] = useState<'login' | 'select' | 'forgot'>('select');
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
-  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -23,16 +21,6 @@ export default function LoginPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Capture referral code
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const ref = params.get('ref');
-    if (ref) {
-      localStorage.setItem('referral_code', ref);
-      setMode('signup'); // Default to signup if referred
-    }
-  }, [location]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -69,63 +57,48 @@ export default function LoginPage() {
     try {
       let loginEmail = email;
 
-      if (mode === 'signup') {
-        const refCode = localStorage.getItem('referral_code');
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { 
-              username,
-              full_name: fullName,
-              referred_by_code: refCode
-            },
-            emailRedirectTo: window.location.origin + '/verify-success'
-          }
-        });
-        if (error) throw error;
+      // Login flow: If it's a username, find the email
+      if (!email.includes('@')) {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('username', email)
+          .single();
         
-        // Send initial notification
-        if (data.user) {
-          const { sendInitialNotification } = await import('../services/notificationService');
-          await sendInitialNotification(data.user.id);
+        if (profileError || !profileData?.email) {
+          throw new Error('Username not found. Please use your email.');
         }
-
-        localStorage.removeItem('referral_code');
-        toast('Verification code sent to your email!', 'success');
-      } else {
-        // Login flow: If it's a username, find the email
-        if (!email.includes('@')) {
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('email')
-            .eq('username', email)
-            .single();
-          
-          if (profileError || !profileData?.email) {
-            throw new Error('Username not found. Please use your email.');
-          }
-          loginEmail = profileData.email;
-        }
-
-        // Login flow: First verify password
-        const { error: pwdError } = await supabase.auth.signInWithPassword({
-          email: loginEmail,
-          password
-        });
-        if (pwdError) throw pwdError;
-
-        // Password correct, now send OTP for "two-factor" verification
-        const { error: otpError } = await supabase.auth.signInWithOtp({
-          email: loginEmail,
-          options: {
-            emailRedirectTo: window.location.origin + '/verify-success'
-          }
-        });
-        if (otpError) throw otpError;
-        setEmail(loginEmail); // Update email state to the actual email for OTP verification
-        toast('Security code sent to your email!', 'success');
+        loginEmail = profileData.email;
       }
+
+      // Login flow: First verify password
+      const { data: authData, error: pwdError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password
+      });
+      if (pwdError) throw pwdError;
+
+      // Check if device is trusted
+      const trustedDevices = JSON.parse(localStorage.getItem('trusted_devices') || '[]');
+      const deviceId = navigator.userAgent + navigator.language; // Simple device fingerprint
+      
+      if (trustedDevices.includes(deviceId)) {
+        toast('Logged in successfully!', 'success');
+        const from = (location.state as any)?.from?.pathname || '/discovery';
+        navigate(from, { replace: true });
+        return;
+      }
+
+      // Password correct, now send OTP for "two-factor" verification
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: loginEmail,
+        options: {
+          emailRedirectTo: window.location.origin + '/verify-success'
+        }
+      });
+      if (otpError) throw otpError;
+      setEmail(loginEmail); // Update email state to the actual email for OTP verification
+      toast('New device detected. Please enter the OTP sent to your email.', 'success');
       
       setOtpSent(true);
       setResendTimer(30);
@@ -138,10 +111,9 @@ export default function LoginPage() {
     }
   };
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const token = otp.join('');
-    if (token.length !== 6) {
+  const handleVerifyOtp = async (token?: string) => {
+    const finalToken = token || otp.join('');
+    if (finalToken.length !== 6) {
       toast('Please enter the 6-digit code.', 'error');
       return;
     }
@@ -151,10 +123,19 @@ export default function LoginPage() {
     try {
       const { error } = await supabase.auth.verifyOtp({
         email,
-        token,
-        type: mode === 'signup' ? 'signup' : 'email'
+        token: finalToken,
+        type: 'email'
       });
       if (error) throw error;
+      
+      // Mark device as trusted
+      const trustedDevices = JSON.parse(localStorage.getItem('trusted_devices') || '[]');
+      const deviceId = navigator.userAgent + navigator.language;
+      if (!trustedDevices.includes(deviceId)) {
+        trustedDevices.push(deviceId);
+        localStorage.setItem('trusted_devices', JSON.stringify(trustedDevices));
+      }
+
       toast('Verified successfully!', 'success');
       
       // Get the redirect path from state or default to discovery
@@ -169,7 +150,27 @@ export default function LoginPage() {
   };
 
   const handleOtpChange = (index: number, value: string) => {
-    if (value.length > 1) value = value[0];
+    if (value.length > 1) {
+      // Handle paste
+      const pasteData = value.slice(0, 6).split('');
+      const newOtp = [...otp];
+      pasteData.forEach((digit, i) => {
+        if (index + i < 6 && /^\d$/.test(digit)) {
+          newOtp[index + i] = digit;
+        }
+      });
+      setOtp(newOtp);
+      // Focus last filled input
+      const lastIndex = Math.min(index + pasteData.length - 1, 5);
+      document.getElementById(`otp-${lastIndex}`)?.focus();
+      
+      // Auto-verify if all filled
+      if (newOtp.every(d => d !== '')) {
+        handleVerifyOtp(newOtp.join(''));
+      }
+      return;
+    }
+
     if (!/^\d*$/.test(value)) return;
 
     const newOtp = [...otp];
@@ -180,6 +181,11 @@ export default function LoginPage() {
     if (value && index < otp.length - 1) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
+    }
+
+    // Auto-verify if all filled
+    if (value && newOtp.every(d => d !== '')) {
+      handleVerifyOtp(newOtp.join(''));
     }
   };
 
@@ -293,7 +299,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={handleVerifyOtp} className="space-y-8">
+          <form className="space-y-8">
             <div className="flex justify-center gap-2 sm:gap-3">
               {otp.map((digit, i) => (
                 <input
@@ -309,14 +315,6 @@ export default function LoginPage() {
                 />
               ))}
             </div>
-
-            <button 
-              type="submit"
-              disabled={loading}
-              className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)] disabled:opacity-50"
-            >
-              {loading ? 'Verifying...' : 'Verify Code'}
-            </button>
 
             <div className="space-y-2">
               <button 
@@ -408,19 +406,12 @@ export default function LoginPage() {
               >
                 Login with Email
               </button>
-              <button 
-                onClick={handleMagicLink}
-                className="w-full py-5 bg-brand-blue/5 border border-brand-blue/10 text-brand-blue rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-brand-blue/10 transition-all flex items-center justify-center gap-3"
-              >
-                <Smartphone className="w-4 h-4" />
-                Send Magic Link
-              </button>
-              <button 
-                onClick={() => setMode('signup')}
-                className="w-full py-5 text-brand-blue font-bold uppercase tracking-widest text-[10px] hover:underline"
+              <Link 
+                to="/signup"
+                className="w-full py-5 text-brand-blue font-bold uppercase tracking-widest text-[10px] hover:underline block"
               >
                 Create an account
-              </button>
+              </Link>
             </motion.div>
           ) : (
             <motion.form 
@@ -432,37 +423,11 @@ export default function LoginPage() {
               className="space-y-4 text-left"
             >
               <div className="space-y-4">
-                {mode === 'signup' && (
-                  <>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input 
-                        type="text"
-                        placeholder="Full Name"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        required
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
-                      />
-                    </div>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input 
-                        type="text"
-                        placeholder="Username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        required
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
-                      />
-                    </div>
-                  </>
-                )}
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
                   <input 
-                    type={mode === 'signup' || mode === 'forgot' ? 'email' : 'text'}
-                    placeholder={mode === 'signup' || mode === 'forgot' ? 'Email Address' : 'Username or Email'}
+                    type={mode === 'forgot' ? 'email' : 'text'}
+                    placeholder={mode === 'forgot' ? 'Email Address' : 'Username or Email'}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -470,36 +435,36 @@ export default function LoginPage() {
                   />
                 </div>
                 {mode !== 'forgot' && (
-                  <div className="relative">
-                    <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                    <input 
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
-                    />
-                    <button
+                  <>
+                    <div className="relative">
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                      <input 
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-16 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <button 
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                      onClick={() => setMode('forgot')}
+                      className="flex items-center gap-2 mt-2 text-brand-blue font-bold uppercase tracking-widest text-[10px] hover:text-white transition-colors justify-start"
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      <Key className="w-3 h-3" />
+                      Forgot Password?
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
-
-              {mode === 'login' && (
-                <button 
-                  type="button"
-                  onClick={() => setMode('forgot')}
-                  className="text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-brand-blue transition-colors ml-4"
-                >
-                  Forgot Password?
-                </button>
-              )}
 
               {error && (
                 <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] uppercase tracking-widest font-bold">

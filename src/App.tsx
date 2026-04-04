@@ -100,6 +100,7 @@ import VerifySuccessPage from './pages/VerifySuccess';
 import VerifySubscriptionPage from './pages/VerifySubscription';
 import EmailPreviewPage from './pages/EmailPreview';
 import LoginPage from './pages/Login';
+import SignupPage from './pages/Signup';
 import ResetPasswordPage from './pages/ResetPassword';
 import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
@@ -589,6 +590,7 @@ function AppContent() {
             {/* Website Experience: Landing page is public */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/verify-success" element={<VerifySuccessPage />} />
             <Route path="/verify-subscription" element={<VerifySubscriptionPage />} />
