@@ -202,12 +202,17 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin + '/reset-password',
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email,
+        options: {
+          emailRedirectTo: window.location.origin + '/reset-password',
+          shouldCreateUser: false,
+        },
       });
       if (error) throw error;
-      toast('Password reset link sent to your email!', 'success');
-      setMagicLinkSent(true);
+      localStorage.setItem('reset_email', email);
+      toast('Security code sent to your email!', 'success');
+      setOtpSent(true);
     } catch (err: any) {
       setError(err.message);
       toast(err.message, 'error');
