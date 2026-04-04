@@ -24,6 +24,16 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Capture referral code
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const ref = params.get('ref');
+    if (ref) {
+      localStorage.setItem('referral_code', ref);
+      setMode('signup'); // Default to signup if referred
+    }
+  }, [location]);
+
   // Redirect if already logged in
   useEffect(() => {
     if (!isSupabaseActive) {
@@ -60,13 +70,15 @@ export default function LoginPage() {
       let loginEmail = email;
 
       if (mode === 'signup') {
+        const refCode = localStorage.getItem('referral_code');
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: { 
               username,
-              full_name: fullName
+              full_name: fullName,
+              referred_by_code: refCode
             },
             emailRedirectTo: window.location.origin + '/verify-success'
           }
@@ -79,6 +91,7 @@ export default function LoginPage() {
           await sendInitialNotification(data.user.id);
         }
 
+        localStorage.removeItem('referral_code');
         toast('Verification code sent to your email!', 'success');
       } else {
         // Login flow: If it's a username, find the email

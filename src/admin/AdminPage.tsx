@@ -67,6 +67,7 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
   });
 
   const [settings, setSettings] = useState<any>({});
+  const [liveEvents, setLiveEvents] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchAdminData = async () => {
@@ -94,6 +95,14 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
           cpuLoad: 12 + Math.floor(Math.random() * 5),
           memoryUsage: 45 + Math.floor(Math.random() * 10)
         });
+        
+        setLiveEvents([
+          { id: 1, user: 'Sarah_J', action: 'subscribed to', target: 'Alex_Pro', time: '2m ago', type: 'sub' },
+          { id: 2, user: 'Mike_99', action: 'tipped', target: 'Lara_K', amount: '₦2,500', time: '5m ago', type: 'tip' },
+          { id: 3, user: 'NewUser_4', action: 'just joined', target: 'the platform', time: '8m ago', type: 'join' },
+          { id: 4, user: 'Admin', action: 'verified', target: 'Creator_X', time: '12m ago', type: 'verify' },
+        ]);
+        
         setLoading(false);
         return;
       }
@@ -156,6 +165,50 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
           cpuLoad: 12 + Math.floor(Math.random() * 5),
           memoryUsage: 45 + Math.floor(Math.random() * 10)
         });
+
+        // Setup Realtime listeners
+        const profilesSub = supabase.channel('admin-profiles')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, payload => {
+            const newProfile = payload.new;
+            setLiveEvents(prev => [{
+              id: Date.now(),
+              user: newProfile.username || 'New User',
+              action: 'just joined',
+              target: 'the platform',
+              time: 'Just now',
+              type: 'join'
+            }, ...prev].slice(0, 10));
+            setStats(s => ({ ...s, totalUsers: s.totalUsers + 1, newSignups: s.newSignups + 1 }));
+          })
+          .subscribe();
+
+        const txSub = supabase.channel('admin-txs')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, payload => {
+            const newTx = payload.new;
+            if (newTx.status === 'completed') {
+              setLiveEvents(prev => [{
+                id: Date.now(),
+                user: 'User',
+                action: newTx.type === 'tip' ? 'tipped' : 'subscribed',
+                target: 'Creator',
+                amount: `₦${newTx.amount}`,
+                time: 'Just now',
+                type: newTx.type === 'tip' ? 'tip' : 'sub'
+              }, ...prev].slice(0, 10));
+              
+              setStats(s => ({
+                ...s,
+                dailyRevenue: s.dailyRevenue + Number(newTx.amount),
+                totalEarnings: s.totalEarnings + Number(newTx.amount)
+              }));
+            }
+          })
+          .subscribe();
+
+        return () => {
+          supabase.removeChannel(profilesSub);
+          supabase.removeChannel(txSub);
+        };
 
       } catch (error) {
         console.error('Error fetching admin data:', error);
@@ -229,7 +282,7 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3 }}
           >
-            {activeTab === 'dashboard' && <DashboardView stats={stats} transactions={transactions} />}
+            {activeTab === 'dashboard' && <DashboardView stats={stats} transactions={transactions} liveEvents={liveEvents} users={users} />}
             {activeTab === 'users' && <UserManagementView users={users} />}
             {activeTab === 'finance' && <FinancialControlView transactions={transactions} settings={settings} />}
             {activeTab === 'moderation' && <ModerationView />}
@@ -241,7 +294,43 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
   );
 }
 
-function DashboardView({ stats, transactions }: { stats: any, transactions: any[] }) {
+function DashboardView({ stats, transactions, liveEvents, users }: { stats: any, transactions: any[], liveEvents: any[], users: any[] }) {
+  const [chartPeriod, setChartPeriod] = useState<'7D' | '1M' | '1Y'>('1M');
+  
+  // Calculate growth data based on users created_at
+  const getGrowthData = () => {
+    const data = [];
+    const now = new Date();
+    
+    let days = 30; // 1M default
+    if (chartPeriod === '7D') days = 7;
+    if (chartPeriod === '1Y') days = 12; // 12 months
+    
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      if (chartPeriod === '1Y') {
+        d.setMonth(d.getMonth() - i);
+        const count = users.filter(u => {
+          const ud = new Date(u.created_at);
+          return ud.getMonth() === d.getMonth() && ud.getFullYear() === d.getFullYear();
+        }).length;
+        data.push(count);
+      } else {
+        d.setDate(d.getDate() - i);
+        const count = users.filter(u => {
+          const ud = new Date(u.created_at);
+          return ud.getDate() === d.getDate() && ud.getMonth() === d.getMonth() && ud.getFullYear() === d.getFullYear();
+        }).length;
+        data.push(count);
+      }
+    }
+    
+    const max = Math.max(...data, 1);
+    return data.map(val => Math.max((val / max) * 100, 5)); // min 5% height for visibility
+  };
+
+  const chartData = getGrowthData();
+
   return (
     <div className="space-y-12">
       {/* System Health Bar */}
@@ -300,19 +389,22 @@ function DashboardView({ stats, transactions }: { stats: any, transactions: any[
               <p className="text-[10px] text-white/30 uppercase tracking-[0.2em]">User acquisition & Retention</p>
             </div>
             <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
-              {['7D', '1M', '1Y'].map(p => (
-                <button key={p} className={cn(
+              {(['7D', '1M', '1Y'] as const).map(p => (
+                <button 
+                  key={p} 
+                  onClick={() => setChartPeriod(p)}
+                  className={cn(
                   "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                  p === '7D' ? "bg-brand-blue text-brand-dark" : "text-white/40 hover:text-white"
+                  chartPeriod === p ? "bg-brand-blue text-brand-dark" : "text-white/40 hover:text-white"
                 )}>{p}</button>
               ))}
             </div>
           </div>
           <div className="flex-1 flex items-end gap-2 px-4 relative z-10">
-            {[40, 60, 45, 90, 65, 80, 55, 70, 85, 100, 75, 95].map((h, i) => (
+            {chartData.map((h, i) => (
               <div key={i} className="flex-1 bg-brand-blue/20 rounded-t-lg relative group transition-all hover:bg-brand-blue/40" style={{ height: `${h}%` }}>
                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-brand-blue text-brand-dark text-[10px] font-mono font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 shadow-lg shadow-brand-blue/20">
-                  {h}%
+                  {Math.round(h)}%
                 </div>
               </div>
             ))}
@@ -364,13 +456,8 @@ function DashboardView({ stats, transactions }: { stats: any, transactions: any[
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-          {[
-            { user: 'Sarah_J', action: 'subscribed to', target: 'Alex_Pro', time: '2m ago', type: 'sub' },
-            { user: 'Mike_99', action: 'tipped', target: 'Lara_K', amount: '₦2,500', time: '5m ago', type: 'tip' },
-            { user: 'NewUser_4', action: 'just joined', target: 'the platform', time: '8m ago', type: 'join' },
-            { user: 'Admin', action: 'verified', target: 'Creator_X', time: '12m ago', type: 'verify' },
-          ].map((event, i) => (
-            <div key={i} className="p-5 rounded-3xl bg-white/5 border border-white/5 flex items-start gap-4 hover:bg-white/10 transition-all group relative overflow-hidden">
+          {liveEvents.map((event, i) => (
+            <div key={event.id || i} className="p-5 rounded-3xl bg-white/5 border border-white/5 flex items-start gap-4 hover:bg-white/10 transition-all group relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className={cn(
                 "p-3 rounded-2xl bg-white/5 relative z-10",
@@ -393,6 +480,11 @@ function DashboardView({ stats, transactions }: { stats: any, transactions: any[
               </div>
             </div>
           ))}
+          {liveEvents.length === 0 && (
+            <div className="col-span-full py-8 text-center text-white/30 text-xs uppercase tracking-widest font-bold">
+              Waiting for live events...
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -716,6 +808,11 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
   };
 
   const confirmWithdraw = async () => {
+    if (treasuryBalance <= 0) {
+      toast('Insufficient balance', 'error');
+      return;
+    }
+
     setIsWithdrawing(true);
     
     if (isSupabaseActive) {
@@ -725,7 +822,7 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
           .from('transactions')
           .insert({
             profile_id: (await supabase.auth.getUser()).data.user?.id,
-            amount: 1240500, // Example amount
+            amount: treasuryBalance,
             type: 'withdrawal',
             status: 'completed',
             description: 'Platform Treasury Disbursement'
@@ -745,7 +842,10 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
   };
 
   const updateSetting = async (key: string, value: any) => {
-    if (!isSupabaseActive) return;
+    if (!isSupabaseActive) {
+      toast(`Setting ${key} updated (Mock Mode)`, 'success');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('system_settings')
@@ -758,6 +858,14 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
     }
   };
 
+  const treasuryBalance = transactions.reduce((acc, tx) => {
+    if (tx.status === 'completed') {
+      if (tx.type === 'withdrawal') return acc - Number(tx.amount);
+      return acc + Number(tx.commission || 0);
+    }
+    return acc;
+  }, 0);
+
   return (
     <div className="space-y-12">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -768,7 +876,7 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
               <Wallet className="w-5 h-5 opacity-60" />
               <p className="text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Platform Treasury</p>
             </div>
-            <h2 className="text-6xl font-display font-black tracking-tighter mb-8 font-mono">₦1,240,500</h2>
+            <h2 className="text-6xl font-display font-black tracking-tighter mb-8 font-mono">₦{treasuryBalance.toLocaleString()}</h2>
             <button 
               onClick={handleWithdraw}
               className="w-full py-5 bg-brand-dark text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl flex items-center justify-center gap-3"
@@ -1007,7 +1115,7 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
                 <div className="p-8 rounded-3xl bg-white/5 border border-white/10 space-y-4">
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] uppercase tracking-widest font-bold text-white/30">Available Balance</span>
-                    <span className="text-xl font-mono font-bold text-brand-blue">₦1,240,500</span>
+                    <span className="text-xl font-mono font-bold text-brand-blue">₦{treasuryBalance.toLocaleString()}</span>
                   </div>
                   <div className="h-px bg-white/10" />
                   <div className="flex justify-between items-center">
@@ -1052,6 +1160,7 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
 }
 
 function ModerationView() {
+  const { toast } = useToast();
   const [keywords, setKeywords] = useState<string[]>([]);
   const [newKeyword, setNewKeyword] = useState('');
   const [reports, setReports] = useState<any[]>([]);
@@ -1251,6 +1360,91 @@ function ModerationView() {
           ))}
         </div>
       </div>
+
+      {/* Global Announcements */}
+      <div className="p-8 rounded-[40px] bg-white/5 border border-white/10 space-y-8">
+        <div className="space-y-1">
+          <h3 className="text-xl font-display font-bold uppercase tracking-widest text-brand-blue flex items-center gap-3">
+            <MessageSquare className="w-6 h-6" />
+            Global Announcements
+          </h3>
+          <p className="text-[10px] text-white/30 uppercase tracking-[0.2em]">Push notifications and alerts to all users</p>
+        </div>
+
+        <form 
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.target as HTMLFormElement;
+            const title = (form.elements.namedItem('title') as HTMLInputElement).value;
+            const message = (form.elements.namedItem('message') as HTMLTextAreaElement).value;
+            const type = (form.elements.namedItem('type') as HTMLSelectElement).value;
+            
+            if (!title || !message) return;
+            
+            if (isSupabaseActive) {
+              try {
+                // In a real app, this would insert into an announcements table
+                // and trigger a push notification service
+                const { error } = await supabase.from('announcements').insert({
+                  title,
+                  message,
+                  type,
+                  created_at: new Date().toISOString()
+                });
+                if (error) throw error;
+                toast('Announcement sent successfully!', 'success');
+                form.reset();
+              } catch (error) {
+                console.error('Error sending announcement:', error);
+                toast('Error sending announcement', 'error');
+              }
+            } else {
+              toast('Announcement sent (Mock Mode)!', 'success');
+              form.reset();
+            }
+          }}
+          className="space-y-6"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-white/30">Announcement Title</label>
+              <input 
+                name="title"
+                type="text" 
+                placeholder="e.g., System Update, New Feature"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand-blue/50"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-white/30">Notification Type</label>
+              <select 
+                name="type"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand-blue/50 appearance-none"
+              >
+                <option value="info">Info (Blue)</option>
+                <option value="warning">Warning (Yellow)</option>
+                <option value="alert">Alert (Red)</option>
+                <option value="success">Success (Green)</option>
+              </select>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-bold text-white/30">Message Content</label>
+            <textarea 
+              name="message"
+              rows={4}
+              placeholder="Type your announcement here..."
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand-blue/50 resize-none"
+              required
+            />
+          </div>
+          <button type="submit" className="w-full py-4 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
+            <Share2 className="w-4 h-4" />
+            Send Global Push Notification
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -1262,13 +1456,40 @@ function SystemSettingsView({ settings }: { settings: any }) {
   const [minWithdrawal, setMinWithdrawal] = useState(settings?.min_withdrawal || 5000);
   const [maxWithdrawal, setMaxWithdrawal] = useState(settings?.max_withdrawal || 500000);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReferralModalOpen, setIsReferralModalOpen] = useState(false);
+  const [referralSettings, setReferralSettings] = useState(settings?.referral_settings || {
+    enabled: false,
+    rewardType: 'fixed', // 'fixed', 'percentage'
+    rewardAmount: 1000,
+    rewardPercentage: 10
+  });
 
   useEffect(() => {
     if (settings?.feature_flags) setFlags(settings.feature_flags);
     if (settings?.maintenance_mode !== undefined) setMaintenanceMode(settings.maintenance_mode);
     if (settings?.min_withdrawal) setMinWithdrawal(settings.min_withdrawal);
     if (settings?.max_withdrawal) setMaxWithdrawal(settings.max_withdrawal);
+    if (settings?.referral_settings) setReferralSettings(settings.referral_settings);
   }, [settings]);
+
+  const saveReferralSettings = async () => {
+    if (isSupabaseActive) {
+      try {
+        const { error } = await supabase
+          .from('system_settings')
+          .upsert({ key: 'referral_settings', value: referralSettings, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        toast('Referral settings saved', 'success');
+        setIsReferralModalOpen(false);
+      } catch (error) {
+        console.error('Error saving referral settings:', error);
+        toast('Error saving referral settings', 'error');
+      }
+    } else {
+      toast('Referral settings saved (Mock)', 'success');
+      setIsReferralModalOpen(false);
+    }
+  };
 
   const toggleFlag = async (flag: string) => {
     const newFlags = { ...flags, [flag]: !flags[flag] };
@@ -1393,7 +1614,10 @@ function SystemSettingsView({ settings }: { settings: any }) {
             <ChevronRight className="w-5 h-5 text-white/10 group-hover:text-white group-hover:translate-x-1 transition-all" />
           </button>
 
-          <button className="w-full p-6 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-between group hover:bg-white/10 transition-all">
+          <button 
+            onClick={() => setIsReferralModalOpen(true)}
+            className="w-full p-6 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-between group hover:bg-white/10 transition-all"
+          >
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-2xl bg-brand-blue/10 text-brand-blue group-hover:scale-110 transition-transform">
                 <Share2 className="w-6 h-6" />
@@ -1444,6 +1668,110 @@ function SystemSettingsView({ settings }: { settings: any }) {
           </button>
         </div>
       </div>
+
+      {/* Referral Settings Modal */}
+      <AnimatePresence>
+        {isReferralModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsReferralModalOpen(false)}
+              className="absolute inset-0 bg-brand-dark/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-lg bg-brand-dark border border-white/10 rounded-[48px] p-10 relative z-10 shadow-2xl overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+                <Share2 className="w-32 h-32" />
+              </div>
+              
+              <div className="space-y-8 relative z-10">
+                <div className="space-y-2">
+                  <h3 className="text-3xl font-display font-black uppercase tracking-tighter italic">Referral <span className="text-brand-blue">System</span></h3>
+                  <p className="text-xs text-white/40 uppercase tracking-widest font-bold">Configure invite & earn rewards</p>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between p-6 rounded-3xl bg-white/5 border border-white/10">
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold tracking-tight">Enable Referrals</p>
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest">Master toggle for the program</p>
+                    </div>
+                    <div 
+                      onClick={() => setReferralSettings({ ...referralSettings, enabled: !referralSettings.enabled })}
+                      className={cn(
+                        "w-12 h-6 rounded-full p-1 flex transition-all cursor-pointer",
+                        referralSettings.enabled ? "bg-brand-blue justify-end" : "bg-white/10 justify-start"
+                      )}
+                    >
+                      <div className="w-4 h-4 bg-brand-dark rounded-full shadow-sm" />
+                    </div>
+                  </div>
+
+                  {referralSettings.enabled && (
+                    <div className="space-y-4 p-6 rounded-3xl bg-white/5 border border-white/10">
+                      <div className="space-y-3">
+                        <p className="text-[10px] uppercase tracking-widest font-bold text-white/30">Reward Type</p>
+                        <select 
+                          value={referralSettings.rewardType}
+                          onChange={(e) => setReferralSettings({ ...referralSettings, rewardType: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all appearance-none"
+                        >
+                          <option value="fixed">Fixed Amount (₦)</option>
+                          <option value="percentage">Percentage of Subscription (%)</option>
+                        </select>
+                      </div>
+
+                      {referralSettings.rewardType === 'fixed' ? (
+                        <div className="space-y-3">
+                          <p className="text-[10px] uppercase tracking-widest font-bold text-white/30">Reward Amount (₦)</p>
+                          <input 
+                            type="number" 
+                            value={referralSettings.rewardAmount}
+                            onChange={(e) => setReferralSettings({ ...referralSettings, rewardAmount: Number(e.target.value) })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-[10px] uppercase tracking-widest font-bold text-white/30">Reward Percentage (%)</p>
+                          <input 
+                            type="number" 
+                            value={referralSettings.rewardPercentage}
+                            onChange={(e) => setReferralSettings({ ...referralSettings, rewardPercentage: Number(e.target.value) })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:border-brand-blue/50 focus:bg-white/10 transition-all" 
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => setIsReferralModalOpen(false)}
+                    className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={saveReferralSettings}
+                    className="flex-1 py-4 bg-brand-blue text-brand-dark rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Save Settings
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

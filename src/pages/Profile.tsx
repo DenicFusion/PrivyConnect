@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, Share2, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info, ShieldOff, Copy, Share } from 'lucide-react';
+import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, Share2, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info, ShieldOff, Copy, Share, Gift } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -34,6 +34,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [referralStats, setReferralStats] = useState({ total: 0, earned: 0 });
   
   // Advanced Image Edit State
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           display_name: mockUser.display_name || mockUser.username,
           bio: mockUser.bio || '',
           photo_url: mockUser.photo_url || '',
-          preferences: Array.isArray(mockUser.preferences) ? mockUser.preferences : (mockUser.preferences?.interests || []),
+          preferences: Array.isArray(mockUser.preferences) ? mockUser.preferences : [],
           is_public: true,
           hide_online_status: false,
           profile_mode: mockUser.profile_mode || 'public'
@@ -142,6 +143,25 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
 
     checkIsSaved();
   }, [uid, myProfile]);
+
+  useEffect(() => {
+    const fetchReferralStats = async () => {
+      if (!isSupabaseActive || !user?.id) return;
+      
+      const { data: referrals, error } = await supabase
+        .from('referrals')
+        .select('status, reward_amount')
+        .eq('referrer_id', user.id);
+        
+      if (!error && referrals) {
+        const total = referrals.length;
+        const earned = referrals.filter(r => r.status === 'completed').reduce((acc, r) => acc + (Number(r.reward_amount) || 0), 0);
+        setReferralStats({ total, earned });
+      }
+    };
+    
+    fetchReferralStats();
+  }, [user?.id]);
 
   const onCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
     setCroppedAreaPixels(croppedAreaPixels);
@@ -758,6 +778,54 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                   <span className="text-[8px] uppercase tracking-widest font-bold">{mode.label}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Invite & Earn Section */}
+          <div className="p-10 rounded-[48px] bg-white/5 border border-white/10 space-y-8 md:col-span-2">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
+                <Gift className="w-6 h-6 text-brand-blue" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-display uppercase tracking-[0.2em] font-bold text-white/60">Invite & Earn</h3>
+                <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Earn rewards for referrals</p>
+              </div>
+            </div>
+            
+            <div className="grid md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <p className="text-xs text-white/60 leading-relaxed">
+                  Share your unique referral link with friends. When they sign up and subscribe, you both earn rewards!
+                </p>
+                <div className="flex items-center gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest font-bold mb-1">Your Referral Link</p>
+                    <p className="text-xs font-mono text-white/80 truncate">
+                      {window.location.origin}/signup?ref={user.referral_code || user.username}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/signup?ref=${user.referral_code || user.username}`);
+                      toast('Referral link copied!', 'success');
+                    }}
+                    className="p-3 bg-brand-blue text-brand-dark rounded-xl hover:scale-105 transition-transform"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="text-2xl font-display italic text-brand-blue">{referralStats.total}</div>
+                  <div className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Total Referrals</div>
+                </div>
+                <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="text-2xl font-display italic text-emerald-500">₦{referralStats.earned.toLocaleString()}</div>
+                  <div className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Earned Rewards</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -17,6 +17,76 @@ import { Logo, PrivyLogo } from './components/Logo';
 import { requestNotificationPermission, onForegroundMessage } from './lib/firebase';
 import { ToastProvider, useToast } from './components/Toaster';
 
+function GlobalAnnouncements() {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isSupabaseActive) return;
+    
+    const fetchAnnouncements = async () => {
+      const { data } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      
+      if (data) setAnnouncements(data);
+    };
+
+    fetchAnnouncements();
+
+    const channel = supabase
+      .channel('public:announcements')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, fetchAnnouncements)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const activeAnnouncements = announcements.filter(a => !dismissed.includes(a.id));
+
+  if (activeAnnouncements.length === 0) return null;
+
+  return (
+    <div className="fixed top-0 left-0 right-0 z-[100] flex flex-col items-center gap-2 p-4 pointer-events-none">
+      <AnimatePresence>
+        {activeAnnouncements.map(announcement => (
+          <motion.div
+            key={announcement.id}
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className={cn(
+              "pointer-events-auto w-full max-w-2xl p-4 rounded-2xl border shadow-2xl flex items-start gap-4",
+              announcement.type === 'alert' ? "bg-red-500/10 border-red-500/20 text-red-500" :
+              announcement.type === 'warning' ? "bg-amber-500/10 border-amber-500/20 text-amber-500" :
+              announcement.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" :
+              "bg-brand-blue/10 border-brand-blue/20 text-brand-blue"
+            )}
+          >
+            <div className="p-2 rounded-xl bg-white/5">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h4 className="text-sm font-bold tracking-tight">{announcement.title}</h4>
+              <p className="text-xs opacity-80 leading-relaxed">{announcement.message}</p>
+            </div>
+            <button 
+              onClick={() => setDismissed([...dismissed, announcement.id])}
+              className="p-2 hover:bg-white/10 rounded-xl transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // Pages
 import LandingPage from './pages/Landing';
 import DiscoveryPage from './pages/Discovery';
@@ -231,6 +301,22 @@ function AppContent() {
 
       if (error && error.code === 'PGRST116') {
         // Fallback: Create profile if it doesn't exist
+        let referredById = null;
+        const refCode = user.user_metadata?.referred_by_code;
+        
+        if (refCode) {
+          // Find the referrer
+          const { data: referrer } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(`username.eq.${refCode},referral_code.eq.${refCode}`)
+            .maybeSingle();
+            
+          if (referrer) {
+            referredById = referrer.id;
+          }
+        }
+
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
           .insert([
@@ -238,6 +324,7 @@ function AppContent() {
               id: user.id,
               username: user.email?.split('@')[0] || `user_${user.id.slice(0, 5)}`,
               display_name: user.user_metadata?.full_name || '',
+              referred_by: referredById,
               created_at: new Date().toISOString()
             }
           ])
@@ -248,6 +335,16 @@ function AppContent() {
           console.error('Error creating fallback profile:', createError);
           throw new Error('User profile not found and could not be created.');
         }
+
+        // If referred, create a pending referral record
+        if (referredById) {
+          await supabase.from('referrals').insert({
+            referrer_id: referredById,
+            referred_id: user.id,
+            status: 'pending'
+          });
+        }
+
         data = newProfile;
         error = null;
       } else if (error) {
@@ -485,6 +582,7 @@ function AppContent() {
 
   return (
     <ErrorBoundary>
+      <GlobalAnnouncements />
       <Router>
         <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-brand-blue/30 overflow-x-hidden">
           <Routes>
