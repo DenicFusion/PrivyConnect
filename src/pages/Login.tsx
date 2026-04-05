@@ -78,11 +78,15 @@ export default function LoginPage() {
       });
       if (pwdError) throw pwdError;
 
-      // Check if device is trusted
+      // Check if device is trusted AND within 30 days
       const trustedDevices = JSON.parse(localStorage.getItem('trusted_devices') || '[]');
-      const deviceId = navigator.userAgent + navigator.language; // Simple device fingerprint
+      const lastLogin = localStorage.getItem('last_login_timestamp');
+      const deviceId = navigator.userAgent + navigator.language;
       
-      if (trustedDevices.includes(deviceId)) {
+      const isTrusted = trustedDevices.includes(deviceId);
+      const isWithin30Days = lastLogin && (Date.now() - parseInt(lastLogin) < 30 * 24 * 60 * 60 * 1000);
+
+      if (isTrusted && isWithin30Days) {
         toast('Logged in successfully!', 'success');
         const from = (location.state as any)?.from?.pathname || '/discovery';
         navigate(from, { replace: true });
@@ -98,7 +102,7 @@ export default function LoginPage() {
       });
       if (otpError) throw otpError;
       setEmail(loginEmail); // Update email state to the actual email for OTP verification
-      toast('New device detected. Please enter the OTP sent to your email.', 'success');
+      toast('New device detected or 30 days passed. Please enter the OTP sent to your email.', 'success');
       
       setOtpSent(true);
       setResendTimer(30);
@@ -135,6 +139,7 @@ export default function LoginPage() {
         trustedDevices.push(deviceId);
         localStorage.setItem('trusted_devices', JSON.stringify(trustedDevices));
       }
+      localStorage.setItem('last_login_timestamp', Date.now().toString());
 
       toast('Verified successfully!', 'success');
       
@@ -182,11 +187,6 @@ export default function LoginPage() {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
     }
-
-    // Auto-verify if all filled
-    if (value && newOtp.every(d => d !== '')) {
-      handleVerifyOtp(newOtp.join(''));
-    }
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
@@ -194,6 +194,10 @@ export default function LoginPage() {
       const prevInput = document.getElementById(`otp-${index - 1}`);
       prevInput?.focus();
     }
+  };
+
+  const handleConfirmOtp = () => {
+    handleVerifyOtp();
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -321,7 +325,15 @@ export default function LoginPage() {
               ))}
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-4">
+              <button 
+                type="button"
+                disabled={loading}
+                onClick={handleConfirmOtp}
+                className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                {loading ? 'Verifying...' : 'Confirm'}
+              </button>
               <button 
                 type="button"
                 disabled={resendTimer > 0 || loading}
