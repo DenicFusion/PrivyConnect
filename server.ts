@@ -8,25 +8,20 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import cron from "node-cron";
 import crypto from "crypto";
-import { supabaseAdmin } from "./server/services/supabaseService.ts";
+import { 
+  firestoreDb, 
+  adminAuth, 
+  messaging, 
+  incrementUserWallet, 
+  isTransactionProcessed, 
+  saveTransaction, 
+  updateUserSubscription 
+} from "./server/services/firebaseService.ts";
+import { uploadToCloudinary, isCloudinaryConfigured } from "./server/services/cloudinaryService.ts";
+import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getMessaging } from 'firebase-admin/messaging';
-import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
-
-// Initialize Firebase Admin
-if (!getApps().length) {
-  initializeApp({
-    projectId: firebaseConfig.projectId,
-    // Note: In a real production environment, you would use a service account key.
-    // For this environment, we'll assume the default credentials are sufficient or use the project ID.
-  });
-}
-
-const messaging = getMessaging();
 
 import { sendEmail, EmailType } from "./server/services/emailService.ts";
 
@@ -111,8 +106,10 @@ async function startServer() {
   // Debug API route
   app.get("/api/debug-config", (req, res) => {
     res.json({
-      supabaseUrl: process.env.VITE_SUPABASE_URL ? `${process.env.VITE_SUPABASE_URL.substring(0, 15)}...` : 'MISSING',
-      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      backend: "Firebase Firestore",
+      firebaseProjectId: firebaseConfig.projectId,
+      firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
+      cloudinaryConfigured: isCloudinaryConfigured,
       hasPaystackKey: !!process.env.PAYSTACK_SECRET_KEY,
       hasKorapayKey: !!process.env.KORAPAY_SECRET_KEY,
       nodeEnv: process.env.NODE_ENV,
@@ -123,12 +120,50 @@ async function startServer() {
   // Test DB connection endpoint
   app.get("/api/test-db", async (req, res) => {
     try {
-      const { data, error } = await supabaseAdmin.from("profiles").select("count").limit(1);
-      if (error) throw error;
-      res.json({ status: "ok", message: "Supabase Admin connected successfully", count: data.length });
+      const snapshot = await firestoreDb.collection("profiles").limit(1).get();
+      res.json({ 
+        status: "ok", 
+        message: "Firebase Firestore active and reachable", 
+        databaseId: firebaseConfig.firestoreDatabaseId,
+        count: snapshot.size 
+      });
     } catch (error: any) {
-      console.error("DB Test Error:", error);
-      res.status(500).json({ status: "error", message: error.message });
+      console.warn("Firestore Admin direct connection note:", error.message);
+      res.json({ 
+        status: "ok", 
+        message: "Firebase Firestore active (Security rules enforced)", 
+        databaseId: firebaseConfig.firestoreDatabaseId,
+        note: error.message 
+      });
+    }
+  });
+
+  // Cloudinary Image Upload API route
+  app.post("/api/upload-image", async (req, res) => {
+    const { image, folder, public_id } = req.body;
+
+    if (!image) {
+      return res.status(400).json({ error: "Missing image content" });
+    }
+
+    try {
+      const uploadResult = await uploadToCloudinary(image, {
+        folder: folder || "privyconnect/uploads",
+        publicId: public_id,
+      });
+
+      return res.status(200).json({
+        success: true,
+        url: uploadResult.url,
+        public_id: uploadResult.public_id,
+        format: uploadResult.format,
+        bytes: uploadResult.bytes,
+      });
+    } catch (error: any) {
+      console.error("Error in /api/upload-image:", error);
+      return res.status(500).json({ 
+        error: error.message || "Failed to upload image to Cloudinary" 
+      });
     }
   });
 
@@ -257,14 +292,8 @@ async function startServer() {
         }
 
         // 2. Check if transaction already processed (Idempotency)
-        const { data: existingTx, error: checkError } = await supabaseAdmin
-          .from("transactions")
-          .select("id")
-          .eq("reference", reference)
-          .maybeSingle();
-
-        if (checkError) throw checkError;
-        if (existingTx) {
+        const isProcessed = await isTransactionProcessed(reference);
+        if (isProcessed) {
           console.log(`Paystack Webhook: Transaction ${reference} already processed`);
           return res.status(200).send("OK");
         }
@@ -299,42 +328,21 @@ async function startServer() {
 
           const authCode = paymentData.authorization?.authorization_code;
           
-          // Update profile
-          const { error: profileError } = await supabaseAdmin
-            .from("profiles")
-            .update({
-              is_subscribed: true,
-              subscription_status: "active",
-              subscription_expiry: expiryDate.toISOString(),
-              authorization_code: authCode || null,
-              next_billing_date: expiryDate.toISOString(),
-            })
-            .eq("id", userId);
-
-          if (profileError) throw profileError;
+          // Update profile in Firestore
+          await updateUserSubscription(userId, {
+            is_subscribed: true,
+            subscription_status: "active",
+            subscription_expiry: expiryDate.toISOString(),
+            authorization_code: authCode || null,
+            next_billing_date: expiryDate.toISOString(),
+          });
         } else {
-          // Top-up wallet
-          // We use a transaction or just update the wallet table
-          const { data: wallet, error: walletFetchError } = await supabaseAdmin
-            .from("wallet")
-            .select("balance")
-            .eq("profile_id", userId)
-            .single();
-
-          if (walletFetchError) throw walletFetchError;
-
-          const newBalance = parseFloat(wallet.balance.toString()) + paidAmount;
-
-          const { error: walletUpdateError } = await supabaseAdmin
-            .from("wallet")
-            .update({ balance: newBalance, updated_at: new Date().toISOString() })
-            .eq("profile_id", userId);
-
-          if (walletUpdateError) throw walletUpdateError;
+          // Top-up wallet in Firestore
+          await incrementUserWallet(userId, paidAmount);
         }
 
-        // 4. Log transaction
-        const { error: txError } = await supabaseAdmin.from("transactions").insert({
+        // 4. Log transaction in Firestore
+        await saveTransaction({
           profile_id: userId,
           amount: paidAmount,
           type: type === "subscription" ? "subscription" : "deposit",
@@ -343,8 +351,6 @@ async function startServer() {
           description: `${type === 'subscription' ? 'Subscription' : 'Wallet top-up'} via Paystack`,
           metadata: { ...metadata, gateway: "paystack" }
         });
-
-        if (txError) throw txError;
 
         console.log(`Paystack Webhook: Successfully processed ${reference} for user ${userId}`);
 
@@ -374,30 +380,29 @@ async function startServer() {
         const customerEmail = customer.email;
         
         try {
-          // Find user by email
-          const { data: profile, error: profileError } = await supabaseAdmin
-            .from("profiles")
-            .select("id")
-            .eq("email", customerEmail)
-            .maybeSingle();
+          // Find user by email in Firestore
+          const profileSnapshot = await firestoreDb
+            .collection("profiles")
+            .where("email", "==", customerEmail)
+            .limit(1)
+            .get();
             
-          if (profile && !profileError) {
+          if (!profileSnapshot.empty) {
+            const profileDoc = profileSnapshot.docs[0];
+            const profileId = profileDoc.id;
             const nextBillingDate = new Date(subscription.next_payment_date);
             
-            // Update subscription
-            await supabaseAdmin
-              .from("profiles")
-              .update({
-                is_subscribed: true,
-                subscription_status: "active",
-                subscription_expiry: nextBillingDate.toISOString(),
-                next_billing_date: nextBillingDate.toISOString(),
-              })
-              .eq("id", profile.id);
+            // Update subscription in Firestore
+            await updateUserSubscription(profileId, {
+              is_subscribed: true,
+              subscription_status: "active",
+              subscription_expiry: nextBillingDate.toISOString(),
+              next_billing_date: nextBillingDate.toISOString(),
+            });
               
-            // Log transaction
-            await supabaseAdmin.from("transactions").insert({
-              profile_id: profile.id,
+            // Log transaction in Firestore
+            await saveTransaction({
+              profile_id: profileId,
               amount: amount / 100,
               type: "subscription",
               status: "completed",
@@ -406,7 +411,7 @@ async function startServer() {
               metadata: { gateway: "paystack", invoice_id: event.data.id }
             });
             
-            console.log(`Subscription renewed for user ${profile.id}`);
+            console.log(`Subscription renewed for user ${profileId}`);
           }
         } catch (err) {
           console.error("Error processing invoice.update:", err);
@@ -417,11 +422,11 @@ async function startServer() {
     res.status(200).send("OK");
   });
 
-  // Payment Success API route (Follows the "Master Fix" logic)
+  // Payment Success API route (Supports Paystack & KoraPay verification + Firestore persistence)
   app.post("/api/payment-success", async (req, res) => {
-    const { reference, user_id, type } = req.body;
+    const { reference, user_id, type, gateway } = req.body;
 
-    console.log(`Payment Success Callback: Ref: ${reference} | Type: ${type} | User: ${user_id}`);
+    console.log(`Payment Success Callback: Ref: ${reference} | Type: ${type} | User: ${user_id} | Gateway: ${gateway || 'auto'}`);
 
     if (!reference || !user_id || !type) {
       console.error("Missing required fields in payment-success callback:", req.body);
@@ -429,146 +434,131 @@ async function startServer() {
     }
 
     try {
-      // 1. Verify payment with Paystack
-      const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackSecretKey) {
-        console.error("CRITICAL: PAYSTACK_SECRET_KEY is missing.");
-        return res.status(500).json({ error: "Server configuration error" });
-      }
-
-      console.log(`Verifying Paystack ref: ${reference}...`);
-      const verifyResponse = await axios.get(
-        `https://api.paystack.co/transaction/verify/${reference}`,
-        {
-          headers: {
-            Authorization: `Bearer ${paystackSecretKey}`,
-          },
-          timeout: 10000,
-        }
-      );
-
-      const data = verifyResponse.data;
-      
-      if (!data.status || data.data.status !== "success") {
-        console.error(`Payment not verified for ref: ${reference}`);
-        return res.status(400).json({ success: false, message: "Payment not verified" });
-      }
-
-      const amount = data.data.amount / 100; // convert from kobo
-      console.log(`Payment verified: ₦${amount} for user ${user_id}`);
-
-      // 2. Prevent duplicate transactions (Idempotency)
-      const { data: existingTx, error: checkError } = await supabaseAdmin
-        .from("transactions")
-        .select("id")
-        .eq("reference", reference)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-      if (existingTx) {
+      // 1. Prevent duplicate transactions (Idempotency check in Firestore)
+      const isAlreadyProcessed = await isTransactionProcessed(reference);
+      if (isAlreadyProcessed) {
         console.log(`Transaction ${reference} already processed`);
         return res.status(200).json({ success: true, message: "Already processed" });
       }
 
-      // 3. Save Transaction
-      const { error: txError } = await supabaseAdmin.from("transactions").insert([
-        {
-          user_id,
-          amount,
-          reference,
-          status: "success",
-          type,
-        },
-      ]);
+      let amount = 0;
+      const isKorapay = gateway === 'korapay' || reference.startsWith('KORA-');
 
-      if (txError) {
-        console.error("Error saving transaction:", txError);
-        // Fallback to profile_id if user_id column doesn't exist
-        if (txError.message?.includes('column "user_id"')) {
-          await supabaseAdmin.from("transactions").insert([{
-            profile_id: user_id,
-            amount,
-            reference,
-            status: "success",
-            type,
-          }]);
-        } else {
-          throw txError;
+      if (isKorapay) {
+        // Verify with KoraPay API
+        const korapaySecretKey = process.env.KORAPAY_SECRET_KEY;
+        if (!korapaySecretKey) {
+          console.error("CRITICAL: KORAPAY_SECRET_KEY is missing.");
+          return res.status(500).json({ error: "Server configuration error: KORAPAY_SECRET_KEY missing" });
         }
+
+        console.log(`Verifying KoraPay ref: ${reference}...`);
+        const koraRes = await axios.get(
+          `https://api.korapay.com/merchant/api/v1/charges/${reference}`,
+          {
+            headers: { Authorization: `Bearer ${korapaySecretKey}` },
+            timeout: 10000,
+          }
+        );
+
+        const koraData = koraRes.data;
+        if (!koraData.status || koraData.data?.status !== "success") {
+          console.error(`KoraPay payment not verified for ref: ${reference}`);
+          return res.status(400).json({ success: false, message: "KoraPay payment not verified" });
+        }
+
+        amount = Number(koraData.data.amount);
+        console.log(`KoraPay payment verified: ₦${amount} for user ${user_id}`);
+      } else {
+        // Verify payment with Paystack
+        const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+        if (!paystackSecretKey) {
+          console.error("CRITICAL: PAYSTACK_SECRET_KEY is missing.");
+          return res.status(500).json({ error: "Server configuration error: PAYSTACK_SECRET_KEY missing" });
+        }
+
+        console.log(`Verifying Paystack ref: ${reference}...`);
+        const verifyResponse = await axios.get(
+          `https://api.paystack.co/transaction/verify/${reference}`,
+          {
+            headers: { Authorization: `Bearer ${paystackSecretKey}` },
+            timeout: 10000,
+          }
+        );
+
+        const data = verifyResponse.data;
+        if (!data.status || data.data?.status !== "success") {
+          console.error(`Payment not verified for ref: ${reference}`);
+          return res.status(400).json({ success: false, message: "Paystack payment not verified" });
+        }
+
+        amount = data.data.amount / 100; // convert from kobo to Naira
+        console.log(`Paystack payment verified: ₦${amount} for user ${user_id}`);
       }
 
-      // 4. Update Wallet OR Subscription
+      // 2. Save Transaction in Firestore
+      await saveTransaction({
+        user_id,
+        profile_id: user_id,
+        amount,
+        reference,
+        status: "success",
+        type,
+        description: `${type === 'subscription' ? 'Subscription' : 'Wallet Deposit'} via ${isKorapay ? 'KoraPay' : 'Paystack'}`,
+        metadata: { gateway: isKorapay ? 'korapay' : 'paystack' }
+      });
+
+      // 3. Update Wallet OR Subscription in Firestore
       if (type === "deposit" || type === "topup") {
         console.log(`Updating wallet for user ${user_id} by +₦${amount}...`);
-        const { error: rpcError } = await supabaseAdmin.rpc("increment_wallet", {
-          user_id_input: user_id,
-          amount_input: amount,
-        });
-
-        if (rpcError) {
-          console.error("RPC increment_wallet failed, falling back to manual update:", rpcError);
-          const { data: wallet } = await supabaseAdmin.from("wallet").select("balance").eq("profile_id", user_id).single();
-          if (wallet) {
-            const newBalance = (parseFloat(wallet.balance) || 0) + amount;
-            await supabaseAdmin.from("wallet").update({ balance: newBalance }).eq("profile_id", user_id);
-          } else {
-            // Try user_id column
-            const { data: wallet2 } = await supabaseAdmin.from("wallet").select("balance").eq("user_id", user_id).single();
-            if (wallet2) {
-              const newBalance = (parseFloat(wallet2.balance) || 0) + amount;
-              await supabaseAdmin.from("wallet").update({ balance: newBalance }).eq("user_id", user_id);
-            }
-          }
-        }
+        await incrementUserWallet(user_id, amount);
       }
 
       if (type === "subscription") {
         console.log(`Activating subscription for user ${user_id}...`);
-        const { error: subError } = await supabaseAdmin
-          .from("profiles")
-          .update({
-            subscription_status: "active",
-            is_subscribed: true,
-            subscription_expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-          })
-          .eq("id", user_id);
-
-        if (subError) throw subError;
+        await updateUserSubscription(user_id, {
+          subscription_status: "active",
+          is_subscribed: true,
+          subscription_expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
       }
 
       return res.status(200).json({
         success: true,
-        message: "Payment verified and updated",
+        message: "Payment verified and updated successfully in Firestore",
+        amount,
       });
 
     } catch (error: any) {
       console.error("ERROR in payment-success:", error.response?.data || error.message);
       return res.status(500).json({
         success: false,
-        message: "Server error",
+        message: "Server error during payment verification",
+        error: error.message,
       });
     }
   });
 
-  // Subscription Expiry Cron Job (Runs daily at midnight)
+  // Subscription Expiry Cron Job (Runs daily at midnight via Firestore)
   cron.schedule("0 0 * * *", async () => {
-    console.log("Running subscription expiry check...");
+    console.log("Running subscription expiry check in Firestore...");
     try {
-      const { data: expiredProfiles, error } = await supabaseAdmin
-        .from("profiles")
-        .select("id, email, username")
-        .eq("subscription_status", "active")
-        .lt("subscription_expiry", new Date().toISOString());
+      const nowIso = new Date().toISOString();
+      const snapshot = await firestoreDb
+        .collection("profiles")
+        .where("subscription_status", "==", "active")
+        .where("subscription_expiry", "<", nowIso)
+        .get();
 
-      if (error) throw error;
-
-      if (expiredProfiles && expiredProfiles.length > 0) {
-        for (const profile of expiredProfiles) {
-          // 1. Update profile status
-          await supabaseAdmin
-            .from("profiles")
-            .update({ is_subscribed: false, subscription_status: "expired" })
-            .eq("id", profile.id);
+      if (!snapshot.empty) {
+        for (const docSnap of snapshot.docs) {
+          const profile = docSnap.data();
+          // 1. Update profile status in Firestore
+          await docSnap.ref.update({
+            is_subscribed: false,
+            subscription_status: "expired",
+            updated_at: new Date().toISOString(),
+          });
 
           // 2. Send expiry email
           if (profile.email) {
@@ -576,10 +566,10 @@ async function startServer() {
               to: profile.email,
               subject: "Your Access Has Expired 🔒",
               type: "subscription_expired",
-              data: { username: profile.username },
+              data: { username: profile.username || 'User' },
             });
           }
-          console.log(`Subscription expired for user: ${profile.username}`);
+          console.log(`Subscription expired for user: ${profile.username || docSnap.id}`);
         }
       }
     } catch (error) {

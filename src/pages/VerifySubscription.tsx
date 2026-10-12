@@ -87,10 +87,10 @@ export default function VerifySubscription() {
             <h2 className="text-xl font-display font-bold text-white">Verification Failed</h2>
             <p className="text-white/50 text-sm">{message}</p>
             <button 
-              onClick={() => navigate('/wallet')}
+              onClick={() => navigate('/settings')}
               className="mt-6 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold transition-colors"
             >
-              Return to Wallet
+              Return to Settings
             </button>
           </div>
         )}

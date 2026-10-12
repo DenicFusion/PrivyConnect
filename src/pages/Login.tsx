@@ -1,519 +1,479 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { supabase, signIn, isSupabaseActive } from '../lib/supabase';
-import { Logo } from '../components/Logo';
+import { supabase, signIn } from '../lib/supabase';
 import { useToast } from '../components/Toaster';
-import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Key, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, ShieldCheck, Lock, Mail, User, MapPin, Sparkles } from 'lucide-react';
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<'login' | 'select' | 'forgot'>('select');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
+  
+  // Sign in fields
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  
+  // Sign up fields
+  const [fullName, setFullName] = useState('');
+  const [signupUsername, setSignupUsername] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const signupState = 'Lagos';
+  const signupVibe = 'BESTIE';
+  const [referralCode, setReferralCode] = useState('');
+
+  // UI state
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [otpSent, setOtpSent] = useState(false);
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const [resendTimer, setResendTimer] = useState(0);
-  const [resendAttempts, setResendAttempts] = useState(0);
+  const [resetSent, setResetSent] = useState(false);
+
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Redirect if already logged in
+  // If query param mode=signup or path is /signup, default to signup tab
   useEffect(() => {
-    if (!isSupabaseActive) {
-      navigate('/discovery');
-      return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('mode') === 'signup' || location.pathname === '/signup') {
+      setMode('signup');
     }
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        navigate('/discovery');
+    const ref = params.get('ref');
+    if (ref) {
+      setReferralCode(ref);
+      localStorage.setItem('referral_code', ref);
+    } else {
+      const stored = localStorage.getItem('referral_code');
+      if (stored) setReferralCode(stored);
+    }
+  }, [location]);
+
+  // CRITICAL: Immediate redirect to dashboard if already authenticated
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        navigate('/discovery', { replace: true });
       }
-    };
-    checkSession();
+    });
   }, [navigate]);
 
-  useEffect(() => {
-    let timer: any;
-    if (resendTimer > 0) {
-      timer = setInterval(() => setResendTimer(prev => prev - 1), 1000);
-    }
-    return () => clearInterval(timer);
-  }, [resendTimer]);
-
-  const handleSendOtp = async (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (resendAttempts >= 5) {
-      toast('Too many attempts. Please try again later.', 'error');
+    if (!loginIdentifier.trim() || !loginPassword) {
+      toast('Please enter your email or username and password.', 'error');
       return;
     }
     setLoading(true);
-    setError(null);
 
     try {
-      let loginEmail = email;
-
-      // Login flow: If it's a username, find the email
-      if (!email.includes('@')) {
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('username', email)
-          .single();
-        
-        if (profileError || !profileData?.email) {
-          throw new Error('Username not found. Please use your email.');
-        }
-        loginEmail = profileData.email;
-      }
-
-      // Login flow: First verify password
-      const { data: authData, error: pwdError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginIdentifier.trim(),
+        password: loginPassword
       });
-      if (pwdError) throw pwdError;
 
-      // Check if device is trusted AND within 30 days
-      const trustedDevices = JSON.parse(localStorage.getItem('trusted_devices') || '[]');
-      const lastLogin = localStorage.getItem('last_login_timestamp');
-      const deviceId = navigator.userAgent + navigator.language;
-      
-      const isTrusted = trustedDevices.includes(deviceId);
-      const isWithin30Days = lastLogin && (Date.now() - parseInt(lastLogin) < 30 * 24 * 60 * 60 * 1000);
-
-      if (isTrusted && isWithin30Days) {
-        toast('Logged in successfully!', 'success');
-        const from = (location.state as any)?.from?.pathname || '/discovery';
-        navigate(from, { replace: true });
-        return;
-      }
-
-      // Password correct, now send OTP for "two-factor" verification
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: loginEmail,
-        options: {
-          emailRedirectTo: window.location.origin + '/verify-success'
-        }
-      });
-      if (otpError) throw otpError;
-      setEmail(loginEmail); // Update email state to the actual email for OTP verification
-      toast('New device detected or 30 days passed. Please enter the OTP sent to your email.', 'success');
-      
-      setOtpSent(true);
-      setResendTimer(30);
-      setResendAttempts(prev => prev + 1);
-    } catch (err: any) {
-      setError(err.message);
-      toast(err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (token?: string) => {
-    const finalToken = token || otp.join('');
-    if (finalToken.length !== 6) {
-      toast('Please enter the 6-digit code.', 'error');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: finalToken,
-        type: 'email'
-      });
       if (error) throw error;
-      
-      // Mark device as trusted
-      const trustedDevices = JSON.parse(localStorage.getItem('trusted_devices') || '[]');
-      const deviceId = navigator.userAgent + navigator.language;
-      if (!trustedDevices.includes(deviceId)) {
-        trustedDevices.push(deviceId);
-        localStorage.setItem('trusted_devices', JSON.stringify(trustedDevices));
-      }
-      localStorage.setItem('last_login_timestamp', Date.now().toString());
 
-      toast('Verified successfully!', 'success');
-      
-      // Get the redirect path from state or default to discovery
-      const from = (location.state as any)?.from?.pathname || '/discovery';
-      navigate(from, { replace: true });
+      toast('Welcome back to PrivyConnect!', 'success');
+      // Direct navigation straight to dashboard - never return to signing page
+      navigate('/discovery', { replace: true });
     } catch (err: any) {
-      setError(err.message);
-      toast('Invalid or expired code. Try again.', 'error');
+      console.error('Sign in error:', err);
+      toast(err.message || 'Invalid username or password.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOtpChange = (index: number, value: string) => {
-    if (value.length > 1) {
-      // Handle paste
-      const pasteData = value.slice(0, 6).split('');
-      const newOtp = [...otp];
-      pasteData.forEach((digit, i) => {
-        if (index + i < 6 && /^\d$/.test(digit)) {
-          newOtp[index + i] = digit;
-        }
-      });
-      setOtp(newOtp);
-      // Focus last filled input
-      const lastIndex = Math.min(index + pasteData.length - 1, 5);
-      document.getElementById(`otp-${lastIndex}`)?.focus();
-      
-      // Auto-verify if all filled
-      if (newOtp.every(d => d !== '')) {
-        handleVerifyOtp(newOtp.join(''));
-      }
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!signupEmail.trim() || !signupPassword || !signupUsername.trim()) {
+      toast('Please fill in your username, email, and password.', 'error');
       return;
     }
+    if (signupPassword.length < 6) {
+      toast('Password must be at least 6 characters long.', 'error');
+      return;
+    }
+    setLoading(true);
 
-    if (!/^\d*$/.test(value)) return;
+    try {
+      const activeRef = referralCode || localStorage.getItem('referral_code') || null;
+      
+      const { data, error } = await supabase.auth.signUp({
+        email: signupEmail.trim(),
+        password: signupPassword,
+        options: {
+          data: {
+            username: signupUsername.trim(),
+            full_name: fullName.trim() || signupUsername.trim(),
+            state: signupState,
+            vibe: signupVibe,
+            referred_by_code: activeRef
+          }
+        }
+      });
 
-    const newOtp = [...otp];
-    newOtp[index] = value;
-    setOtp(newOtp);
+      if (error) throw error;
 
-    // Auto-focus next input
-    if (value && index < otp.length - 1) {
-      const nextInput = document.getElementById(`otp-${index + 1}`);
-      nextInput?.focus();
+      localStorage.removeItem('referral_code');
+      toast('Welcome to PrivyConnect! Account created.', 'success');
+      
+      // CRITICAL: Take user directly to dashboard, never come back to signing page
+      navigate('/discovery', { replace: true });
+    } catch (err: any) {
+      console.error('Sign up error:', err);
+      toast(err.message || 'Signup failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      const prevInput = document.getElementById(`otp-${index - 1}`);
-      prevInput?.focus();
+  const handleGoogleAuth = async () => {
+    setLoading(true);
+    try {
+      const { error } = await signIn();
+      if (error) throw error;
+      toast('Signed in successfully!', 'success');
+      navigate('/discovery', { replace: true });
+    } catch (err: any) {
+      console.error('Google sign in error:', err);
+      toast(err.message || 'Google authentication failed.', 'error');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleConfirmOtp = () => {
-    handleVerifyOtp();
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email,
-        options: {
-          emailRedirectTo: window.location.origin + '/reset-password',
-          shouldCreateUser: false,
-        },
-      });
-      if (error) throw error;
-      localStorage.setItem('reset_email', email);
-      toast('Security code sent to your email!', 'success');
-      setOtpSent(true);
-    } catch (err: any) {
-      setError(err.message);
-      toast(err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleMagicLink = async () => {
-    if (!email || !email.includes('@')) {
-      toast('Please enter a valid email address first.', 'error');
-      setMode('login');
+    if (!loginIdentifier || !loginIdentifier.includes('@')) {
+      toast('Please enter a valid email address.', 'error');
       return;
     }
     setLoading(true);
-    setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: window.location.origin + '/discovery',
-        },
-      });
+      const { error } = await supabase.auth.resetPasswordForEmail(loginIdentifier.trim());
       if (error) throw error;
-      toast('Magic link sent to your email!', 'success');
-      setMagicLinkSent(true);
+      setResetSent(true);
+      toast('Reset instructions sent to your email!', 'success');
     } catch (err: any) {
-      setError(err.message);
-      toast(err.message, 'error');
+      toast(err.message || 'Password reset failed.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  if (magicLinkSent) {
-    return (
-      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-brand-blue/10 blur-[120px]" />
-        </div>
-
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md p-12 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl text-center space-y-8"
-        >
-          <div className="w-20 h-20 rounded-3xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mx-auto">
-            <Mail className="w-10 h-10 text-brand-blue" />
-          </div>
-          <div className="space-y-4">
-            <h2 className="text-3xl font-display uppercase italic">Check Your Email</h2>
-            <p className="text-white/40 text-sm font-light leading-relaxed">
-              We've sent a secure link to <span className="text-white font-medium">{email}</span>. 
-              Click the link in the email to continue.
-            </p>
-          </div>
-
-          <button 
-            onClick={() => setMagicLinkSent(false)}
-            className="w-full py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all"
-          >
-            Back to Login
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
-
-  if (otpSent) {
-    return (
-      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-brand-blue/10 blur-[120px]" />
-        </div>
-
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md p-12 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl text-center space-y-8"
-        >
-          <div className="w-20 h-20 rounded-3xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mx-auto">
-            <Key className="w-10 h-10 text-brand-blue" />
-          </div>
-          <div className="space-y-4">
-            <h2 className="text-3xl font-display uppercase italic">Verify Your Account</h2>
-            <p className="text-white/40 text-sm font-light leading-relaxed">
-              A code has been sent to <span className="text-white font-medium">{email}</span>
-            </p>
-          </div>
-
-          <form className="space-y-8">
-            <div className="flex justify-center gap-2 sm:gap-3">
-              {otp.map((digit, i) => (
-                <input
-                  key={i}
-                  id={`otp-${i}`}
-                  type="text"
-                  inputMode="numeric"
-                  value={digit}
-                  onChange={(e) => handleOtpChange(i, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(i, e)}
-                  className="w-10 h-14 sm:w-12 sm:h-16 bg-white/5 border border-white/10 rounded-xl text-center text-xl sm:text-2xl font-bold focus:outline-none focus:border-brand-blue transition-colors"
-                  autoFocus={i === 0}
-                />
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              <button 
-                type="button"
-                disabled={loading}
-                onClick={handleConfirmOtp}
-                className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
-              >
-                {loading ? 'Verifying...' : 'Confirm'}
-              </button>
-              <button 
-                type="button"
-                disabled={resendTimer > 0 || loading}
-                onClick={handleSendOtp}
-                className="text-[10px] text-brand-blue uppercase tracking-widest font-bold disabled:text-white/20 transition-colors"
-              >
-                {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
-              </button>
-              <br />
-              <Link 
-                to="/email-preview"
-                className="text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-brand-blue transition-colors"
-              >
-                Not receiving a code?
-              </Link>
-              <br />
-              <button 
-                type="button"
-                onClick={() => setOtpSent(false)}
-                className="text-[10px] text-white/20 uppercase tracking-widest font-bold hover:text-white transition-colors"
-              >
-                Back to email
-              </button>
-            </div>
-          </form>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-brand-blue/10 blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-500/5 blur-[120px]" />
+    <div className="min-h-screen bg-[#050505] text-white flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden selection:bg-[#00D1FF] selection:text-black">
+      {/* Background Ambience */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-15%] left-[20%] w-[500px] h-[500px] rounded-full bg-[#0055ff]/10 blur-[130px]" />
+        <div className="absolute bottom-[-10%] right-[10%] w-[450px] h-[450px] rounded-full bg-[#00D1FF]/10 blur-[130px]" />
       </div>
 
-      <Link 
-        to="/" 
-        className="absolute top-8 left-8 flex items-center gap-2 text-white/40 hover:text-white transition-colors uppercase tracking-widest text-[10px] font-bold z-20"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Home
-      </Link>
+      {/* Top Header / Back Link */}
+      <div className="max-w-md w-full mx-auto flex items-center justify-between pt-2 pb-6 relative z-10">
+        <Link 
+          to="/" 
+          className="flex items-center gap-2 text-xs font-mono text-white/50 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Home</span>
+        </Link>
+        <div className="text-[10px] font-mono tracking-widest text-[#00D1FF] uppercase font-bold flex items-center gap-1.5">
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Verified Network</span>
+        </div>
+      </div>
 
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md space-y-12 relative z-10 text-center"
-      >
-        <div className="space-y-6">
-          <div className="inline-flex items-center justify-center p-6 rounded-[40px] bg-white/5 border border-white/10 backdrop-blur-2xl shadow-[0_0_50px_rgba(0,209,255,0.1)]">
-            <Logo className="w-20 h-20" />
+      {/* Main Signing Card Container */}
+      <div className="max-w-md w-full mx-auto relative z-10 my-auto">
+        {/* Brand Icon & Heading */}
+        <div className="text-center space-y-3 mb-6">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-tr from-[#0055ff] to-[#00d1ff] p-[2px] shadow-[0_0_25px_rgba(0,209,255,0.35)]">
+            <div className="w-full h-full rounded-full bg-[#070b12] flex items-center justify-center">
+              <span className="font-serif italic text-white text-2xl font-semibold leading-none -translate-y-[1px]">
+                p
+              </span>
+            </div>
           </div>
-          <div className="space-y-2">
-            <h1 className="text-5xl font-display font-black uppercase tracking-tighter italic leading-none">
-              Privy<span className="text-brand-blue">Connect</span>
-            </h1>
-            <p className="text-[10px] text-white/40 uppercase tracking-[0.5em] font-bold">Premium Social Infrastructure</p>
+          
+          <div>
+            <div className="flex items-baseline justify-center">
+              <span className="text-3xl sm:text-4xl font-serif text-white tracking-tight font-normal">
+                Privy
+              </span>
+              <span className="text-3xl sm:text-4xl font-serif italic text-[#00D1FF] font-light tracking-tight ml-1.5">
+                Connect
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-white/60 font-light mt-1">
+              Private, verified companionship across Nigeria.
+            </p>
           </div>
         </div>
 
-        <AnimatePresence mode="wait">
-          {mode === 'select' ? (
-            <motion.div 
-              key="select"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="space-y-4"
-            >
-              <button 
-                onClick={() => signIn()}
-                className="w-full py-5 bg-white text-black rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+        {/* Card Box */}
+        <div className="bg-[#0b1019]/90 border border-white/10 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-2xl space-y-6">
+          {/* Segmented Mode Switcher */}
+          {mode !== 'forgot' && (
+            <div className="grid grid-cols-2 p-1 bg-[#10141c] border border-white/5 rounded-2xl text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setMode('signin')}
+                className={`py-2.5 rounded-xl transition-all font-mono tracking-wider uppercase cursor-pointer ${
+                  mode === 'signin' 
+                    ? 'bg-[#00D1FF] text-black font-bold shadow-[0_0_12px_rgba(0,209,255,0.3)]' 
+                    : 'text-white/60 hover:text-white'
+                }`}
               >
-                <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
-                Continue with Google
+                Sign In
               </button>
-              <div className="flex items-center gap-4 py-2">
-                <div className="h-px flex-1 bg-white/10" />
-                <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">or</span>
-                <div className="h-px flex-1 bg-white/10" />
-              </div>
-              <button 
-                onClick={() => setMode('login')}
-                className="w-full py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all"
+              <button
+                type="button"
+                onClick={() => setMode('signup')}
+                className={`py-2.5 rounded-xl transition-all font-mono tracking-wider uppercase cursor-pointer ${
+                  mode === 'signup' 
+                    ? 'bg-[#00D1FF] text-black font-bold shadow-[0_0_12px_rgba(0,209,255,0.3)]' 
+                    : 'text-white/60 hover:text-white'
+                }`}
               >
-                Login with Email
+                Create Account
               </button>
-              <Link 
-                to="/signup"
-                className="w-full py-5 text-brand-blue font-bold uppercase tracking-widest text-[10px] hover:underline block"
-              >
-                Create an account
-              </Link>
-            </motion.div>
-          ) : (
-            <motion.form 
-              key="form"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              onSubmit={handleSendOtp}
-              className="space-y-4 text-left"
-            >
-              <div className="space-y-4">
+            </div>
+          )}
+
+          {/* SIGN IN FORM */}
+          {mode === 'signin' && (
+            <form onSubmit={handleSignIn} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                  Email or Username
+                </label>
                 <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                  <input 
-                    type={mode === 'forgot' ? 'email' : 'text'}
-                    placeholder={mode === 'forgot' ? 'Email Address' : 'Username or Email'}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                  <input
+                    type="text"
                     required
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
+                    value={loginIdentifier}
+                    onChange={(e) => setLoginIdentifier(e.target.value)}
+                    placeholder="e.g. hauwak@gmail.com or hauwa"
+                    className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3.5 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none focus:ring-1 focus:ring-[#00D1FF]/50 transition-all"
                   />
                 </div>
-                {mode !== 'forgot' && (
-                  <>
-                    <div className="relative">
-                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input 
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-16 text-sm focus:outline-none focus:border-brand-blue/50 transition-colors"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                    <button 
-                      type="button"
-                      onClick={() => setMode('forgot')}
-                      className="flex items-center gap-2 mt-2 text-brand-blue font-bold uppercase tracking-widest text-[10px] hover:text-white transition-colors justify-start"
-                    >
-                      <Key className="w-3 h-3" />
-                      Forgot Password?
-                    </button>
-                  </>
-                )}
               </div>
 
-              {error && (
-                <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] uppercase tracking-widest font-bold">
-                  {error}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setMode('forgot')}
+                    className="text-[11px] text-[#00D1FF] hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3.5 pr-12 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none focus:ring-1 focus:ring-[#00D1FF]/50 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-2 bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold rounded-2xl py-3.5 px-4 text-sm shadow-[0_0_20px_rgba(0,209,255,0.35)] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span>Sign In to Dashboard</span>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* SIGN UP FORM */}
+          {mode === 'signup' && (
+            <form onSubmit={handleSignUp} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="e.g. Hauwa Ibrahim"
+                  className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={signupUsername}
+                  onChange={(e) => setSignupUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                  placeholder="e.g. hauwa_ib"
+                  className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={signupEmail}
+                  onChange={(e) => setSignupEmail(e.target.value)}
+                  placeholder="e.g. hauwa@example.com"
+                  className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                  Create Password (min. 6 chars)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={signupPassword}
+                    onChange={(e) => setSignupPassword(e.target.value)}
+                    placeholder="Create a strong password"
+                    className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3 pr-12 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {referralCode && (
+                <div className="p-2.5 bg-[#00D1FF]/10 border border-[#00D1FF]/30 rounded-2xl text-[11px] text-[#00D1FF] flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span>Referral code <strong className="font-mono">{referralCode}</strong> applied</span>
                 </div>
               )}
 
-              <button 
+              <button
                 type="submit"
-                onClick={mode === 'forgot' ? handleForgotPassword : undefined}
                 disabled={loading}
-                className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                className="w-full mt-2 bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold rounded-2xl py-3.5 px-4 text-sm shadow-[0_0_20px_rgba(0,209,255,0.35)] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                {loading ? 'Processing...' : mode === 'forgot' ? 'Reset Password' : 'Continue'}
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span>Create Account & Continue</span>
+                )}
               </button>
-
-              <button 
-                type="button"
-                onClick={() => setMode('select')}
-                className="w-full py-2 text-white/20 font-bold uppercase tracking-widest text-[9px] hover:text-white transition-colors"
-              >
-                Back to options
-              </button>
-            </motion.form>
+            </form>
           )}
-        </AnimatePresence>
 
-        <p className="text-[9px] text-white/20 uppercase tracking-widest leading-relaxed">
-          By continuing, you agree to our <br />
-          <span className="text-white/40">Terms of Service</span> & <span className="text-white/40">Privacy Policy</span>
+          {/* FORGOT PASSWORD FORM */}
+          {mode === 'forgot' && (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block">
+                  Registered Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={loginIdentifier}
+                  onChange={(e) => setLoginIdentifier(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full bg-[#10141c] border border-white/10 rounded-2xl px-4 py-3.5 text-sm text-white placeholder-white/30 focus:border-[#00D1FF] focus:outline-none"
+                />
+              </div>
+
+              {resetSent && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-400">
+                  Password reset email has been sent. Check your inbox and spam folder.
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold rounded-2xl py-3.5 text-sm transition-all"
+                >
+                  {loading ? 'Sending...' : 'Send Reset Link'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('signin')}
+                  className="w-full py-2 text-xs text-white/60 hover:text-white"
+                >
+                  Return to Sign In
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Divider */}
+          {mode !== 'forgot' && (
+            <>
+              <div className="relative flex items-center justify-center">
+                <div className="border-t border-white/10 w-full" />
+                <span className="bg-[#0b1019] px-3 text-[10px] font-mono uppercase tracking-wider text-white/40 absolute">
+                  or continue with
+                </span>
+              </div>
+
+              {/* Google One-Click Button */}
+              <button
+                type="button"
+                onClick={handleGoogleAuth}
+                disabled={loading}
+                className="w-full bg-[#10141c] hover:bg-[#151a24] border border-white/10 text-white font-medium rounded-2xl py-3.5 px-4 text-xs sm:text-sm flex items-center justify-center gap-3 transition-colors cursor-pointer"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Security and privacy reassurance */}
+        <p className="text-center text-[11px] text-white/40 mt-6 leading-relaxed">
+          By continuing, you agree to PrivyConnect’s Terms & Privacy. End-to-end encrypted profiles across Nigeria.
         </p>
-      </motion.div>
+      </div>
+
+      <div className="py-4 text-center text-[10px] font-mono text-white/30 uppercase tracking-widest relative z-10">
+        &copy; {new Date().getFullYear()} PrivyConnect. All rights reserved.
+      </div>
     </div>
   );
 }

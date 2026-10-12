@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { supabase, signIn, logOut, isSupabaseActive, signInWithEmail, signUpWithEmail } from './lib/supabase';
 import { APP_CONFIG } from './config';
-import { Home, Search, MessageSquare, User, Wallet, Shield, LogOut, Menu, X, Bell, Settings, AlertCircle, Lock, ShieldAlert, ShieldCheck, Activity, ArrowLeft, Mail, Key, EyeOff, Eye, Zap } from 'lucide-react';
+import { Home, Search, MessageSquare, User, Wallet, Shield, LogOut, Menu, X, Bell, Settings, AlertCircle, Lock, ShieldAlert, ShieldCheck, Activity, ArrowLeft, Mail, Key, EyeOff, Eye, Zap, Compass } from 'lucide-react';
+import { PrivyHeader } from './components/PrivyHeader';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -93,7 +94,6 @@ import DiscoveryPage from './pages/Discovery';
 import ProfilePage from './pages/Profile';
 import ChatListPage from './pages/ChatList';
 import ChatRoomPage from './pages/ChatRoom';
-import WalletPage from './pages/Wallet';
 import AdminPage from './admin/AdminPage';
 import AdminGuard from './admin/AdminGuard';
 import VerifySuccessPage from './pages/VerifySuccess';
@@ -138,11 +138,11 @@ function SubscriptionGuard({ children, profile }: { children: React.ReactNode, p
 
         <div className="flex flex-col w-full max-w-xs gap-4">
           <Link 
-            to="/wallet" 
+            to="/settings" 
             className="relative z-50 py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
             <Zap className="w-4 h-4" />
-            Subscribe Now (₦1,500)
+            Subscribe Now (₦2,000)
           </Link>
           <Link 
             to="/discovery" 
@@ -290,14 +290,18 @@ function AppContent() {
     try {
       console.log('Fetching profile for:', uid);
       
-      // Strict profile fetching: Get user first to ensure session is valid
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) throw new Error('No auth user found');
+      // Robust profile fetching: Use provided uid or current user id
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = uid || user?.id;
+      if (!userId) {
+        setLoading(false);
+        return;
+      }
 
       let { data, error } = await supabase
         .from('profiles')
         .select('*, wallet(balance)')
-        .eq('id', user.id)
+        .eq('id', userId)
         .single();
 
       if (error && error.code === 'PGRST116') {
@@ -356,48 +360,49 @@ function AppContent() {
       if (data) {
         console.log('Profile fetched successfully:', data);
         // Force admin role for the specific admin email
-        const isAdminEmail = user.email?.toLowerCase() === 'denic9426@gmail.com';
+        const userEmail = user?.email || data.email || '';
+        const isAdminEmail = userEmail.toLowerCase() === 'denic9426@gmail.com';
         const profileWithEmail = { 
           ...data, 
-          email: user.email,
-          role: isAdminEmail ? 'admin' : data.role 
+          email: userEmail,
+          role: isAdminEmail ? 'admin' : (data.role || 'user')
         };
         setProfile(profileWithEmail);
-        fetchUnreadCount(user.id);
+        fetchUnreadCount(userId);
 
         // Update online status
         if (isSupabaseActive) {
           await supabase
             .from('profiles')
             .update({ is_online: true, last_active: new Date().toISOString() })
-            .eq('id', user.id);
+            .eq('id', userId);
           
           // Set up heartbeat or cleanup on window close
           const handleVisibilityChange = () => {
             if (document.visibilityState === 'hidden') {
-              supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
+              supabase.from('profiles').update({ is_online: false }).eq('id', userId);
             } else {
-              supabase.from('profiles').update({ is_online: true, last_active: new Date().toISOString() }).eq('id', user.id);
+              supabase.from('profiles').update({ is_online: true, last_active: new Date().toISOString() }).eq('id', userId);
             }
           };
           document.addEventListener('visibilitychange', handleVisibilityChange);
           window.addEventListener('beforeunload', () => {
-            supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
+            supabase.from('profiles').update({ is_online: false }).eq('id', userId);
           });
 
           // Subscribe to notifications for unread count
           const channel = supabase
-            .channel(`unread-notifications-${user.id}`)
+            .channel(`unread-notifications-${userId}`)
             .on(
               'postgres_changes',
               {
                 event: '*',
                 schema: 'public',
                 table: 'notifications',
-                filter: `user_id=eq.${user.id}`
+                filter: `user_id=eq.${userId}`
               },
               () => {
-                fetchUnreadCount(user.id);
+                fetchUnreadCount(userId);
               }
             )
             .subscribe();
@@ -410,7 +415,7 @@ function AppContent() {
             await supabase
               .from('profiles')
               .update({ push_token: token })
-              .eq('id', user.id);
+              .eq('id', userId);
           }
 
           onForegroundMessage((payload) => {
@@ -420,14 +425,14 @@ function AppContent() {
 
           // Real-time profile updates
           const profileChannel = supabase
-            .channel(`profile-updates-${user.id}`)
+            .channel(`profile-updates-${userId}`)
             .on(
               'postgres_changes',
               {
                 event: 'UPDATE',
                 schema: 'public',
                 table: 'profiles',
-                filter: `id=eq.${user.id}`
+                filter: `id=eq.${userId}`
               },
               (payload) => {
                 console.log('Real-time profile update received:', payload.new);
@@ -443,7 +448,7 @@ function AppContent() {
                 event: 'UPDATE',
                 schema: 'public',
                 table: 'wallet',
-                filter: `profile_id=eq.${user.id}`
+                filter: `profile_id=eq.${userId}`
               },
               (payload) => {
                 console.log('Real-time wallet update received:', payload.new);
@@ -545,7 +550,7 @@ function AppContent() {
             type: 'retention',
             title: 'Subscription Expiring Soon',
             message,
-            link: '/wallet'
+            link: '/settings'
           });
           
           // Also trigger email via our API
@@ -585,7 +590,7 @@ function AppContent() {
     <ErrorBoundary>
       <GlobalAnnouncements />
       <Router>
-        <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-brand-blue/30 overflow-x-hidden">
+        <div className="min-h-screen bg-[#040506] text-[#f3f6f8] font-sans selection:bg-[#00d1ff]/20 selection:text-[#00d1ff] overflow-x-hidden">
           <Routes>
             {/* Website Experience: Landing page is public */}
             <Route path="/" element={<LandingPage />} />
@@ -595,6 +600,7 @@ function AppContent() {
             <Route path="/verify-success" element={<VerifySuccessPage />} />
             <Route path="/verify-subscription" element={<VerifySubscriptionPage />} />
             <Route path="/email-preview" element={<EmailPreviewPage />} />
+            <Route path="/dashboard" element={<Navigate to="/discovery" replace />} />
             
             {/* App Experience: Authentication required for these routes */}
             <Route path="/discovery" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><DiscoveryPage profile={profile} /></Layout></ProtectedRoute>} />
@@ -602,16 +608,7 @@ function AppContent() {
             <Route path="/profile/:uid" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><ProfilePage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/chats" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatListPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
             <Route path="/chat/:chatId" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SubscriptionGuard profile={profile}><ChatRoomPage profile={profile} /></SubscriptionGuard></Layout></ProtectedRoute>} />
-            <Route path="/wallet" element={
-              <ProtectedRoute session={session}>
-                <Layout profile={profile} unreadCount={unreadCount}>
-                  <WalletPage 
-                    profile={profile} 
-                    onUpdate={() => session?.user?.id && fetchProfile(session.user.id)} 
-                  />
-                </Layout>
-              </ProtectedRoute>
-            } />
+            <Route path="/wallet" element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SettingsPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><NotificationsPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/u/:username" element={<PublicProfilePage />} />
@@ -625,99 +622,160 @@ function AppContent() {
 
 function Layout({ children, profile, unreadCount }: { children: React.ReactNode, profile: any, unreadCount: number }) {
   const location = useLocation();
-  const isDiscoveryPage = location.pathname === '/discovery';
   const isChatRoom = location.pathname.startsWith('/chat/');
 
   const navItems = [
-    { icon: Home, label: 'Home', path: '/discovery' },
-    { icon: MessageSquare, label: 'Chats', path: '/chats' },
-    { icon: Wallet, label: 'Wallet', path: '/wallet' },
-    { icon: User, label: 'Profile', path: profile?.id ? `/profile/${profile.id}` : '/profile' },
+    { icon: Compass, label: 'DISCOVER', path: '/discovery' },
+    { icon: MessageSquare, label: 'MESSAGES', path: '/chats', badge: unreadCount > 0 ? unreadCount : undefined },
+    { icon: User, label: 'PROFILE', path: profile?.id ? `/profile/${profile.id}` : '/settings' },
+    { icon: Settings, label: 'SETTINGS', path: '/settings' },
   ];
 
   return (
-    <div className={cn("flex flex-col min-h-screen overflow-x-hidden", !isChatRoom && "pb-20 md:pb-0 md:pl-20")}>
-      {/* Top Bar - Only visible on Discovery page */}
-      {isDiscoveryPage && (
-        <header className="h-20 border-b border-white/10 flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-40">
-          <div className="flex-1 flex items-center">
-            <Link to="/discovery" className="max-w-[50%]">
-              <PrivyLogo className="scale-90 origin-left drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
-            </Link>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Link to="/notifications" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors relative group">
-              <Bell className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-              {unreadCount > 0 && (
-                <span className="absolute top-3 right-3 w-2 h-2 bg-brand-blue rounded-full border-2 border-[#050505] shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
-              )}
-            </Link>
-            
-            <Link to="/settings" className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group">
-              <Settings className="w-5 h-5 text-white/70 group-hover:text-brand-blue transition-colors" />
-            </Link>
-            
-            <button onClick={() => logOut()} className="p-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-colors group">
-              <LogOut className="w-5 h-5 text-red-500/70 group-hover:text-red-500" />
-            </button>
-          </div>
-        </header>
-      )}
+    <div className={cn("min-h-screen bg-[#040506] text-[#f3f6f8]", !isChatRoom && "pb-20 min-[860px]:pb-0")}>
+      {/* 96px Left Rail on screens 860px and wider */}
+      <aside className="hidden min-[860px]:flex fixed left-0 top-0 bottom-0 w-[96px] bg-[#090b0d] border-r border-white/[0.075] flex-col items-center justify-between py-6 z-50">
+        <div className="flex flex-col items-center w-full">
+          {/* Logo Mark */}
+          <Link to="/discovery" className="mb-8 flex flex-col items-center group">
+            <div className="w-11 h-11 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center relative group-hover:border-[#00d1ff]/50 transition-colors">
+              <span className="font-serif text-2xl font-bold italic text-white tracking-tight">P</span>
+              <span className="absolute bottom-2 right-2 w-1.5 h-1.5 rounded-full bg-[#00d1ff] shadow-[0_0_6px_#00d1ff]" />
+            </div>
+          </Link>
 
-      {/* Main Content */}
-      <main className={cn("flex-1 w-full", !isChatRoom && "max-w-7xl mx-auto p-4 md:p-8")}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-            className={cn(isChatRoom && "h-full flex flex-col")}
-          >
-            {children}
-          </motion.div>
-        </AnimatePresence>
-      </main>
-
-      {/* Navigation - Mobile Bottom / Desktop Side */}
-      {!isChatRoom && (
-        <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#050505]/95 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around px-4 z-50 md:top-0 md:bottom-0 md:right-auto md:w-20 md:flex-col md:border-t-0 md:border-r md:h-full">
-          <div className="hidden md:flex flex-col items-center py-8 gap-8">
-             <PrivyLogo className="md:flex-col md:gap-1 drop-shadow-[0_0_10px_rgba(0,209,255,0.3)]" />
-          </div>
-          
-          <div className="flex flex-1 justify-around md:flex-col md:justify-center md:gap-10">
+          {/* Nav items */}
+          <div className="flex flex-col items-center w-full space-y-2">
             {navItems.map((item) => {
               const isActive = item.path === '/discovery' 
                 ? location.pathname === '/discovery'
                 : item.path === '/chats'
                   ? location.pathname.startsWith('/chats') || location.pathname.startsWith('/chat/')
-                  : location.pathname.startsWith(item.path);
+                  : item.path === '/settings'
+                    ? location.pathname === '/settings'
+                    : location.pathname.startsWith(item.path);
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.label}
+                  to={item.path}
+                  className={cn(
+                    "w-full flex flex-col items-center justify-center py-3.5 px-1 relative transition-colors group",
+                    isActive ? "text-[#00d1ff]" : "text-[#8d97a1] hover:text-[#f3f6f8]"
+                  )}
+                >
+                  {/* Glowing 2px line indicator on left */}
+                  {isActive && (
+                    <motion.div 
+                      layoutId="rail-glow-bar"
+                      className="absolute left-0 top-2 bottom-2 w-[2px] bg-[#00d1ff] rounded-r-full shadow-[0_0_8px_#00d1ff]"
+                    />
+                  )}
+                  <div className="relative">
+                    <Icon className={cn("w-5 h-5 transition-transform group-hover:scale-105", isActive && "text-[#00d1ff]")} />
+                    {item.badge && item.badge > 0 && (
+                      <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-[#00d1ff] text-[#00131a] font-mono font-bold text-[9px] flex items-center justify-center shadow-[0_0_6px_rgba(0,209,255,0.6)]">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className={cn(
+                    "text-[10px] font-mono uppercase tracking-[0.16em] mt-1.5",
+                    isActive ? "text-[#00d1ff] font-semibold" : "text-[#59636d]"
+                  )}>
+                    {item.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* User Mini Avatar at rail bottom */}
+        {profile && (
+          <Link 
+            to={profile.id ? `/profile/${profile.id}` : '/settings'}
+            className="w-10 h-10 rounded-full overflow-hidden border border-white/10 hover:border-[#00d1ff] transition-all relative"
+            title={profile.full_name || 'Profile'}
+          >
+            {profile.avatar_url ? (
+              <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-white/5 flex items-center justify-center text-xs font-mono text-[#8d97a1]">
+                {(profile.full_name || 'U').charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-[#35e0a1] ring-2 ring-[#090b0d]" />
+          </Link>
+        )}
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="min-h-screen flex flex-col flex-1 w-full min-[860px]:pl-[96px] transition-all">
+        <main className={cn(
+          "flex-1 w-full mx-auto",
+          !isChatRoom && "max-w-6xl px-3 sm:px-6 py-6"
+        )}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.15 }}
+              className={cn(isChatRoom && "h-full flex flex-col")}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        </main>
+      </div>
+
+      {/* Navigation - Phone Bottom Bar (Screens < 860px) */}
+      {!isChatRoom && (
+        <nav className="min-[860px]:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#090b0d]/95 backdrop-blur-2xl border-t border-white/[0.075] flex items-center justify-around px-2 z-50">
+          <div className="flex flex-1 justify-around max-w-lg mx-auto h-full">
+            {navItems.map((item) => {
+              const isActive = item.path === '/discovery' 
+                ? location.pathname === '/discovery'
+                : item.path === '/chats'
+                  ? location.pathname.startsWith('/chats') || location.pathname.startsWith('/chat/')
+                  : item.path === '/settings'
+                    ? location.pathname === '/settings'
+                    : location.pathname.startsWith(item.path);
               const Icon = item.icon;
               
               return (
                 <Link
-                  key={item.path}
+                  key={item.label}
                   to={item.path}
                   className={cn(
-                    "flex flex-col items-center gap-1.5 p-2 transition-all group relative",
-                    isActive ? "text-brand-blue" : "text-white/30 hover:text-white"
+                    "flex flex-col items-center justify-center py-1 px-2 transition-all relative flex-1 text-center h-full",
+                    isActive ? "text-[#00d1ff]" : "text-[#59636d] hover:text-[#8d97a1]"
                   )}
                 >
-                  <div className={cn(
-                    "p-2.5 rounded-2xl transition-all duration-500",
-                    isActive ? "bg-brand-blue/10 shadow-[0_0_20px_rgba(0,209,255,0.15)]" : "group-hover:bg-white/5"
-                  )}>
-                    <Icon className={cn("w-6 h-6 transition-transform duration-500", isActive && "scale-110")} />
-                  </div>
+                  {/* Glowing 2px line at the top of active tab */}
                   {isActive && (
                     <motion.div 
-                      layoutId="nav-glow"
-                      className="absolute -bottom-1 w-1 h-1 bg-brand-blue rounded-full shadow-[0_0_10px_rgba(0,209,255,1)]"
+                      layoutId="bottom-glow-bar"
+                      className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] bg-[#00d1ff] rounded-full shadow-[0_0_8px_#00d1ff]"
                     />
                   )}
+                  <div className="relative">
+                    <Icon className={cn("w-5 h-5 transition-transform", isActive && "scale-105 text-[#00d1ff]")} />
+                    {item.badge && item.badge > 0 && (
+                      <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-[#00d1ff] text-[#00131a] font-mono font-bold text-[9px] flex items-center justify-center shadow-[0_0_6px_rgba(0,209,255,0.6)]">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className={cn(
+                    "text-[9px] font-mono tracking-[0.16em] uppercase mt-1",
+                    isActive ? "text-[#00d1ff] font-semibold" : "text-[#59636d]"
+                  )}>
+                    {item.label}
+                  </span>
                 </Link>
               );
             })}

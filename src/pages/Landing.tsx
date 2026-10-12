@@ -1,491 +1,972 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ArrowRight, Check, X, Smartphone, Zap, Star, ShieldCheck, Mail, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, ArrowRight, Lock, Eye, Zap, Smartphone, Globe, CheckCircle, Star, Users, Bell, Settings, X, ChevronRight, Download, Mail, HelpCircle, FileText } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { Logo } from '../components/Logo';
+import { PrivyHeader } from '../components/PrivyHeader';
 import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MemberProfileModal } from '../components/MemberProfileModal';
+import { SubscriptionModal } from '../components/SubscriptionModal';
+
+interface ActiveProfile {
+  id: string;
+  name: string;
+  verified: boolean;
+  online: boolean;
+  area: string;
+  state: string;
+  vibe: 'FWB' | 'BESTIE' | 'SUGAR MUMMY' | 'SUGAR DADDY' | 'HOOKUP';
+  photo_url?: string;
+  bgGradient: string;
+  borderColor: string;
+  tagColor: {
+    bg: string;
+    border: string;
+    text: string;
+  };
+}
+
+const VIBE_COLOR_MAP: Record<string, { bg: string; border: string; text: string }> = {
+  'FWB': {
+    bg: 'rgba(179,136,255,0.15)',
+    border: 'rgba(179,136,255,0.4)',
+    text: '#b388ff'
+  },
+  'BESTIE': {
+    bg: 'rgba(53,224,161,0.15)',
+    border: 'rgba(53,224,161,0.4)',
+    text: '#35e0a1'
+  },
+  'SUGAR MUMMY': {
+    bg: 'rgba(255,122,184,0.15)',
+    border: 'rgba(255,122,184,0.4)',
+    text: '#ff7ab8'
+  },
+  'SUGAR DADDY': {
+    bg: 'rgba(242,176,75,0.15)',
+    border: 'rgba(242,176,75,0.4)',
+    text: '#f2b04b'
+  },
+  'HOOKUP': {
+    bg: 'rgba(255,107,107,0.15)',
+    border: 'rgba(255,107,107,0.4)',
+    text: '#ff6b6b'
+  }
+};
+
+const GRADIENTS = [
+  { gradient: 'bg-gradient-to-b from-[#242116] via-[#1a1710] to-[#0c0d10]', border: 'border-[#c69a3b]/30' }, // warm olive/gold
+  { gradient: 'bg-gradient-to-b from-[#251829] via-[#1a101f] to-[#0c0d10]', border: 'border-[#9c4dcc]/30' }, // purple/plum
+  { gradient: 'bg-gradient-to-b from-[#14232c] via-[#0f1920] to-[#0a0d10]', border: 'border-[#00d1ff]/30' }, // cyan/teal
+  { gradient: 'bg-gradient-to-b from-[#161c28] via-[#10141d] to-[#090b0e]', border: 'border-[#3b82f6]/30' }, // navy/slate
+  { gradient: 'bg-gradient-to-b from-[#2a171d] via-[#1c0f13] to-[#0b0c0e]', border: 'border-[#ff7ab8]/30' }, // rose/pink
+  { gradient: 'bg-gradient-to-b from-[#152721] via-[#0e1b17] to-[#090d0b]', border: 'border-[#35e0a1]/30' }, // emerald
+];
+
+const INITIAL_PROFILES_POOL: Omit<ActiveProfile, 'bgGradient' | 'borderColor' | 'tagColor'>[] = [
+  { id: 'p1', name: 'Obinna', verified: true, online: true, area: 'ADO-EKITI', state: 'EKITI', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p2', name: 'Sani', verified: true, online: true, area: 'IBADAN', state: 'OYO', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p3', name: 'Ada', verified: false, online: true, area: 'GUSAU', state: 'ZAMFARA', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p4', name: 'Dayo', verified: true, online: true, area: 'MAKURDI', state: 'BENUE', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p5', name: 'Damola', verified: true, online: true, area: 'SOKOTO', state: 'SOKOTO', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p6', name: 'Chinedu', verified: true, online: true, area: 'BIRNIN KEBBI', state: 'KEBBI', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p7', name: 'Ada', verified: false, online: true, area: 'JOS', state: 'PLATEAU', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p8', name: 'Hauwa', verified: true, online: true, area: 'EKET', state: 'AKWA IBOM', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p9', name: 'Zara', verified: true, online: true, area: 'MINNA', state: 'NIGER', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p10', name: 'Aisha', verified: false, online: true, area: 'SOKOTO', state: 'SOKOTO', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p11', name: 'Yusuf', verified: true, online: true, area: 'CALABAR', state: 'CROSS RIVER', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p12', name: 'Fatima', verified: true, online: true, area: 'MAITAMA', state: 'ABUJA', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p13', name: 'Tobi', verified: true, online: true, area: 'VICTORIA ISLAND', state: 'LAGOS', vibe: 'SUGAR DADDY', photo_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p14', name: 'Amara', verified: true, online: true, area: 'LEKKI', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p15', name: 'Kenneth', verified: true, online: true, area: 'LEKKI PHASE 1', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p16', name: 'Funke', verified: true, online: true, area: 'SURULERE', state: 'LAGOS', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p17', name: 'Emeka', verified: true, online: true, area: 'INDEPENDENCE', state: 'ENUGU', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p18', name: 'Stephanie', verified: true, online: true, area: 'ASABA', state: 'DELTA', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p19', name: 'Osas', verified: true, online: true, area: 'GRA', state: 'EDO', vibe: 'SUGAR DADDY', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p20', name: 'Boma', verified: true, online: true, area: 'YABA', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80' }
+];
 
 export default function LandingPage() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [subscriptionPrice, setSubscriptionPrice] = useState(1500);
-  const [subscriptionInterval, setSubscriptionInterval] = useState('week');
+  const navigate = useNavigate();
+  const [notifyEmail, setNotifyEmail] = useState('');
+  const [notified, setNotified] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [messageSent, setMessageSent] = useState(false);
 
+  // Profile modal and subscription modal state
+  const [selectedLandingMember, setSelectedLandingMember] = useState<any | null>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('privy_favorites');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const handleToggleFavorite = (memberId: string) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (next.has(memberId)) next.delete(memberId);
+      else next.add(memberId);
+      try {
+        localStorage.setItem('privy_favorites', JSON.stringify([...next]));
+      } catch (e) {
+        console.warn('Could not save favorites to localStorage', e);
+      }
+      return next;
+    });
+  };
+
+  // Active profiles pool & online count
+  const [activeProfiles, setActiveProfiles] = useState<ActiveProfile[]>(() => {
+    return INITIAL_PROFILES_POOL.slice(0, 4).map((p, idx) => ({
+      ...p,
+      bgGradient: GRADIENTS[idx % GRADIENTS.length].gradient,
+      borderColor: GRADIENTS[idx % GRADIENTS.length].border,
+      tagColor: VIBE_COLOR_MAP[p.vibe] || VIBE_COLOR_MAP['FWB']
+    }));
+  });
+  const [onlineCount, setOnlineCount] = useState(103);
+  const [pool, setPool] = useState<Omit<ActiveProfile, 'bgGradient' | 'borderColor' | 'tagColor'>[]>(INITIAL_PROFILES_POOL);
+
+  // Load real members from Supabase / Firestore if available to enrich pool
   useEffect(() => {
-    const fetchSettings = async () => {
+    const fetchRealProfiles = async () => {
       if (!isSupabaseActive) return;
-      const { data } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'paystack_plan')
-        .single();
-      
-      if (data?.value?.amount) {
-        setSubscriptionPrice(data.value.amount);
-        setSubscriptionInterval(data.value.interval === 'monthly' ? 'month' : data.value.interval === 'weekly' ? 'week' : data.value.interval === 'daily' ? 'day' : data.value.interval === 'hourly' ? 'hour' : data.value.interval === 'quarterly' ? 'quarter' : data.value.interval === 'biannually' ? 'half-year' : data.value.interval === 'annually' ? 'year' : 'month');
-      } else {
-        const { data: subData } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'subscription_price')
-          .single();
-        if (subData?.value?.amount) {
-          setSubscriptionPrice(subData.value.amount);
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id, username, display_name, is_verified, is_online, area, state, vibe')
+          .limit(30);
+        if (data && data.length > 0) {
+          const mapped = data.map((p, i) => {
+            const rawVibe = (p.vibe as any) || (i % 2 === 0 ? 'FWB' : 'BESTIE');
+            return {
+              id: p.id,
+              name: p.username || p.display_name || 'Member',
+              verified: Boolean(p.is_verified),
+              online: p.is_online !== false,
+              area: (p.area || 'CENTRAL').toUpperCase(),
+              state: (p.state || 'LAGOS').toUpperCase(),
+              vibe: rawVibe
+            };
+          });
+          setPool(prev => {
+            const existing = new Set(prev.map(item => item.id));
+            const newOnes = mapped.filter(item => !existing.has(item.id));
+            return [...prev, ...newOnes];
+          });
         }
+      } catch (e) {
+        console.warn('Real profiles fetch skipped:', e);
       }
     };
-    fetchSettings();
+    fetchRealProfiles();
   }, []);
 
+  // Update a card every few seconds (just like seen on user screenshots)
   useEffect(() => {
-    const checkAuth = async () => {
-      if (!supabase || !isSupabaseActive) {
-        setIsLoggedIn(true);
-        return;
-      }
-      const { data: { session } } = await supabase.auth.getSession();
-      setIsLoggedIn(!!session);
-    };
-    checkAuth();
+    const interval = setInterval(() => {
+      // Pick a random slot 0..3 to replace
+      const slotToReplace = Math.floor(Math.random() * 4);
 
-    const handleScroll = () => setScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+      setActiveProfiles(prev => {
+        // Choose a candidate from the pool not currently displayed in the 4 slots
+        const currentIds = new Set(prev.map(p => p.id));
+        const availableCandidates = pool.filter(p => !currentIds.has(p.id));
 
-  const menuItems = [
-    { name: 'Home', href: '#home' },
-    { name: 'Features', href: '#features' },
-    { name: 'Download App', href: '#download' },
-    { name: 'About', href: '#about' },
-    { name: 'Privacy', href: '#privacy' },
-    { name: 'Contact', href: '#contact' },
-  ];
+        if (availableCandidates.length === 0) return prev;
+
+        const nextCandidate = availableCandidates[Math.floor(Math.random() * availableCandidates.length)];
+        const nextTheme = GRADIENTS[Math.floor(Math.random() * GRADIENTS.length)];
+
+        const nextProfile: ActiveProfile = {
+          ...nextCandidate,
+          bgGradient: nextTheme.gradient,
+          borderColor: nextTheme.border,
+          tagColor: VIBE_COLOR_MAP[nextCandidate.vibe] || VIBE_COLOR_MAP['FWB']
+        };
+
+        const updated = [...prev];
+        updated[slotToReplace] = nextProfile;
+        return updated;
+      });
+
+      // Fluctuate online count slightly between 98 and 118 for alive feel
+      setOnlineCount(prev => {
+        const delta = Math.floor(Math.random() * 5) - 2;
+        const next = prev + delta;
+        return Math.max(95, Math.min(125, next));
+      });
+    }, 2800);
+
+    return () => clearInterval(interval);
+  }, [pool]);
+
+  const handleNotifySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifyEmail) return;
+    setNotified(true);
+    setTimeout(() => setNotified(false), 4000);
+    setNotifyEmail('');
+  };
+
+  const handleContactSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contactName || !contactEmail || !contactMessage) return;
+    setMessageSent(true);
+    setTimeout(() => setMessageSent(false), 5000);
+    setContactName('');
+    setContactEmail('');
+    setContactMessage('');
+  };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white overflow-x-hidden selection:bg-brand-blue/30 font-sans">
-      {/* Navigation */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 h-20 border-b transition-all duration-300 flex items-center justify-between px-6 ${scrolled ? 'bg-[#050505]/90 backdrop-blur-xl border-white/10' : 'bg-transparent border-transparent'}`}>
-        <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="relative">
-              <img 
-                src="/privylogo.png" 
-                alt="PrivyConnect" 
-                className="w-10 h-10 drop-shadow-[0_0_10px_rgba(0,209,255,0.3)] group-hover:scale-110 transition-transform" 
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                }}
-              />
-              <div className="hidden">
-                <Logo className="w-10 h-10" />
+    <div className="min-h-screen bg-[#050505] text-white selection:bg-[#00D1FF]/30 font-sans">
+      {/* Header */}
+      <PrivyHeader />
+
+      {/* Main Container */}
+      <main className="max-w-md mx-auto px-5 pt-8 pb-20 space-y-16 sm:max-w-xl md:max-w-2xl">
+        
+        {/* HERO SECTION (Screenshot 1) */}
+        <section id="hero" className="pt-2">
+          {/* Pill Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-black/60 border border-white/10 mb-6">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse"></span>
+            <span className="text-[10px] font-mono tracking-widest uppercase text-white/80">
+              FUN STARTS HERE
+            </span>
+          </div>
+
+          {/* Heading */}
+          <h1 className="text-[44px] sm:text-5xl md:text-6xl font-serif text-white leading-[1.08] tracking-tight mb-5">
+            Find your <span className="italic text-[#00D1FF] font-normal">match.</span>
+            <br />
+            Keep it fun.
+          </h1>
+
+          {/* Subtitle */}
+          <p className="text-white/70 text-[15px] sm:text-base leading-relaxed mb-8 font-sans font-light">
+            Meet people near you or across Nigeria. Pick your vibe, browse your state and start a chat. Private when you want it, playful when you do not.
+          </p>
+
+          {/* CTAs */}
+          <div className="space-y-3">
+            <button
+              onClick={() => navigate('/discovery')}
+              className="w-full bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold text-base rounded-2xl py-3.5 px-6 flex items-center justify-center gap-2 transition-all shadow-[0_0_25px_rgba(0,209,255,0.25)] active:scale-[0.99]"
+            >
+              Get started <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                const el = document.getElementById('how-it-works');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="w-full bg-[#0d1117] hover:bg-white/5 border border-white/15 text-white font-medium text-base rounded-2xl py-3.5 px-6 flex items-center justify-center transition-all"
+            >
+              See how it works
+            </button>
+          </div>
+
+          {/* Social Proof */}
+          <div className="flex items-center gap-4 mt-8 pt-2">
+            {/* Overlapping Avatar Silhouettes */}
+            <div className="flex -space-x-2.5 overflow-hidden">
+              <div className="inline-block h-8 w-8 rounded-full ring-2 ring-[#050505] bg-gradient-to-tr from-slate-700 to-slate-500 flex items-center justify-center">
+                <div className="w-3.5 h-3.5 rounded-full bg-slate-400/40"></div>
+              </div>
+              <div className="inline-block h-8 w-8 rounded-full ring-2 ring-[#050505] bg-gradient-to-tr from-purple-800 to-purple-600 flex items-center justify-center">
+                <div className="w-3.5 h-3.5 rounded-full bg-purple-300/40"></div>
+              </div>
+              <div className="inline-block h-8 w-8 rounded-full ring-2 ring-[#050505] bg-gradient-to-tr from-emerald-800 to-teal-600 flex items-center justify-center">
+                <div className="w-3.5 h-3.5 rounded-full bg-teal-300/40"></div>
               </div>
             </div>
-            <span className="text-xl md:text-2xl font-display font-bold tracking-tighter">
-              Privy<span className="text-brand-blue">Connect</span>
-            </span>
-          </Link>
-        </div>
 
-        {/* Desktop Menu */}
-        <div className="hidden lg:flex items-center gap-8 text-[10px] uppercase tracking-[0.3em] font-bold text-white/40">
-          {menuItems.slice(0, 4).map((item) => (
-            <a key={item.name} href={item.href} className="hover:text-brand-blue transition-colors">{item.name}</a>
-          ))}
-        </div>
+            <div>
+              {/* Cyan Stars */}
+              <div className="flex items-center gap-1 text-[#00D1FF] text-xs">
+                <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+              </div>
+              <p className="text-[10px] font-mono tracking-widest uppercase text-white/50 font-semibold mt-0.5">
+                10K+ VERIFIED MEMBERS
+              </p>
+            </div>
+          </div>
+        </section>
 
-        <div className="flex items-center gap-4">
-          {/* Menu Toggle */}
-          <button 
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="p-2 text-white hover:text-brand-blue transition-colors"
-          >
-            {isMenuOpen ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" transform="matrix(-1, 0, 0, 1, 0, 0)">
-                <path d="M5 17H13M5 12H19M5 7H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
-          </button>
-        </div>
-      </nav>
+        {/* ACTIVE NOW / ONLINE MEMBERS SECTION (Screenshots 2 & 3) */}
+        <section id="online-members" className="pt-2">
+          <div className="rounded-3xl bg-[#080d12]/90 border border-[#00D1FF]/25 p-5 shadow-[0_0_35px_rgba(0,209,255,0.06)] relative overflow-hidden">
+            {/* Ambient Background Glow */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-[#00D1FF]/5 blur-3xl pointer-events-none"></div>
 
-      {/* Mobile Menu Overlay */}
-      <AnimatePresence>
-        {isMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, x: '100%' }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed inset-0 z-40 bg-[#050505] pt-24 px-8 flex flex-col gap-8"
-          >
-            <div className="flex flex-col gap-6">
-              {menuItems.map((item) => (
-                <a 
-                  key={item.name} 
-                  href={item.href} 
-                  onClick={() => setIsMenuOpen(false)}
-                  className="text-4xl font-display uppercase italic tracking-tighter hover:text-brand-blue transition-colors"
+            <div className="flex items-center gap-2 mb-1">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#0b151b] border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
+                <span className="text-[10px] font-mono tracking-wider uppercase text-emerald-300">
+                  ACTIVE NOW
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[11px] font-mono tracking-widest uppercase text-[#00D1FF] font-semibold mb-4 mt-2 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse"></span>
+              {onlineCount} MEMBERS ONLINE IN YOUR LOCATION OR AROUND YOU
+            </p>
+
+            {/* 2-Column Member Cards Grid that updates every few seconds */}
+            <div className="grid grid-cols-2 gap-3">
+              {activeProfiles.map((member, slotIdx) => (
+                <div
+                  key={slotIdx}
+                  onClick={() => setSelectedLandingMember(member)}
+                  className="relative h-[190px] cursor-pointer"
                 >
-                  {item.name}
-                </a>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={member.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.45 }}
+                      className={`absolute inset-0 ${member.bgGradient} border ${member.borderColor} rounded-2xl p-3 flex flex-col justify-between hover:border-[#00D1FF]/50 transition-all group overflow-hidden shadow-lg`}
+                    >
+                      {/* Top left Online tag with green dot */}
+                      <div className="flex items-center gap-1.5 self-start px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[9px] font-mono tracking-wider uppercase text-white/90">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
+                        ONLINE
+                      </div>
+
+                      {/* Genuine unblurred user profile picture */}
+                      <div className="w-16 h-16 rounded-full mx-auto my-auto relative p-0.5 group-hover:scale-105 transition-transform">
+                        <img
+                          src={member.photo_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'}
+                          alt={member.name}
+                          className="w-full h-full rounded-full object-cover border border-white/20 shadow-md brightness-95"
+                        />
+                        {member.verified && (
+                          <div className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center shadow">
+                            <ShieldCheck className="w-3 h-3 fill-[#00131a]" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Details */}
+                      <div>
+                        <span 
+                          style={{
+                            backgroundColor: member.tagColor.bg,
+                            borderColor: member.tagColor.border,
+                            color: member.tagColor.text
+                          }}
+                          className="inline-block px-2 py-0.5 rounded-full border text-[9px] font-mono font-bold tracking-wider uppercase mb-1"
+                        >
+                          {member.vibe}
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <span className="font-serif text-white text-base font-normal">
+                            {member.name}
+                          </span>
+                          {member.verified && (
+                            <span className="text-[#00D1FF] text-xs font-bold leading-none">✓</span>
+                          )}
+                        </div>
+
+                        <p className="text-[9px] font-mono tracking-wider text-white/50 uppercase truncate">
+                          {member.area} · {member.state}
+                        </p>
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
               ))}
             </div>
-            <div className="mt-auto pb-12">
-              <p className="text-center text-white/20 text-[10px] uppercase tracking-widest font-bold">
-                &copy; 2026 PrivyConnect Ecosystem
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
-      {/* Hero Section */}
-      <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden pb-20">
-        <div className="absolute inset-0 z-0">
-          <img 
-            src="https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=2000" 
-            alt="Premium Infrastructure"
-            className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/90 via-transparent to-[#050505]" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/80 via-transparent to-[#050505]/80" />
-        </div>
+            <p className="text-[10px] font-mono tracking-widest text-white/40 uppercase text-center mt-5">
+              NEW FACES EVERY FEW SECONDS. OPEN THE APP TO SAY HELLO.
+            </p>
+          </div>
+        </section>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-6 py-20 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="space-y-8 md:space-y-12"
-          >
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="inline-flex items-center gap-3 px-6 py-2 rounded-full bg-brand-blue/10 border border-brand-blue/20 backdrop-blur-xl"
-            >
-              <div className="w-2 h-2 rounded-full bg-brand-blue animate-pulse shadow-[0_0_10px_rgba(0,209,255,1)]" />
-              <span className="text-[10px] uppercase tracking-[0.4em] font-bold text-brand-blue">System Status: Optimal</span>
-            </motion.div>
-
-            <div className="space-y-6">
-              <h1 className="font-display text-5xl md:text-8xl lg:text-[10rem] uppercase leading-[0.9] md:leading-[0.8] tracking-tighter italic drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
-                The Elite<br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-blue via-blue-400 to-brand-blue bg-[length:200%_auto] animate-gradient">Social</span><br />
-                Infrastructure
-              </h1>
-
-              <p className="max-w-2xl mx-auto text-white/80 text-base md:text-xl font-light leading-relaxed uppercase tracking-[0.2em] md:tracking-[0.3em] font-bold drop-shadow-lg">
-                Secure. Verified. <span className="text-brand-blue">Uncompromisingly Private.</span>
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-8">
-              <Link
-                to={isLoggedIn ? "/discovery" : "/login"}
-                className="group relative px-12 py-6 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.3em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(0,209,255,0.4)]"
-              >
-                <span className="relative z-10 flex items-center gap-3 text-xs">
-                  {isLoggedIn ? "Go to Dashboard" : "Initialize Connection"} <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </span>
-              </Link>
-              
-              <div className="flex items-center gap-4 px-8 py-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl hover:bg-white/10 transition-all">
-                <div className="flex -space-x-3">
-                  {[1, 2, 3].map(i => (
-                    <img 
-                      key={i}
-                      src={`https://picsum.photos/seed/user${i}/100/100`} 
-                      className="w-10 h-10 rounded-full border-2 border-brand-dark grayscale group-hover:grayscale-0 transition-all"
-                      referrerPolicy="no-referrer"
-                    />
-                  ))}
-                </div>
-                <div className="text-left">
-                  <div className="flex items-center gap-1 text-brand-blue mb-0.5">
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                  </div>
-                  <span className="text-[10px] uppercase tracking-widest font-bold text-white/40">10k+ Verified Nodes</span>
-                </div>
+        {/* 3-COLUMN METRIC BOX (Screenshot 3) */}
+        <section className="py-2">
+          <div className="grid grid-cols-3 border-y border-white/10 py-6 text-center divide-x divide-white/10">
+            {/* Col 1 */}
+            <div className="px-2">
+              <div className="text-3xl sm:text-4xl font-serif text-white font-normal">
+                10K+
+              </div>
+              <div className="text-[9px] font-mono tracking-widest uppercase text-white/40 mt-1.5 leading-tight">
+                VERIFIED<br />MEMBERS
               </div>
             </div>
-          </motion.div>
-        </div>
-      </section>
 
-      {/* Features Section - Minimized Heading, Restored Grid */}
-      <section id="features" className="py-24 px-6 bg-white/[0.01]">
-        <div className="max-w-7xl mx-auto space-y-12">
-          <div className="text-center space-y-2">
-            <h2 className="text-2xl md:text-3xl font-display uppercase tracking-tighter italic opacity-40">Infrastructure</h2>
-            <p className="text-white/20 text-[8px] uppercase tracking-[0.4em] font-bold">Core Benefits</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[
-              { 
-                icon: Shield, 
-                title: "Secure Infrastructure", 
-                desc: "Multi-factor authentication and biometric security layers protecting your digital assets." 
-              },
-              { 
-                icon: Lock, 
-                title: "Private Communications", 
-                desc: "End-to-end encryption for all your data and communications within the elite network." 
-              },
-              { 
-                icon: Zap, 
-                title: "High-Speed Sync", 
-                desc: "Real-time synchronization across all your devices with zero-latency architecture." 
-              },
-              { 
-                icon: Users, 
-                title: "Verified Network", 
-                desc: "Strict vetting process for all nodes and users to maintain the highest level of integrity." 
-              },
-              { 
-                icon: Globe, 
-                title: "Global Elite Access", 
-                desc: "Connect to an elite network of high-performance servers located in strategic global hubs." 
-              },
-              { 
-                icon: CheckCircle, 
-                title: "Premium Status", 
-                desc: "Exclusive access to premium features and priority support for our most valued members." 
-              }
-            ].map((feature, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="p-8 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm hover:bg-white/10 transition-all group"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <feature.icon className="w-6 h-6 text-brand-blue" />
-                </div>
-                <h3 className="text-xl font-bold mb-3 uppercase tracking-wider italic">{feature.title}</h3>
-                <p className="text-white/40 text-sm font-light leading-relaxed">{feature.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Section */}
-      <section id="pricing" className="py-32 px-6">
-        <div className="max-w-7xl mx-auto space-y-20">
-          <div className="text-center space-y-4">
-            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Pricing</h2>
-            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">Choose your access level</p>
-          </div>
-
-          <div className="max-w-md mx-auto p-12 rounded-[48px] bg-gradient-to-br from-brand-blue/20 to-purple-500/20 border border-brand-blue/30 backdrop-blur-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-6">
-              <div className="px-4 py-1 bg-brand-blue text-brand-dark text-[8px] font-black uppercase tracking-widest rounded-full">Most Popular</div>
-            </div>
-            <div className="space-y-8">
-              <div className="space-y-2">
-                <h3 className="text-3xl font-display uppercase italic">Premium Access</h3>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-display italic">₦{subscriptionPrice.toLocaleString()}</span>
-                  <span className="text-white/40 uppercase tracking-widest text-[10px] font-bold">/ {subscriptionInterval}</span>
-                </div>
+            {/* Col 2 */}
+            <div className="px-2">
+              <div className="text-3xl sm:text-4xl font-serif italic text-white font-normal">
+                Free
               </div>
-              <ul className="space-y-4">
-                {['Unlimited Profile Views', 'Real-time Chatting', 'Verified Badge', 'Priority Support', 'Exclusive Events'].map((feat, i) => (
-                  <li key={i} className="flex items-center gap-3 text-sm font-light">
-                    <CheckCircle className="w-4 h-4 text-brand-blue" />
-                    {feat}
-                  </li>
-                ))}
-              </ul>
-              <Link to="/login" className="block w-full py-5 bg-brand-blue text-brand-dark text-center font-bold uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-[0_20px_40px_rgba(0,209,255,0.3)]">
-                Subscribe Now
-              </Link>
+              <div className="text-[9px] font-mono tracking-widest uppercase text-white/40 mt-1.5 leading-tight">
+                TO JOIN<br />TODAY
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Download Section */}
-      <section id="download" className="py-32 px-6 bg-white/[0.01]">
-        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-20 items-center">
-          <div className="space-y-12">
-            <div className="space-y-6">
-              <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">
-                Download<br />
-                <span className="text-brand-blue">The App</span>
-              </h2>
-              <p className="text-white/40 text-lg font-light leading-relaxed">
-                Get the full PrivyConnect experience on your mobile device. Scan the QR code or use the store links below.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-4">
-              <button className="flex items-center gap-3 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all">
-                <Smartphone className="w-6 h-6 text-brand-blue" />
-                <div className="text-left">
-                  <div className="text-[8px] uppercase tracking-widest font-bold text-white/40">Download on</div>
-                  <div className="text-sm font-bold">App Store</div>
-                </div>
-              </button>
-              <button className="flex items-center gap-3 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all">
-                <Zap className="w-6 h-6 text-brand-blue" />
-                <div className="text-left">
-                  <div className="text-[8px] uppercase tracking-widest font-bold text-white/40">Get it on</div>
-                  <div className="text-sm font-bold">Google Play</div>
-                </div>
-              </button>
-            </div>
-          </div>
-          <div className="flex justify-center">
-            <div className="p-8 rounded-[48px] bg-white border-8 border-white/10 shadow-2xl">
-              <div className="w-64 h-64 bg-black rounded-3xl flex items-center justify-center">
-                <div className="text-brand-blue font-display text-2xl uppercase tracking-widest font-bold text-center">
-                  QR CODE<br />COMING SOON
-                </div>
+            {/* Col 3 */}
+            <div className="px-2">
+              <div className="text-3xl sm:text-4xl font-serif text-white font-normal">
+                37
+              </div>
+              <div className="text-[9px] font-mono tracking-widest uppercase text-white/40 mt-1.5 leading-tight">
+                LOCATIONS<br />NATIONWIDE
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* About Section */}
-      <section id="about" className="py-32 px-6">
-        <div className="max-w-4xl mx-auto text-center space-y-12">
-          <div className="space-y-4">
-            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Our Vision</h2>
-            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">About PrivyConnect</p>
+        {/* PICK YOUR VIBE / HOW IT WORKS SECTION (Screenshots 3, 4, 5) */}
+        <section id="vibes" className="pt-2">
+          <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-3">
+            HOW IT WORKS
           </div>
-          <p className="text-xl md:text-2xl font-light leading-relaxed text-white/60 italic">
-            "PrivyConnect was founded on the principle that elite social interactions deserve an elite infrastructure. We bridge the gap between digital privacy and human connection, creating a sanctuary for those who value discretion as much as engagement."
+
+          <h2 className="text-[38px] sm:text-4xl md:text-5xl font-serif text-white leading-tight mb-4">
+            Pick your vibe.
+            <br />
+            <span className="italic text-[#00D1FF] font-normal">Find your people.</span>
+          </h2>
+
+          <p className="text-white/60 text-sm leading-relaxed mb-8 font-light">
+            No long forms and no awkward small talk. Choose what you are here for and see who is around.
           </p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-8 pt-12">
-            <div className="space-y-2">
-              <div className="text-sm font-bold uppercase tracking-widest text-brand-blue">Established</div>
-              <div className="text-white/40 text-xs">2026</div>
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-bold uppercase tracking-widest text-brand-blue">Headquarters</div>
-              <div className="text-white/40 text-xs">Global / Decentralized</div>
-            </div>
-            <div className="space-y-2 col-span-2 md:col-span-1">
-              <div className="text-sm font-bold uppercase tracking-widest text-brand-blue">Mission</div>
-              <div className="text-white/40 text-xs">Secure Elite Connections</div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Contact Section */}
-      <section id="contact" className="py-32 px-6 bg-white/[0.01]">
-        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-20">
-          <div className="space-y-12">
-            <div className="space-y-6">
-              <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">
-                Contact<br />
-                <span className="text-brand-blue">Support</span>
-              </h2>
-              <p className="text-white/40 text-lg font-light leading-relaxed">
-                Have questions or need assistance? Our dedicated support team is available 24/7 to ensure your experience is seamless.
+          {/* 5 Vibe Cards */}
+          <div className="space-y-3.5">
+            {/* 2-column on md or 2x2 grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Vibe 1: Bestie */}
+              <div className="bg-[#081714] border border-emerald-500/30 rounded-3xl p-5 hover:border-emerald-500/60 transition-colors">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  <h3 className="font-serif text-2xl text-emerald-300 font-normal">
+                    Bestie
+                  </h3>
+                </div>
+                <p className="text-emerald-100/70 text-xs sm:text-sm leading-relaxed">
+                  Someone to laugh with, travel with and send memes to.
+                </p>
+              </div>
+
+              {/* Vibe 2: Hookup */}
+              <div className="bg-[#190c10] border border-rose-500/30 rounded-3xl p-5 hover:border-rose-500/60 transition-colors">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                  <h3 className="font-serif text-2xl text-rose-300 font-normal">
+                    Hookup
+                  </h3>
+                </div>
+                <p className="text-rose-100/70 text-xs sm:text-sm leading-relaxed">
+                  Spontaneous, no pressure and totally up to you.
+                </p>
+              </div>
+
+              {/* Vibe 3: Friends with benefits */}
+              <div className="bg-[#120c1d] border border-purple-500/30 rounded-3xl p-5 hover:border-purple-500/60 transition-colors">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+                  <h3 className="font-serif text-2xl text-purple-300 font-normal">
+                    Friends with benefits
+                  </h3>
+                </div>
+                <p className="text-purple-100/70 text-xs sm:text-sm leading-relaxed">
+                  Friendship first. The rest is between the two of you.
+                </p>
+              </div>
+
+              {/* Vibe 4: Sugar Daddy */}
+              <div className="bg-[#1b1406] border border-amber-500/30 rounded-3xl p-5 hover:border-amber-500/60 transition-colors">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  <h3 className="font-serif text-2xl text-amber-300 font-normal">
+                    Sugar Daddy
+                  </h3>
+                </div>
+                <p className="text-amber-100/70 text-xs sm:text-sm leading-relaxed">
+                  Treats, trips and great company.
+                </p>
+              </div>
+            </div>
+
+            {/* Vibe 5: Sugar Mummy (Full Width) */}
+            <div className="bg-[#1a0814] border border-pink-500/30 rounded-3xl p-5 hover:border-pink-500/60 transition-colors">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-2 h-2 rounded-full bg-pink-400"></span>
+                <h3 className="font-serif text-2xl text-pink-300 font-normal">
+                  Sugar Mummy
+                </h3>
+              </div>
+              <p className="text-pink-100/70 text-xs sm:text-sm leading-relaxed">
+                Spoil and be spoiled, on your own terms.
               </p>
             </div>
-            <div className="space-y-6">
-              <div className="flex items-center gap-6 p-6 rounded-3xl bg-white/5 border border-white/10">
-                <Mail className="w-6 h-6 text-brand-blue" />
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest font-bold text-white/40">Email Us</div>
-                  <div className="text-sm font-bold">support@privyconnect.com</div>
-                </div>
+          </div>
+        </section>
+
+        {/* 3 STEPS (Screenshot 6) */}
+        <section id="how-it-works" className="pt-4 border-t border-white/10">
+          <div className="space-y-6">
+            {/* Step 1 */}
+            <div>
+              <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-1">
+                STEP 1
               </div>
-              <div className="flex items-center gap-6 p-6 rounded-3xl bg-white/5 border border-white/10">
-                <HelpCircle className="w-6 h-6 text-brand-blue" />
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest font-bold text-white/40">FAQ</div>
-                  <div className="text-sm font-bold">Visit Help Center</div>
-                </div>
+              <h3 className="font-serif text-2xl text-white mb-2 font-normal">
+                Pick your vibe
+              </h3>
+              <p className="text-white/60 text-sm leading-relaxed font-light">
+                Tell us who you want to meet, from a new bestie to something more.
+              </p>
+            </div>
+
+            <div className="border-t border-white/10"></div>
+
+            {/* Step 2 */}
+            <div>
+              <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-1">
+                STEP 2
               </div>
+              <h3 className="font-serif text-2xl text-white mb-2 font-normal">
+                Choose your state
+              </h3>
+              <p className="text-white/60 text-sm leading-relaxed font-light">
+                Start in Lagos for free, or unlock all 36 states plus Abuja.
+              </p>
+            </div>
+
+            <div className="border-t border-white/10"></div>
+
+            {/* Step 3 */}
+            <div>
+              <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-1">
+                STEP 3
+              </div>
+              <h3 className="font-serif text-2xl text-white mb-2 font-normal">
+                Say hi
+              </h3>
+              <p className="text-white/60 text-sm leading-relaxed font-light">
+                Read your messages for free. Premium lets you reply and chat all day.
+              </p>
             </div>
           </div>
-          <form className="p-12 rounded-[48px] bg-white/5 border border-white/10 backdrop-blur-xl space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Full Name</label>
-              <input type="text" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-colors" placeholder="John Doe" />
+        </section>
+
+        {/* PRICING SECTION (Screenshots 7, 8, 9) */}
+        <section id="pricing" className="pt-4">
+          <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-3">
+            PRICING
+          </div>
+
+          <h2 className="text-[38px] sm:text-4xl md:text-5xl font-serif text-white leading-tight mb-4">
+            Pick your <span className="italic text-[#00D1FF] font-normal">plan.</span>
+          </h2>
+
+          <p className="text-white/60 text-sm leading-relaxed mb-8 font-light">
+            Start free in Lagos. Upgrade when you want the whole country and the chat.
+          </p>
+
+          <div className="space-y-6">
+            {/* Free Plan Card (Screenshot 7 & 8) */}
+            <div className="rounded-3xl bg-[#0a0d12] border border-white/10 p-6 sm:p-7 relative">
+              <h3 className="font-serif text-2xl text-white font-normal mb-3">
+                Free
+              </h3>
+
+              <div className="flex items-baseline mb-6">
+                <span className="text-5xl font-serif text-white font-bold">₦0</span>
+                <span className="text-xs font-mono tracking-wider text-white/40 uppercase ml-2">
+                  FOREVER
+                </span>
+              </div>
+
+              <div className="space-y-3.5 mb-8">
+                <div className="flex items-center gap-2.5 text-sm text-white/90">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Browse Lagos members</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/90">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Create your profile</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/30">
+                  <X className="w-4 h-4 text-white/30" />
+                  <span>All 37 locations</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/30">
+                  <X className="w-4 h-4 text-white/30" />
+                  <span>Open profiles and reply</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => navigate('/discovery')}
+                className="w-full bg-white/5 hover:bg-white/10 border border-white/15 text-white font-medium rounded-2xl py-3.5 text-sm transition-colors"
+              >
+                Start free
+              </button>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Email Address</label>
-              <input type="email" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-colors" placeholder="john@example.com" />
+
+            {/* Premium Access Plan Card (Screenshots 8 & 9) */}
+            <div className="rounded-3xl bg-[#0a111a] border border-[#00D1FF]/50 p-6 sm:p-7 relative shadow-[0_0_40px_rgba(0,209,255,0.12)]">
+              {/* Most Popular Badge */}
+              <div className="absolute top-6 right-6">
+                <span className="px-3 py-1 rounded-full bg-[#00D1FF] text-black font-mono font-bold text-[9px] tracking-wider uppercase">
+                  MOST POPULAR
+                </span>
+              </div>
+
+              <h3 className="font-serif text-2xl text-white font-normal mb-3">
+                Premium Access
+              </h3>
+
+              <div className="flex items-baseline mb-6">
+                <span className="text-5xl font-serif text-white font-bold">₦2,000</span>
+                <span className="text-xs font-mono tracking-wider text-white/50 uppercase ml-2">
+                  / MONTH
+                </span>
+              </div>
+
+              <div className="space-y-3.5 mb-8">
+                <div className="flex items-center gap-2.5 text-sm text-white/95">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>All 36 states plus Abuja</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/95">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Unlimited profile views</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/95">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Real-time chatting</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/95">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Verified badge</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/95">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Priority support</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm text-white/95">
+                  <Check className="w-4 h-4 text-[#00D1FF]" />
+                  <span>Exclusive events</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => navigate('/settings')}
+                className="w-full bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold rounded-2xl py-3.5 text-sm transition-all shadow-[0_0_20px_rgba(0,209,255,0.3)] active:scale-[0.99]"
+              >
+                Subscribe now
+              </button>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Message</label>
-              <textarea rows={4} className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 focus:outline-none focus:border-brand-blue/50 transition-colors resize-none" placeholder="How can we help you?" />
+          </div>
+        </section>
+
+        {/* MOBILE APP SECTION (Screenshots 9, 10, 11) */}
+        <section id="mobile-app" className="pt-4">
+          <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-3">
+            MOBILE APP
+          </div>
+
+          <h2 className="text-[38px] sm:text-4xl md:text-5xl font-serif text-white leading-tight mb-4">
+            Take it <span className="italic text-[#00D1FF] font-normal">with you.</span>
+          </h2>
+
+          <p className="text-white/60 text-sm leading-relaxed mb-6 font-light">
+            The full PrivyConnect experience on your phone. The store apps are in review; join the list and we will message you the day they go live.
+          </p>
+
+          {/* App Store & Google Play Badges with SOON tag */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+            {/* App Store */}
+            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#0e1219] border border-white/10 relative">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-[#00D1FF]">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[9px] font-mono text-white/40 tracking-wider uppercase">
+                    DOWNLOAD ON
+                  </div>
+                  <div className="text-sm font-semibold text-white">
+                    App Store
+                  </div>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-[#00D1FF] text-black font-mono font-bold text-[9px] tracking-wider uppercase">
+                SOON
+              </span>
             </div>
-            <button type="submit" className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest rounded-2xl hover:scale-[1.02] transition-all">
-              Send Message
+
+            {/* Google Play */}
+            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#0e1219] border border-white/10 relative">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-[#00D1FF]">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[9px] font-mono text-white/40 tracking-wider uppercase">
+                    GET IT ON
+                  </div>
+                  <div className="text-sm font-semibold text-white">
+                    Google Play
+                  </div>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-[#00D1FF] text-black font-mono font-bold text-[9px] tracking-wider uppercase">
+                SOON
+              </span>
+            </div>
+          </div>
+
+          {/* Email Notify Form */}
+          <form onSubmit={handleNotifySubmit} className="space-y-3 mb-10">
+            <input
+              type="email"
+              value={notifyEmail}
+              onChange={(e) => setNotifyEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+              className="w-full bg-[#10141c] border border-white/15 focus:border-[#00D1FF] rounded-2xl py-3.5 px-4 text-white text-sm outline-none transition-colors"
+            />
+            <button
+              type="submit"
+              className="w-full bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold rounded-2xl py-3.5 text-sm transition-all"
+            >
+              {notified ? '✓ You are on the VIP waitlist!' : 'Notify me'}
             </button>
           </form>
-        </div>
-      </section>
 
-      {/* Privacy & Terms Section */}
-      <section id="privacy" className="py-32 px-6">
-        <div className="max-w-4xl mx-auto space-y-12">
-          <div className="text-center space-y-4">
-            <h2 className="text-5xl md:text-7xl font-display uppercase tracking-tighter italic">Legal</h2>
-            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em] font-bold">Privacy & Terms</p>
-          </div>
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="p-10 rounded-[40px] bg-white/5 border border-white/10 space-y-6">
-              <FileText className="w-10 h-10 text-brand-blue" />
-              <h3 className="text-2xl font-bold uppercase tracking-wider italic">Privacy Policy</h3>
-              <p className="text-white/40 text-sm font-light leading-relaxed">
-                We take your privacy seriously. Our policy outlines how we collect, use, and protect your personal information. We never sell your data.
-              </p>
-              <button className="text-brand-blue text-[10px] uppercase tracking-widest font-bold hover:underline">Read Full Policy</button>
-            </div>
-            <div className="p-10 rounded-[40px] bg-white/5 border border-white/10 space-y-6">
-              <Shield className="w-10 h-10 text-brand-blue" />
-              <h3 className="text-2xl font-bold uppercase tracking-wider italic">Terms of Service</h3>
-              <p className="text-white/40 text-sm font-light leading-relaxed">
-                By using PrivyConnect, you agree to our community guidelines and terms. We maintain a high standard of conduct for all members.
-              </p>
-              <button className="text-brand-blue text-[10px] uppercase tracking-widest font-bold hover:underline">Read Full Terms</button>
-            </div>
-          </div>
-        </div>
-      </section>
+          {/* Dual Mockup Phone Graphic (Screenshots 10 & 11) */}
+          <div className="relative pt-6 pb-4 overflow-hidden">
+            <div className="flex justify-center items-center gap-2 -mx-4">
+              {/* Left Phone: Discover Screen */}
+              <div className="w-[160px] sm:w-[190px] h-[310px] sm:h-[350px] bg-[#0c1017] border-2 border-white/15 rounded-[32px] p-3 shadow-2xl rotate-[-4deg] -translate-x-2 flex flex-col justify-between">
+                <div>
+                  <div className="text-[11px] font-serif text-white font-medium mb-3">Discover</div>
+                  <div className="space-y-2">
+                    <div className="bg-[#141b24] rounded-xl p-2 h-24 flex flex-col justify-end">
+                      <div className="w-9 h-9 rounded-full bg-white/15 mb-auto"></div>
+                      <div className="text-[10px] text-white font-serif">Amara</div>
+                    </div>
+                    <div className="bg-[#211422] rounded-xl p-2 h-24 flex flex-col justify-end">
+                      <div className="w-9 h-9 rounded-full bg-white/15 mb-auto"></div>
+                      <div className="text-[10px] text-white font-serif">Tobi</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-      {/* Footer */}
-      <footer className="py-20 border-t border-white/5 bg-black">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-12">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-brand-blue" />
+              {/* Right Phone: Messages Screen */}
+              <div className="w-[175px] sm:w-[210px] h-[330px] sm:h-[370px] bg-[#080b10] border-2 border-white/20 rounded-[32px] p-3.5 shadow-2xl rotate-[3deg] flex flex-col justify-between">
+                <div>
+                  <div className="text-[12px] font-serif text-white font-medium mb-4">Messages</div>
+                  <div className="space-y-2.5">
+                    {/* Message 1 */}
+                    <div className="bg-[#1a1f29] text-white/90 text-[10px] rounded-2xl rounded-tl-sm px-2.5 py-1.5 max-w-[85%] self-start">
+                      Dinner on Friday?
+                    </div>
+                    {/* Message 2 */}
+                    <div className="bg-[#00D1FF] text-black font-medium text-[10px] rounded-2xl rounded-tr-sm px-2.5 py-1.5 max-w-[90%] ml-auto text-right">
+                      Eight at the usual place.
+                    </div>
+                    {/* Message 3 */}
+                    <div className="bg-[#1a1f29] text-white/90 text-[10px] rounded-2xl rounded-tl-sm px-2.5 py-1.5 max-w-[85%] self-start">
+                      Perfect. I'll book it.
+                    </div>
+                    {/* Message 4 */}
+                    <div className="bg-[#00D1FF] text-black font-medium text-[10px] rounded-2xl rounded-tr-sm px-2.5 py-1.5 max-w-[80%] ml-auto text-right">
+                      See you there.
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <span className="font-display text-xl uppercase tracking-[0.2em] font-bold italic">PrivyConnect</span>
           </div>
-          
-          <div className="flex flex-wrap justify-center gap-8 md:gap-12 text-[10px] uppercase tracking-widest font-bold text-white/20">
-            {menuItems.map(item => (
-              <a key={item.name} href={item.href} className="hover:text-brand-blue transition-colors">{item.name}</a>
-            ))}
+        </section>
+
+        {/* OUR VISION SECTION (Screenshot 12) */}
+        <section id="vision" className="pt-4 border-t border-white/10">
+          <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-6">
+            OUR VISION
           </div>
 
-          <div className="text-white/20 text-[10px] uppercase tracking-widest font-bold">
-            &copy; 2026 PrivyConnect &bull; All Rights Reserved
+          <p className="font-serif text-[28px] sm:text-3xl md:text-4xl text-white font-light leading-relaxed mb-10">
+            We built PrivyConnect because meeting people should be{' '}
+            <span className="italic text-[#00D1FF] font-normal">
+              fun, easy and on your terms.
+            </span>{' '}
+            Pick your vibe, choose who sees you, and enjoy the ride.
+          </p>
+
+          {/* 3-Column Stats Box */}
+          <div className="grid grid-cols-3 border-y border-white/10 py-6 text-center divide-x divide-white/10">
+            <div className="px-1">
+              <div className="text-[9px] font-mono tracking-widest uppercase text-white/40 mb-2">
+                ESTABLISHED
+              </div>
+              <div className="font-serif text-xl sm:text-2xl text-white">
+                2026
+              </div>
+            </div>
+
+            <div className="px-1">
+              <div className="text-[9px] font-mono tracking-widest uppercase text-white/40 mb-2">
+                HEADQUARTERS
+              </div>
+              <div className="font-serif text-xl sm:text-2xl text-white">
+                Global
+              </div>
+            </div>
+
+            <div className="px-1">
+              <div className="text-[9px] font-mono tracking-widest uppercase text-white/40 mb-2">
+                MISSION
+              </div>
+              <div className="font-serif text-sm sm:text-base text-white leading-tight">
+                Good vibes, good people
+              </div>
+            </div>
           </div>
-        </div>
-      </footer>
+        </section>
+
+        {/* CONTACT SECTION (Screenshots 13 & 14) */}
+        <section id="contact" className="pt-4">
+          <div className="text-[10px] font-mono tracking-widest uppercase text-white/40 font-semibold mb-3">
+            CONTACT
+          </div>
+
+          <h2 className="text-[38px] sm:text-4xl md:text-5xl font-serif text-white leading-tight mb-4">
+            Talk to a <span className="italic text-[#00D1FF] font-normal">person.</span>
+          </h2>
+
+          <p className="text-white/60 text-sm leading-relaxed mb-8 font-light">
+            Premium members get priority support. Everyone gets an answer within a day.
+          </p>
+
+          <form onSubmit={handleContactSubmit} className="space-y-5">
+            <div>
+              <label className="block text-[10px] font-mono tracking-widest uppercase text-white/50 mb-2">
+                NAME
+              </label>
+              <input
+                type="text"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                placeholder="Your name"
+                required
+                className="w-full bg-[#10141c] border border-white/15 focus:border-[#00D1FF] rounded-2xl py-3.5 px-4 text-white text-sm outline-none transition-colors"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono tracking-widest uppercase text-white/50 mb-2">
+                EMAIL
+              </label>
+              <input
+                type="email"
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                className="w-full bg-[#10141c] border border-white/15 focus:border-[#00D1FF] rounded-2xl py-3.5 px-4 text-white text-sm outline-none transition-colors"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono tracking-widest uppercase text-white/50 mb-2">
+                MESSAGE
+              </label>
+              <textarea
+                value={contactMessage}
+                onChange={(e) => setContactMessage(e.target.value)}
+                placeholder="How can we help?"
+                rows={4}
+                required
+                className="w-full bg-[#10141c] border border-white/15 focus:border-[#00D1FF] rounded-2xl py-3.5 px-4 text-white text-sm outline-none transition-colors resize-none"
+              ></textarea>
+            </div>
+
+            <button
+              type="submit"
+              className="bg-[#00D1FF] hover:bg-[#00b8e6] text-black font-semibold rounded-2xl py-3.5 px-8 text-sm transition-all"
+            >
+              {messageSent ? '✓ Message sent! We will reply soon.' : 'Send message'}
+            </button>
+          </form>
+        </section>
+
+        {/* FOOTER (Screenshot 14) */}
+        <footer className="pt-12 border-t border-white/10 space-y-6">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#0055ff] to-[#00d1ff] p-[1.5px]">
+              <div className="w-full h-full rounded-full bg-[#070b12] flex items-center justify-center">
+                <span className="font-serif italic text-white text-base">p</span>
+              </div>
+            </div>
+            <div className="flex items-baseline">
+              <span className="text-2xl font-serif text-white tracking-tight">Privy</span>
+              <span className="text-2xl font-serif italic text-[#00D1FF] tracking-tight ml-1.5">Connect</span>
+            </div>
+          </div>
+
+          {/* Links */}
+          <div className="flex flex-wrap items-center gap-6 text-sm text-white/70">
+            <a href="#how-it-works" className="hover:text-white transition-colors">How it works</a>
+            <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+            <a href="#vision" className="hover:text-white transition-colors">Privacy</a>
+            <a href="#contact" className="hover:text-white transition-colors">Contact</a>
+          </div>
+
+          {/* Copyright */}
+          <div className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
+            © 2026 PRIVYCONNECT ECOSYSTEM
+          </div>
+        </footer>
+      </main>
+
+      {/* Member Profile Details Modal */}
+      <MemberProfileModal
+        member={selectedLandingMember ? {
+          ...selectedLandingMember,
+          location: selectedLandingMember.area || 'LEKKI',
+          state: selectedLandingMember.state || 'LAGOS'
+        } : null}
+        isOpen={Boolean(selectedLandingMember)}
+        onClose={() => setSelectedLandingMember(null)}
+        isSubscribed={false}
+        isFavorite={selectedLandingMember ? favorites.has(selectedLandingMember.id) : false}
+        onToggleFavorite={handleToggleFavorite}
+        onOpenSubscription={() => setShowSubscriptionModal(true)}
+        onStartChat={() => setShowSubscriptionModal(true)}
+      />
+
+      {/* Subscription Modal */}
+      <SubscriptionModal
+        isOpen={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        profile={null}
+        title="Unlock VIP Subscription"
+        subtitle="Reveal contact information, unmask direct WhatsApp & phone numbers, and chat freely with verified members."
+      />
     </div>
   );
 }

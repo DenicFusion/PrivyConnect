@@ -1,23 +1,159 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Outfit", sans-serif;
-  
-  --color-brand-blue: #00D1FF;
-  --color-brand-dark: #050505;
-  --color-brand-surface: #0A0C10;
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-background: #040506;
+  --color-surface-1: #090b0d;
+  --color-surface-2: #0f1215;
+  --color-surface-3: #171b1f;
+
+  --color-border-subtle: rgba(255, 255, 255, 0.075);
+  --color-border-strong: rgba(255, 255, 255, 0.15);
+
+  --color-text-primary: #f3f6f8;
+  --color-text-muted: #8d97a1;
+  --color-text-dim: #59636d;
+
+  --color-accent-cyan: #00d1ff;
+  --color-accent-blue: #0a84ff;
+  --color-text-on-cyan: #00131a;
+
+  --color-danger: #ff5a5f;
+  --color-success: #35e0a1;
+  --color-amber: #f2b04b;
+
+  --color-vibe-bestie: rgb(53, 224, 161);
+  --color-vibe-hookup: rgb(255, 107, 107);
+  --color-vibe-fwb: rgb(179, 136, 255);
+  --color-vibe-sugar-daddy: rgb(242, 176, 75);
+  --color-vibe-sugar-mummy: rgb(255, 122, 184);
+
+  /* Legacy brand colors kept for compatibility */
+  --color-brand-cyan: #00d1ff;
+  --color-brand-blue: #00d1ff;
+  --color-brand-dark: #040506;
+  --color-brand-surface: #090b0d;
+}
+
+:root {
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 @layer base {
   body {
-    @apply bg-brand-dark text-white antialiased;
+    background-color: #040506;
+    color: #f3f6f8;
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  h1, h2, h3, .font-serif, .font-display {
+    font-family: var(--font-display);
   }
 }
 
 @layer components {
+  .mono-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: #59636d;
+  }
+
+  .page-title {
+    font-family: var(--font-display);
+    font-size: clamp(38px, 5vw, 54px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: #f3f6f8;
+  }
+
+  .btn-primary {
+    background-color: #00d1ff;
+    color: #00131a;
+    font-weight: 700;
+    border-radius: 14px;
+    padding: 12px 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.05);
+    box-shadow: 0 0 20px rgba(0, 209, 255, 0.35);
+  }
+
+  .btn-outline {
+    background-color: transparent;
+    color: #f3f6f8;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 14px;
+    padding: 12px 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+
+  .btn-outline:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .card-surface {
+    background-color: #090b0d;
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 26px;
+  }
+
+  .pill-chip {
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 8px 18px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .pill-chip.active {
+    background-color: #00d1ff;
+    color: #00131a;
+    border-color: #00d1ff;
+    font-weight: 700;
+  }
+
+  .toggle-switch {
+    width: 52px;
+    height: 30px;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.15);
+    position: relative;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .toggle-switch.active {
+    background-color: #00d1ff;
+  }
+
+  .cyan-glow {
+    box-shadow: 0 0 24px rgba(0, 209, 255, 0.25);
+  }
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
@@ -27,18 +163,27 @@
   }
   
   .glass {
-    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+    background-color: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .glass-dark {
-    @apply bg-black/40 backdrop-blur-md border border-white/5;
+    background-color: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-blue to-blue-600;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    background-image: linear-gradient(to right, #00d1ff, #0a84ff);
   }
 
   .btn-premium {
-    @apply relative overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98];
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
   }
 }
