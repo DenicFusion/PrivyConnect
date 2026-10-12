@@ -126,6 +126,16 @@ export const COMPANIONSHIP_TYPES = [
   },
 ];
 
+export const getVibeStyle = (vibe: string) => {
+  const found = COMPANIONSHIP_TYPES.find(v => v.id === vibe);
+  if (!found) return { color: '#35e0a1', border: 'rgba(53, 224, 161, 0.3)', bg: 'rgba(53, 224, 161, 0.12)' };
+  return {
+    color: found.color,
+    border: `rgba(${found.rgb}, 0.3)`,
+    bg: `rgba(${found.rgb}, 0.12)`
+  };
+};
+
 const DEFAULT_MEMBERS: MemberCard[] = [
   // --- LAGOS MEMBERS ---
   {
@@ -501,16 +511,6 @@ export default function DiscoveryPage({ profile }: DiscoveryProps) {
   }, [members, isSubscribed, selectedState, chipFilter, vibeFilter, genderFilter, favorites]);
 
   const currentVibeConfig = COMPANIONSHIP_TYPES.find(v => v.id === vibeFilter) || COMPANIONSHIP_TYPES[0];
-
-  const getVibeStyle = (vibe: string) => {
-    const found = COMPANIONSHIP_TYPES.find(v => v.id === vibe);
-    if (!found) return { color: '#35e0a1', border: 'rgba(53, 224, 161, 0.3)', bg: 'rgba(53, 224, 161, 0.12)' };
-    return {
-      color: found.color,
-      border: `rgba(${found.rgb}, 0.3)`,
-      bg: `rgba(${found.rgb}, 0.12)`
-    };
-  };
 
   return (
     <div className="space-y-6 pb-24 pt-2 max-w-5xl mx-auto">

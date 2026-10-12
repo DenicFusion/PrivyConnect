@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowRight, Check, X, Smartphone, Zap, Star, ShieldCheck, Mail, Send } from 'lucide-react';
+import { ArrowRight, Check, X, Smartphone, Zap, Star, ShieldCheck, Mail, Send, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PrivyHeader } from '../components/PrivyHeader';
 import { supabase, isSupabaseActive } from '../lib/supabase';
 import { MemberProfileModal } from '../components/MemberProfileModal';
 import { SubscriptionModal } from '../components/SubscriptionModal';
+import { useToast } from '../components/Toaster';
+import { getVibeStyle } from './Discovery';
 
 interface ActiveProfile {
   id: string;
@@ -15,78 +17,29 @@ interface ActiveProfile {
   area: string;
   state: string;
   vibe: 'FWB' | 'BESTIE' | 'SUGAR MUMMY' | 'SUGAR DADDY' | 'HOOKUP';
-  photo_url?: string;
-  bgGradient: string;
-  borderColor: string;
-  tagColor: {
-    bg: string;
-    border: string;
-    text: string;
-  };
+  photo_url: string;
 }
 
-const VIBE_COLOR_MAP: Record<string, { bg: string; border: string; text: string }> = {
-  'FWB': {
-    bg: 'rgba(179,136,255,0.15)',
-    border: 'rgba(179,136,255,0.4)',
-    text: '#b388ff'
-  },
-  'BESTIE': {
-    bg: 'rgba(53,224,161,0.15)',
-    border: 'rgba(53,224,161,0.4)',
-    text: '#35e0a1'
-  },
-  'SUGAR MUMMY': {
-    bg: 'rgba(255,122,184,0.15)',
-    border: 'rgba(255,122,184,0.4)',
-    text: '#ff7ab8'
-  },
-  'SUGAR DADDY': {
-    bg: 'rgba(242,176,75,0.15)',
-    border: 'rgba(242,176,75,0.4)',
-    text: '#f2b04b'
-  },
-  'HOOKUP': {
-    bg: 'rgba(255,107,107,0.15)',
-    border: 'rgba(255,107,107,0.4)',
-    text: '#ff6b6b'
-  }
-};
-
-const GRADIENTS = [
-  { gradient: 'bg-gradient-to-b from-[#242116] via-[#1a1710] to-[#0c0d10]', border: 'border-[#c69a3b]/30' }, // warm olive/gold
-  { gradient: 'bg-gradient-to-b from-[#251829] via-[#1a101f] to-[#0c0d10]', border: 'border-[#9c4dcc]/30' }, // purple/plum
-  { gradient: 'bg-gradient-to-b from-[#14232c] via-[#0f1920] to-[#0a0d10]', border: 'border-[#00d1ff]/30' }, // cyan/teal
-  { gradient: 'bg-gradient-to-b from-[#161c28] via-[#10141d] to-[#090b0e]', border: 'border-[#3b82f6]/30' }, // navy/slate
-  { gradient: 'bg-gradient-to-b from-[#2a171d] via-[#1c0f13] to-[#0b0c0e]', border: 'border-[#ff7ab8]/30' }, // rose/pink
-  { gradient: 'bg-gradient-to-b from-[#152721] via-[#0e1b17] to-[#090d0b]', border: 'border-[#35e0a1]/30' }, // emerald
-];
-
-const INITIAL_PROFILES_POOL: Omit<ActiveProfile, 'bgGradient' | 'borderColor' | 'tagColor'>[] = [
-  { id: 'p1', name: 'Obinna', verified: true, online: true, area: 'ADO-EKITI', state: 'EKITI', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p2', name: 'Sani', verified: true, online: true, area: 'IBADAN', state: 'OYO', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p3', name: 'Ada', verified: false, online: true, area: 'GUSAU', state: 'ZAMFARA', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p4', name: 'Dayo', verified: true, online: true, area: 'MAKURDI', state: 'BENUE', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p5', name: 'Damola', verified: true, online: true, area: 'SOKOTO', state: 'SOKOTO', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p6', name: 'Chinedu', verified: true, online: true, area: 'BIRNIN KEBBI', state: 'KEBBI', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p7', name: 'Ada', verified: false, online: true, area: 'JOS', state: 'PLATEAU', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p8', name: 'Hauwa', verified: true, online: true, area: 'EKET', state: 'AKWA IBOM', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p9', name: 'Zara', verified: true, online: true, area: 'MINNA', state: 'NIGER', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p10', name: 'Aisha', verified: false, online: true, area: 'SOKOTO', state: 'SOKOTO', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p11', name: 'Yusuf', verified: true, online: true, area: 'CALABAR', state: 'CROSS RIVER', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=600&q=80' },
+const INITIAL_PROFILES_POOL: ActiveProfile[] = [
+  { id: 'm1', name: 'Hauwa', verified: true, online: true, area: 'VICTORIA ISLAND', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm2', name: 'Amara', verified: true, online: true, area: 'LEKKI', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm3', name: 'Tobi', verified: true, online: true, area: 'VICTORIA ISLAND', state: 'LAGOS', vibe: 'SUGAR DADDY', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm4', name: 'Chioma', verified: true, online: true, area: 'IKOYI', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm5', name: 'David', verified: true, online: true, area: 'IKEJA', state: 'LAGOS', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm6', name: 'Funke', verified: true, online: true, area: 'SURULERE', state: 'LAGOS', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm7', name: 'Boma', verified: true, online: true, area: 'YABA', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm8', name: 'Kenneth', verified: true, online: true, area: 'LEKKI PHASE 1', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80' },
   { id: 'p12', name: 'Fatima', verified: true, online: true, area: 'MAITAMA', state: 'ABUJA', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p13', name: 'Tobi', verified: true, online: true, area: 'VICTORIA ISLAND', state: 'LAGOS', vibe: 'SUGAR DADDY', photo_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p14', name: 'Amara', verified: true, online: true, area: 'LEKKI', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p15', name: 'Kenneth', verified: true, online: true, area: 'LEKKI PHASE 1', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p16', name: 'Funke', verified: true, online: true, area: 'SURULERE', state: 'LAGOS', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p17', name: 'Emeka', verified: true, online: true, area: 'INDEPENDENCE', state: 'ENUGU', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
   { id: 'p18', name: 'Stephanie', verified: true, online: true, area: 'ASABA', state: 'DELTA', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p19', name: 'Osas', verified: true, online: true, area: 'GRA', state: 'EDO', vibe: 'SUGAR DADDY', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p20', name: 'Boma', verified: true, online: true, area: 'YABA', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80' }
+  { id: 'p4', name: 'Dayo', verified: true, online: true, area: 'MAKURDI', state: 'BENUE', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p1', name: 'Obinna', verified: true, online: true, area: 'ADO-EKITI', state: 'EKITI', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p17', name: 'Emeka', verified: true, online: true, area: 'INDEPENDENCE', state: 'ENUGU', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
+  { id: 'p9', name: 'Zara', verified: true, online: true, area: 'MINNA', state: 'NIGER', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=600&q=80' }
 ];
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [notifyEmail, setNotifyEmail] = useState('');
   const [notified, setNotified] = useState(false);
   const [contactName, setContactName] = useState('');
@@ -109,8 +62,13 @@ export default function LandingPage() {
   const handleToggleFavorite = (memberId: string) => {
     setFavorites(prev => {
       const next = new Set(prev);
-      if (next.has(memberId)) next.delete(memberId);
-      else next.add(memberId);
+      if (next.has(memberId)) {
+        next.delete(memberId);
+        toast('Removed from favorites', 'info');
+      } else {
+        next.add(memberId);
+        toast('Added to favorites!', 'success');
+      }
       try {
         localStorage.setItem('privy_favorites', JSON.stringify([...next]));
       } catch (e) {
@@ -122,15 +80,10 @@ export default function LandingPage() {
 
   // Active profiles pool & online count
   const [activeProfiles, setActiveProfiles] = useState<ActiveProfile[]>(() => {
-    return INITIAL_PROFILES_POOL.slice(0, 4).map((p, idx) => ({
-      ...p,
-      bgGradient: GRADIENTS[idx % GRADIENTS.length].gradient,
-      borderColor: GRADIENTS[idx % GRADIENTS.length].border,
-      tagColor: VIBE_COLOR_MAP[p.vibe] || VIBE_COLOR_MAP['FWB']
-    }));
+    return INITIAL_PROFILES_POOL.slice(0, 4);
   });
-  const [onlineCount, setOnlineCount] = useState(103);
-  const [pool, setPool] = useState<Omit<ActiveProfile, 'bgGradient' | 'borderColor' | 'tagColor'>[]>(INITIAL_PROFILES_POOL);
+  const [onlineCount, setOnlineCount] = useState(98);
+  const [pool, setPool] = useState<ActiveProfile[]>(INITIAL_PROFILES_POOL);
 
   // Load real members from Supabase / Firestore if available to enrich pool
   useEffect(() => {
@@ -139,10 +92,10 @@ export default function LandingPage() {
       try {
         const { data } = await supabase
           .from('profiles')
-          .select('id, username, display_name, is_verified, is_online, area, state, vibe')
+          .select('id, username, display_name, is_verified, is_online, area, state, vibe, photo_url, avatar_url')
           .limit(30);
         if (data && data.length > 0) {
-          const mapped = data.map((p, i) => {
+          const mapped: ActiveProfile[] = data.map((p, i) => {
             const rawVibe = (p.vibe as any) || (i % 2 === 0 ? 'FWB' : 'BESTIE');
             return {
               id: p.id,
@@ -151,7 +104,8 @@ export default function LandingPage() {
               online: p.is_online !== false,
               area: (p.area || 'CENTRAL').toUpperCase(),
               state: (p.state || 'LAGOS').toUpperCase(),
-              vibe: rawVibe
+              vibe: rawVibe,
+              photo_url: p.photo_url || p.avatar_url || INITIAL_PROFILES_POOL[i % INITIAL_PROFILES_POOL.length].photo_url
             };
           });
           setPool(prev => {
@@ -181,21 +135,13 @@ export default function LandingPage() {
         if (availableCandidates.length === 0) return prev;
 
         const nextCandidate = availableCandidates[Math.floor(Math.random() * availableCandidates.length)];
-        const nextTheme = GRADIENTS[Math.floor(Math.random() * GRADIENTS.length)];
-
-        const nextProfile: ActiveProfile = {
-          ...nextCandidate,
-          bgGradient: nextTheme.gradient,
-          borderColor: nextTheme.border,
-          tagColor: VIBE_COLOR_MAP[nextCandidate.vibe] || VIBE_COLOR_MAP['FWB']
-        };
 
         const updated = [...prev];
-        updated[slotToReplace] = nextProfile;
+        updated[slotToReplace] = nextCandidate;
         return updated;
       });
 
-      // Fluctuate online count slightly between 98 and 118 for alive feel
+      // Fluctuate online count slightly between 95 and 115 for live feel
       setOnlineCount(prev => {
         const delta = Math.floor(Math.random() * 5) - 2;
         const next = prev + delta;
@@ -321,73 +267,103 @@ export default function LandingPage() {
               {onlineCount} MEMBERS ONLINE IN YOUR LOCATION OR AROUND YOU
             </p>
 
-            {/* 2-Column Member Cards Grid that updates every few seconds */}
-            <div className="grid grid-cols-2 gap-3">
-              {activeProfiles.map((member, slotIdx) => (
-                <div
-                  key={slotIdx}
-                  onClick={() => setSelectedLandingMember(member)}
-                  className="relative h-[190px] cursor-pointer"
-                >
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={member.id}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.45 }}
-                      className={`absolute inset-0 ${member.bgGradient} border ${member.borderColor} rounded-2xl p-3 flex flex-col justify-between hover:border-[#00D1FF]/50 transition-all group overflow-hidden shadow-lg`}
-                    >
-                      {/* Top left Online tag with green dot */}
-                      <div className="flex items-center gap-1.5 self-start px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[9px] font-mono tracking-wider uppercase text-white/90">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
-                        ONLINE
-                      </div>
+            {/* 2-Column Member Cards Grid that updates every few seconds - exact match to Discovery cards */}
+            <div className="grid grid-cols-2 gap-3.5 sm:gap-4 pt-1">
+              {activeProfiles.map((member, slotIdx) => {
+                const vibeStyle = getVibeStyle(member.vibe);
 
-                      {/* Genuine unblurred user profile picture */}
-                      <div className="w-16 h-16 rounded-full mx-auto my-auto relative p-0.5 group-hover:scale-105 transition-transform">
-                        <img
-                          src={member.photo_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'}
-                          alt={member.name}
-                          className="w-full h-full rounded-full object-cover border border-white/20 shadow-md brightness-95"
-                        />
-                        {member.verified && (
-                          <div className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center shadow">
-                            <ShieldCheck className="w-3 h-3 fill-[#00131a]" />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Details */}
-                      <div>
-                        <span 
-                          style={{
-                            backgroundColor: member.tagColor.bg,
-                            borderColor: member.tagColor.border,
-                            color: member.tagColor.text
-                          }}
-                          className="inline-block px-2 py-0.5 rounded-full border text-[9px] font-mono font-bold tracking-wider uppercase mb-1"
-                        >
-                          {member.vibe}
-                        </span>
-
-                        <div className="flex items-center gap-1">
-                          <span className="font-serif text-white text-base font-normal">
-                            {member.name}
-                          </span>
-                          {member.verified && (
-                            <span className="text-[#00D1FF] text-xs font-bold leading-none">✓</span>
+                return (
+                  <div
+                    key={slotIdx}
+                    className="relative aspect-[3/4] cursor-pointer"
+                  >
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={member.id}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.45 }}
+                        onClick={() => setSelectedLandingMember(member)}
+                        className="group absolute inset-0 rounded-[24px] bg-[#090b0d] border border-[rgba(255,255,255,0.075)] overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:border-[rgba(255,255,255,0.2)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.6)] flex flex-col justify-between p-3.5 sm:p-4 select-none"
+                      >
+                        {/* Background Photo - UNBLURRED Full Cover Photo */}
+                        <div className="absolute inset-0 z-0 overflow-hidden bg-[#0f1215]">
+                          {member.photo_url ? (
+                            <img
+                              src={member.photo_url}
+                              alt={member.name}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 brightness-95 contrast-[1.02]"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-[#171b1f] to-[#090b0d]" />
                           )}
+                          {/* Gradient vignette so text at bottom remains crisp */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-[#040506] via-[#040506]/40 to-black/30" />
                         </div>
 
-                        <p className="text-[9px] font-mono tracking-wider text-white/50 uppercase truncate">
-                          {member.area} · {member.state}
-                        </p>
-                      </div>
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-              ))}
+                        {/* TOP ROW: 'Online' tag with green dot + Favorite Heart button */}
+                        <div className="relative z-10 flex items-center justify-between w-full">
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-[rgba(255,255,255,0.1)] text-[10px] font-mono tracking-wider uppercase text-[#f3f6f8]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#35e0a1] shadow-[0_0_6px_#35e0a1]" />
+                            <span>ONLINE</span>
+                          </div>
+
+                          {/* Favorite Heart Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleFavorite(member.id);
+                            }}
+                            className={`w-8 h-8 rounded-full backdrop-blur-md border flex items-center justify-center transition-all cursor-pointer active:scale-90 ${
+                              favorites.has(member.id)
+                                ? 'bg-rose-500/25 border-rose-500/50 text-rose-400'
+                                : 'bg-black/60 border-white/15 text-white/70 hover:text-white hover:border-white/30'
+                            }`}
+                            aria-label="Toggle Favorite"
+                            title={favorites.has(member.id) ? "Remove from favorites" : "Add to favorites"}
+                          >
+                            <Heart className={`w-4 h-4 ${favorites.has(member.id) ? 'fill-rose-400 text-rose-400' : ''}`} />
+                          </button>
+                        </div>
+
+                        {/* BOTTOM ROW: Coloured companionship tag, serif first name with cyan verified shield, mono area · state */}
+                        <div className="relative z-10 space-y-1">
+                          {/* Coloured companionship tag */}
+                          <div className="inline-block">
+                            <span
+                              style={{
+                                backgroundColor: vibeStyle.bg,
+                                borderColor: vibeStyle.border,
+                                color: vibeStyle.color,
+                              }}
+                              className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-mono uppercase font-semibold border tracking-wider"
+                            >
+                              {member.vibe}
+                            </span>
+                          </div>
+
+                          {/* Name in Serif with Cyan Shield */}
+                          <div className="flex items-center gap-1.5">
+                            <h3 className="font-serif text-xl sm:text-2xl text-[#f3f6f8] font-normal leading-tight truncate">
+                              {member.name}
+                            </h3>
+                            {member.verified && (
+                              <ShieldCheck className="w-4 h-4 text-[#00d1ff] shrink-0 fill-[#00d1ff]/20" />
+                            )}
+                          </div>
+
+                          {/* Mono Area · State */}
+                          <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.16em] text-[#8d97a1] truncate">
+                            {member.area} · {member.state}
+                          </p>
+                        </div>
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
 
             <p className="text-[10px] font-mono tracking-widest text-white/40 uppercase text-center mt-5">
