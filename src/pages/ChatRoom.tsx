@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { db, doc, getDoc, collection, query, where, getDocs, addDoc, updateDoc, onSnapshot } from '../lib/firebase';
 import { MOCK_CHATS, MOCK_MESSAGES } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -48,91 +48,41 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
 
     const fetchChatData = async () => {
       setLoading(true);
-
-      if (!isSupabaseActive) {
-        const mockChat = MOCK_CHATS.find(c => c.id === chatId) || MOCK_CHATS[0];
-        const other = mockChat.participants.find(p => p.id !== profile.id) || mockChat.participants[1];
-        setOtherUser({
-          ...other,
-          area: 'Victoria Island',
-          state: 'Lagos',
-          is_online: true
-        });
-        const msgs = MOCK_MESSAGES.filter(m => m.chat_id === chatId || chatId === 'chat-1');
-        setMessages(msgs.length > 0 ? msgs : [
-          {
-            id: 'm1',
-            chat_id: chatId,
-            sender_id: other?.id || 'other',
-            content: 'Hey there! How is your week going?',
-            created_at: new Date(Date.now() - 3600000).toISOString()
-          },
-          {
-            id: 'm2',
-            chat_id: chatId,
-            sender_id: profile.id,
-            content: 'Hey! Doing great, thanks for checking in.',
-            created_at: new Date(Date.now() - 1800000).toISOString()
-          }
-        ]);
-        setLoading(false);
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        return;
-      }
-
       try {
-        let { data: chat } = await supabase
-          .from('chats')
-          .select('*')
-          .eq('id', chatId)
-          .maybeSingle();
-
-        if (chat) {
-          const otherUid = chat.participants.find((id: string) => id !== profile.id);
+        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        if (chatSnap.exists()) {
+          const chatData = chatSnap.data();
+          const otherUid = chatData.participants?.find((id: string) => id !== profile.id);
           if (otherUid) {
-            const { data: userData } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', otherUid)
-              .maybeSingle();
-            setOtherUser(userData || { username: 'Member', state: 'Lagos', area: 'Victoria Island' });
+            const userSnap = await getDoc(doc(db, 'profiles', otherUid));
+            if (userSnap.exists()) {
+              setOtherUser({ id: userSnap.id, ...userSnap.data() });
+            } else {
+              setOtherUser({ username: 'Member', state: 'Lagos', area: 'Victoria Island' });
+            }
           }
         }
-
-        const { data: msgs } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('chat_id', chatId)
-          .order('created_at', { ascending: true });
-
-        if (msgs) setMessages(msgs);
       } catch (err) {
         console.warn('Error loading chat:', err);
       } finally {
         setLoading(false);
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }
     };
 
     fetchChatData();
 
-    if (!isSupabaseActive) return;
+    const q = query(collection(db, 'messages'), where('chat_id', '==', chatId));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs: any[] = [];
+      snapshot.forEach((d) => msgs.push({ id: d.id, ...d.data() }));
+      msgs.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+      setMessages(msgs);
+      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }, (err) => {
+      console.warn('Error fetching messages snapshot:', err);
+    });
 
-    const channel = supabase
-      .channel(`chat-room-${chatId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` },
-        (payload) => {
-          setMessages(prev => [...prev, payload.new]);
-          setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, [chatId, profile?.id]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -147,22 +97,8 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
     setNewMessage('');
     setUploading(true);
 
-    if (!isSupabaseActive) {
-      const optimisticMsg = {
-        id: `mock-${Date.now()}`,
-        chat_id: chatId,
-        sender_id: profile.id,
-        content: textToSend,
-        created_at: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, optimisticMsg]);
-      setUploading(false);
-      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      return;
-    }
-
     try {
-      await supabase.from('messages').insert({
+      await addDoc(collection(db, 'messages'), {
         chat_id: chatId,
         sender_id: profile.id,
         content: textToSend,
@@ -170,10 +106,10 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         created_at: new Date().toISOString()
       });
 
-      await supabase.from('chats').update({
+      await updateDoc(doc(db, 'chats', chatId), {
         last_message: textToSend,
         last_timestamp: new Date().toISOString()
-      }).eq('id', chatId);
+      });
 
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { db, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs } from '../lib/firebase';
 import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -81,42 +81,15 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
       const targetId = uid && uid !== 'undefined' ? uid : myProfile?.id;
 
       if (!targetId) {
-        if (!myProfile && isSupabaseActive) return;
-        setLoading(false);
-        return;
-      }
-
-      if (!isSupabaseActive) {
-        const mockUser = MOCK_USERS.find(u => u.id === targetId) || myProfile || MOCK_USERS[0];
-        setUser(mockUser);
-        if (mockUser) {
-          setIsPublicProfile(mockUser.is_public ?? true);
-          setHideOnlineStatus(mockUser.hide_online_status ?? false);
-          setVisibilityMode(
-            mockUser.profile_mode === 'incognito' ? 'ghost' :
-            mockUser.is_public === false ? 'private' : 'public'
-          );
-        }
+        if (!myProfile) return;
         setLoading(false);
         return;
       }
 
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', targetId)
-          .single();
-        
-        if (error) {
-          console.error('ProfilePage: Error fetching user:', error);
-          if (myProfile) {
-            setUser(myProfile);
-          } else {
-            toast('User not found', 'error');
-            navigate('/discovery');
-          }
-        } else if (data) {
+        const docSnap = await getDoc(doc(db, 'profiles', targetId));
+        if (docSnap.exists()) {
+          const data: any = { id: docSnap.id, ...docSnap.data() };
           setUser(data);
           setIsPublicProfile(data.is_public ?? true);
           setHideOnlineStatus(data.hide_online_status ?? false);
@@ -124,11 +97,14 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             data.profile_mode === 'incognito' ? 'ghost' :
             data.is_public === false ? 'private' : 'public'
           );
-
-          // Unsubscribed users can browse profile details, photos, and about info freely
+        } else {
+          const mockUser = MOCK_USERS.find(u => u.id === targetId) || myProfile;
+          setUser(mockUser);
         }
       } catch (err) {
-        console.error('ProfilePage: Unexpected error:', err);
+        console.error('Error fetching profile:', err);
+        const mockUser = MOCK_USERS.find(u => u.id === targetId) || myProfile;
+        setUser(mockUser);
       } finally {
         setLoading(false);
       }
@@ -139,17 +115,19 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
 
   useEffect(() => {
     const checkIsSaved = async () => {
-      if (!isSupabaseActive || !myProfile || !uid || uid === 'undefined' || uid === myProfile.id) return;
-      
-      const { data, error } = await supabase
-        .from('saved_profiles')
-        .select('id')
-        .eq('user_id', myProfile.id)
-        .eq('saved_profile_id', uid)
-        .maybeSingle();
-      
-      if (!error && data) {
-        setIsSaved(true);
+      if (!myProfile || !uid || uid === 'undefined' || uid === myProfile.id) return;
+      try {
+        const q = query(
+          collection(db, 'saved_profiles'),
+          where('user_id', '==', myProfile.id),
+          where('saved_profile_id', '==', uid)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          setIsSaved(true);
+        }
+      } catch (err) {
+        console.error('Error checking saved profile:', err);
       }
     };
 
@@ -159,17 +137,19 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   useEffect(() => {
     const fetchReferralStats = async () => {
       const targetUser = user || myProfile;
-      if (!isSupabaseActive || !targetUser?.id) return;
-      
-      const { data: referrals, error } = await supabase
-        .from('referrals')
-        .select('status, reward_amount')
-        .eq('referrer_id', targetUser.id);
-        
-      if (!error && referrals) {
+      if (!targetUser?.id) return;
+      try {
+        const q = query(
+          collection(db, 'referrals'),
+          where('referrer_id', '==', targetUser.id)
+        );
+        const snap = await getDocs(q);
+        const referrals = snap.docs.map(d => d.data());
         const total = referrals.length;
-        const earned = referrals.filter(r => r.status === 'completed').reduce((acc, r) => acc + (Number(r.reward_amount) || 0), 0);
+        const earned = referrals.filter((r: any) => r.status === 'completed').reduce((acc: number, r: any) => acc + (Number(r.reward_amount) || 0), 0);
         setReferralStats({ total, earned });
+      } catch (err) {
+        console.error('Error fetching referrals:', err);
       }
     };
     
@@ -210,7 +190,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   const handleVisibilityChange = async (mode: 'public' | 'private' | 'ghost') => {
     setVisibilityMode(mode);
     const targetId = (user || myProfile)?.id;
-    if (!targetId || !isSupabaseActive) {
+    if (!targetId) {
       toast(`Visibility set to ${mode.toUpperCase()}`, 'success');
       return;
     }
@@ -220,16 +200,10 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         is_public: mode === 'public',
         profile_mode: mode === 'ghost' ? 'incognito' : 'standard',
       };
-      const { error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', targetId);
-      
-      if (!error) {
-        toast(`Visibility updated to ${mode.toUpperCase()}`, 'success');
-        if (mode === 'public') setIsPublicProfile(true);
-        if (mode === 'private') setIsPublicProfile(false);
-      }
+      await updateDoc(doc(db, 'profiles', targetId), updates);
+      toast(`Visibility updated to ${mode.toUpperCase()}`, 'success');
+      if (mode === 'public') setIsPublicProfile(true);
+      if (mode === 'private') setIsPublicProfile(false);
     } catch {
       toast('Failed to update visibility', 'error');
     }
@@ -239,13 +213,10 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     const nextVal = !isPublicProfile;
     setIsPublicProfile(nextVal);
     const targetId = (user || myProfile)?.id;
-    if (!targetId || !isSupabaseActive) return;
+    if (!targetId) return;
 
     try {
-      await supabase
-        .from('profiles')
-        .update({ is_public: nextVal })
-        .eq('id', targetId);
+      await updateDoc(doc(db, 'profiles', targetId), { is_public: nextVal });
       toast(nextVal ? 'Profile is now public' : 'Profile is now hidden from search', 'success');
     } catch {
       // ignore
@@ -256,13 +227,10 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     const nextVal = !hideOnlineStatus;
     setHideOnlineStatus(nextVal);
     const targetId = (user || myProfile)?.id;
-    if (!targetId || !isSupabaseActive) return;
+    if (!targetId) return;
 
     try {
-      await supabase
-        .from('profiles')
-        .update({ hide_online_status: nextVal })
-        .eq('id', targetId);
+      await updateDoc(doc(db, 'profiles', targetId), { hide_online_status: nextVal });
       toast(nextVal ? 'Online status is hidden' : 'Online status is visible', 'success');
     } catch {
       // ignore
@@ -284,37 +252,25 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     const chatId = [user.id, myProfile.id].sort().join('_');
     
     try {
-      if (!isSupabaseActive) {
-        navigate(`/chat/${chatId}`);
-        return;
-      }
-
-      const { data: existingChat } = await supabase
-        .from('chats')
-        .select('*')
-        .eq('id', chatId)
-        .maybeSingle();
-      
-      if (!existingChat) {
-        const { error: insertError } = await supabase
-          .from('chats')
-          .insert({
-            id: chatId,
-            participants: [user.id, myProfile.id],
-            last_message: quickMessage || 'Started a conversation',
-            last_timestamp: new Date().toISOString(),
-          });
-        if (insertError) throw insertError;
+      const chatDocRef = doc(db, 'chats', chatId);
+      const chatSnap = await getDoc(chatDocRef);
+      if (!chatSnap.exists()) {
+        await setDoc(chatDocRef, {
+          id: chatId,
+          participants: [user.id, myProfile.id],
+          last_message: quickMessage || 'Started a conversation',
+          last_timestamp: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        });
       }
 
       if (quickMessage.trim()) {
-        await supabase
-          .from('messages')
-          .insert({
-            chat_id: chatId,
-            sender_id: myProfile.id,
-            content: quickMessage.trim(),
-          });
+        await addDoc(collection(db, 'messages'), {
+          chat_id: chatId,
+          sender_id: myProfile.id,
+          content: quickMessage.trim(),
+          timestamp: new Date().toISOString(),
+        });
       }
 
       navigate(`/chat/${chatId}`);
@@ -334,34 +290,27 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
       return;
     }
 
-    if (!isSupabaseActive) {
-      setShowTipModal(false);
-      toast(`₦${amount.toLocaleString()} tip sent to ${user?.display_name || user?.username}!`, 'success');
-      return;
-    }
-
-    const { error } = await supabase
-      .from('transactions')
-      .insert({
+    try {
+      await addDoc(collection(db, 'transactions'), {
         profile_id: myProfile.id,
         receiver_id: user.id,
         sender_id: myProfile.id,
         amount: amount,
         type: 'tip',
         status: 'completed',
-        description: `Tip to ${user.display_name || user.username}`
+        description: `Tip to ${user.display_name || user.username}`,
+        created_at: new Date().toISOString(),
       });
 
-    if (!error) {
       setShowTipModal(false);
       toast(`₦${amount.toLocaleString()} tip sent successfully!`, 'success');
-    } else {
-      toast('Failed to send tip', 'error');
+    } catch (err: any) {
+      toast(err.message || 'Failed to send tip', 'error');
     }
   };
 
   const handleSaveProfile = async () => {
-    if (!isSupabaseActive || !myProfile || !user?.id) {
+    if (!myProfile || !user?.id) {
       setIsSaved(!isSaved);
       toast(isSaved ? 'Removed from favorites' : 'Saved to favorites', 'success');
       return;
@@ -369,29 +318,23 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     
     setIsSaving(true);
     try {
+      const savedCol = collection(db, 'saved_profiles');
       if (isSaved) {
-        const { error } = await supabase
-          .from('saved_profiles')
-          .delete()
-          .eq('user_id', myProfile.id)
-          .eq('saved_profile_id', user.id);
-        
-        if (!error) {
-          setIsSaved(false);
-          toast('Removed from favorites', 'success');
+        const q = query(savedCol, where('user_id', '==', myProfile.id), where('saved_profile_id', '==', user.id));
+        const snap = await getDocs(q);
+        for (const d of snap.docs) {
+          await deleteDoc(d.ref);
         }
+        setIsSaved(false);
+        toast('Removed from favorites', 'success');
       } else {
-        const { error } = await supabase
-          .from('saved_profiles')
-          .insert({
-            user_id: myProfile.id,
-            saved_profile_id: user.id
-          });
-        
-        if (!error) {
-          setIsSaved(true);
-          toast('Profile saved to favorites!', 'success');
-        }
+        await addDoc(savedCol, {
+          user_id: myProfile.id,
+          saved_profile_id: user.id,
+          created_at: new Date().toISOString(),
+        });
+        setIsSaved(true);
+        toast('Profile saved to favorites!', 'success');
       }
     } catch (err) {
       console.error('Error saving profile:', err);
@@ -404,25 +347,15 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     if (!user?.id || !myProfile) return;
     if (!confirm('Are you sure you want to block this user?')) return;
     
-    if (!isSupabaseActive) {
-      toast('User blocked successfully', 'success');
-      navigate('/discovery');
-      return;
-    }
-
     try {
-      const { error } = await supabase
-        .from('blocked_users')
-        .insert({
-          user_id: myProfile.id,
-          blocked_user_id: user.id,
-          created_at: new Date().toISOString()
-        });
+      await addDoc(collection(db, 'blocked_users'), {
+        user_id: myProfile.id,
+        blocked_user_id: user.id,
+        created_at: new Date().toISOString()
+      });
       
-      if (!error) {
-        toast('User blocked. You will no longer see their content.', 'success');
-        navigate('/discovery');
-      }
+      toast('User blocked. You will no longer see their content.', 'success');
+      navigate('/discovery');
     } catch {
       toast('Failed to block user', 'error');
     }

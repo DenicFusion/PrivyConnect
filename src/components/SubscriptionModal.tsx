@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { db, doc, getDoc, collection, query, where, getDocs, onSnapshot } from '../lib/firebase';
 import { APP_CONFIG } from '../config';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -55,24 +55,14 @@ export function SubscriptionModal({
   // Load configured subscription price
   useEffect(() => {
     const fetchPrice = async () => {
-      if (!isSupabaseActive) return;
       try {
-        const { data } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'paystack_plan')
-          .single();
-
-        if (data?.value?.amount) {
-          setSubscriptionPrice(data.value.amount);
+        const settingsSnap = await getDoc(doc(db, 'system_settings', 'paystack_plan'));
+        if (settingsSnap.exists() && settingsSnap.data()?.value?.amount) {
+          setSubscriptionPrice(settingsSnap.data().value.amount);
         } else {
-          const { data: subData } = await supabase
-            .from('system_settings')
-            .select('value')
-            .eq('key', 'subscription_price')
-            .single();
-          if (subData?.value?.amount) {
-            setSubscriptionPrice(subData.value.amount);
+          const subSnap = await getDoc(doc(db, 'system_settings', 'subscription_price'));
+          if (subSnap.exists() && subSnap.data()?.value?.amount) {
+            setSubscriptionPrice(subSnap.data().value.amount);
           }
         }
       } catch (err) {
@@ -82,30 +72,30 @@ export function SubscriptionModal({
     fetchPrice();
   }, []);
 
-  // Listen for real-time verification
+  // Listen for real-time verification via Firestore
   useEffect(() => {
-    if (!profile?.id || !isOpen || !isSupabaseActive) return;
+    if (!profile?.id || !isOpen) return;
 
-    const channel = supabase
-      .channel(`sub-modal-tx-${profile.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'transactions',
-        filter: `profile_id=eq.${profile.id}`
-      }, (payload) => {
-        if (pendingReference && payload.new.reference === pendingReference) {
-          toast('Payment verified! VIP subscription activated.', 'success');
-          setPendingReference(null);
-          setIsProcessing(false);
-          onClose();
-          if (onSuccess) onSuccess();
+    const q = query(collection(db, 'transactions'), where('profile_id', '==', profile.id));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const tx = change.doc.data();
+          if (pendingReference && tx.reference === pendingReference) {
+            toast('Payment verified! VIP subscription activated.', 'success');
+            setPendingReference(null);
+            setIsProcessing(false);
+            onClose();
+            if (onSuccess) onSuccess();
+          }
         }
-      })
-      .subscribe();
+      });
+    }, (error) => {
+      console.error('Transaction listener error:', error);
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [profile?.id, isOpen, pendingReference, onSuccess, onClose, toast]);
 
@@ -120,11 +110,8 @@ export function SubscriptionModal({
     if (paymentGateway === 'paystack') {
       try {
         const backendUrl = APP_CONFIG.BACKEND_URL || '';
-        const { data: settingsData } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'paystack_plan')
-          .single();
+        const settingsSnap = await getDoc(doc(db, 'system_settings', 'paystack_plan'));
+        const settingsData = settingsSnap.exists() ? settingsSnap.data() : null;
 
         const planCode = settingsData?.value?.code;
 

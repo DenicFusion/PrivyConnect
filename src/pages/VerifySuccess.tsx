@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { CheckCircle, ArrowRight, ShieldCheck, Mail, Smartphone, Globe } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PrivyLogo } from '../components/Logo';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/firebase';
 import { useToast } from '../components/Toaster';
 
 export default function VerifySuccessPage() {
@@ -15,13 +15,10 @@ export default function VerifySuccessPage() {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
+      if (auth.currentUser) {
         setIsVerifying(false);
         toast('Email verified successfully!', 'success');
       } else {
-        // If no session, we might be in the middle of a redirect or need to wait
-        // Supabase usually handles the verification via a link that sets the session
         setTimeout(() => {
           setIsVerifying(false);
         }, 2000);

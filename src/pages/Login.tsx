@@ -1,8 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { supabase, signIn } from '../lib/supabase';
+import { 
+  auth, 
+  googleProvider, 
+  signInWithPopup, 
+  signInWithRedirect, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  db, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp 
+} from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/Toaster';
 import { ArrowLeft, Eye, EyeOff, ShieldCheck, Lock, Mail, User, MapPin, Sparkles } from 'lucide-react';
+
+const getFriendlyError = (err: any) => {
+  const code = err?.code || '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password. Please check and try again.';
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists. Please sign in instead.';
+    case 'auth/weak-password':
+      return 'Password is too weak. Please use at least 6 characters.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/network-request-failed':
+      return 'Network error. Please check your connection and try again.';
+    case 'auth/popup-closed-by-user':
+      return 'Google sign-in was cancelled.';
+    default:
+      return err?.message || 'Authentication failed. Please try again.';
+  }
+};
 
 export default function LoginPage() {
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
@@ -29,7 +64,6 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // If query param mode=signup or path is /signup, default to signup tab
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('mode') === 'signup' || location.pathname === '/signup') {
@@ -45,37 +79,30 @@ export default function LoginPage() {
     }
   }, [location]);
 
-  // CRITICAL: Immediate redirect to dashboard if already authenticated
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
         navigate('/discovery', { replace: true });
       }
     });
+    return () => unsubscribe();
   }, [navigate]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginIdentifier.trim() || !loginPassword) {
-      toast('Please enter your email or username and password.', 'error');
+      toast('Please enter your email and password.', 'error');
       return;
     }
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: loginIdentifier.trim(),
-        password: loginPassword
-      });
-
-      if (error) throw error;
-
+      await signInWithEmailAndPassword(auth, loginIdentifier.trim(), loginPassword);
       toast('Welcome back to PrivyConnect!', 'success');
-      // Direct navigation straight to dashboard - never return to signing page
       navigate('/discovery', { replace: true });
     } catch (err: any) {
       console.error('Sign in error:', err);
-      toast(err.message || 'Invalid username or password.', 'error');
+      toast(getFriendlyError(err), 'error');
     } finally {
       setLoading(false);
     }
@@ -94,32 +121,32 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const activeRef = referralCode || localStorage.getItem('referral_code') || null;
-      
-      const { data, error } = await supabase.auth.signUp({
-        email: signupEmail.trim(),
-        password: signupPassword,
-        options: {
-          data: {
-            username: signupUsername.trim(),
-            full_name: fullName.trim() || signupUsername.trim(),
-            state: signupState,
-            vibe: signupVibe,
-            referred_by_code: activeRef
-          }
-        }
-      });
+      const userCredential = await createUserWithEmailAndPassword(auth, signupEmail.trim(), signupPassword);
+      const user = userCredential.user;
 
-      if (error) throw error;
+      const newProfile = {
+        id: user.uid,
+        email: signupEmail.trim(),
+        username: signupUsername.trim(),
+        display_name: fullName.trim() || signupUsername.trim(),
+        state: signupState,
+        vibe: signupVibe,
+        gender: '',
+        is_verified: false,
+        is_subscribed: false,
+        is_online: true,
+        created_at: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'profiles', user.uid), newProfile);
+      await setDoc(doc(db, 'users', user.uid), newProfile);
 
       localStorage.removeItem('referral_code');
       toast('Welcome to PrivyConnect! Account created.', 'success');
-      
-      // CRITICAL: Take user directly to dashboard, never come back to signing page
       navigate('/discovery', { replace: true });
     } catch (err: any) {
       console.error('Sign up error:', err);
-      toast(err.message || 'Signup failed. Please try again.', 'error');
+      toast(getFriendlyError(err), 'error');
     } finally {
       setLoading(false);
     }
@@ -128,13 +155,44 @@ export default function LoginPage() {
   const handleGoogleAuth = async () => {
     setLoading(true);
     try {
-      const { error } = await signIn();
-      if (error) throw error;
-      toast('Signed in successfully!', 'success');
+      let result;
+      try {
+        result = await signInWithPopup(auth, googleProvider);
+      } catch (popupErr: any) {
+        if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user' || /mobile/i.test(navigator.userAgent)) {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        }
+        throw popupErr;
+      }
+
+      const user = result.user;
+      const userRef = doc(db, 'profiles', user.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (!userSnap.exists()) {
+        const newProfile = {
+          id: user.uid,
+          email: user.email || '',
+          username: user.email?.split('@')[0] || `user_${user.uid.slice(0, 5)}`,
+          display_name: user.displayName || 'Member',
+          photo_url: user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
+          gender: '',
+          is_verified: false,
+          is_subscribed: false,
+          is_online: true,
+          created_at: serverTimestamp()
+        };
+        await setDoc(userRef, newProfile);
+        await setDoc(doc(db, 'users', user.uid), newProfile);
+        toast('Account created successfully!', 'success');
+      } else {
+        toast('Signed in successfully!', 'success');
+      }
       navigate('/discovery', { replace: true });
     } catch (err: any) {
       console.error('Google sign in error:', err);
-      toast(err.message || 'Google authentication failed.', 'error');
+      toast(getFriendlyError(err), 'error');
     } finally {
       setLoading(false);
     }
@@ -149,12 +207,10 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(loginIdentifier.trim());
-      if (error) throw error;
       setResetSent(true);
       toast('Reset instructions sent to your email!', 'success');
     } catch (err: any) {
-      toast(err.message || 'Password reset failed.', 'error');
+      toast(getFriendlyError(err), 'error');
     } finally {
       setLoading(false);
     }

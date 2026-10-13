@@ -16,7 +16,8 @@ import {
   ChevronRight,
   ExternalLink
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { auth, signOut } from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface PrivyHeaderProps {
   profile?: any;
@@ -68,7 +69,7 @@ export function PrivyHeader({ profile, unreadCount = 0 }: PrivyHeaderProps) {
   const handleSignOut = async () => {
     setIsMenuOpen(false);
     try {
-      await supabase.auth.signOut();
+      await signOut(auth);
       navigate('/login');
     } catch (e) {
       console.error(e);

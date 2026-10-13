@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Check, X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { User } from 'lucide-react';
+import { db, doc, updateDoc, setDoc } from '../lib/firebase';
 import { useToast } from './Toaster';
 
 interface GenderModalProps {
@@ -17,21 +17,21 @@ export default function GenderModal({ isOpen, onClose, userId, onSuccess }: Gend
   const { toast } = useToast();
 
   const handleSubmit = async () => {
-    if (!gender) return;
+    if (!gender || !userId) return;
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ gender })
-        .eq('id', userId);
-
-      if (error) throw error;
+      await updateDoc(doc(db, 'profiles', userId), { gender });
+      try {
+        await updateDoc(doc(db, 'users', userId), { gender });
+      } catch {
+        await setDoc(doc(db, 'users', userId), { gender }, { merge: true });
+      }
       
       toast('Profile updated successfully!', 'success');
       onSuccess();
       onClose();
     } catch (error: any) {
-      toast(error.message, 'error');
+      toast(error.message || 'Failed to update gender', 'error');
     } finally {
       setLoading(false);
     }
@@ -45,7 +45,6 @@ export default function GenderModal({ isOpen, onClose, userId, onSuccess }: Gend
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
             className="absolute inset-0 bg-black/80 backdrop-blur-md"
           />
           <motion.div
@@ -55,8 +54,8 @@ export default function GenderModal({ isOpen, onClose, userId, onSuccess }: Gend
             className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 text-center"
           >
             <div className="space-y-6">
-              <div className="inline-flex items-center justify-center p-6 rounded-[32px] bg-brand-blue/10 border border-brand-blue/20">
-                <User className="w-12 h-12 text-brand-blue" />
+              <div className="inline-flex items-center justify-center p-6 rounded-[32px] bg-[#00d1ff]/10 border border-[#00d1ff]/20">
+                <User className="w-12 h-12 text-[#00d1ff]" />
               </div>
               <div className="space-y-2">
                 <h2 className="text-3xl font-display uppercase tracking-tighter italic">Select Your Gender</h2>
@@ -68,15 +67,16 @@ export default function GenderModal({ isOpen, onClose, userId, onSuccess }: Gend
 
             <div className="grid grid-cols-2 gap-4">
               <button
+                type="button"
                 onClick={() => setGender('male')}
-                className={`p-6 rounded-3xl border transition-all flex flex-col items-center gap-3 ${
+                className={`p-6 rounded-3xl border transition-all flex flex-col items-center gap-3 cursor-pointer ${
                   gender === 'male' 
-                    ? 'bg-brand-blue/20 border-brand-blue text-brand-blue' 
+                    ? 'bg-[#00d1ff]/20 border-[#00d1ff] text-[#00d1ff]' 
                     : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'
                 }`}
               >
                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                  gender === 'male' ? 'bg-brand-blue text-brand-dark' : 'bg-white/5'
+                  gender === 'male' ? 'bg-[#00d1ff] text-[#00131a]' : 'bg-white/5'
                 }`}>
                   <User className="w-6 h-6" />
                 </div>
@@ -84,15 +84,16 @@ export default function GenderModal({ isOpen, onClose, userId, onSuccess }: Gend
               </button>
 
               <button
+                type="button"
                 onClick={() => setGender('female')}
-                className={`p-6 rounded-3xl border transition-all flex flex-col items-center gap-3 ${
+                className={`p-6 rounded-3xl border transition-all flex flex-col items-center gap-3 cursor-pointer ${
                   gender === 'female' 
-                    ? 'bg-brand-blue/20 border-brand-blue text-brand-blue' 
+                    ? 'bg-[#00d1ff]/20 border-[#00d1ff] text-[#00d1ff]' 
                     : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'
                 }`}
               >
                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                  gender === 'female' ? 'bg-brand-blue text-brand-dark' : 'bg-white/5'
+                  gender === 'female' ? 'bg-[#00d1ff] text-[#00131a]' : 'bg-white/5'
                 }`}>
                   <User className="w-6 h-6" />
                 </div>
@@ -101,9 +102,10 @@ export default function GenderModal({ isOpen, onClose, userId, onSuccess }: Gend
             </div>
 
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={!gender || loading}
-              className="w-full py-5 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+              className="w-full py-5 bg-[#00d1ff] text-[#00131a] font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Updating...' : 'Complete Profile'}
             </button>

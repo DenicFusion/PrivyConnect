@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, Check, X, Smartphone, Zap, Star, ShieldCheck, Mail, Send, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PrivyHeader } from '../components/PrivyHeader';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { db, collection, getDocs } from '../lib/firebase';
 import { MemberProfileModal } from '../components/MemberProfileModal';
 import { SubscriptionModal } from '../components/SubscriptionModal';
 import { useToast } from '../components/Toaster';
@@ -85,17 +85,18 @@ export default function LandingPage() {
   const [onlineCount, setOnlineCount] = useState(98);
   const [pool, setPool] = useState<ActiveProfile[]>(INITIAL_PROFILES_POOL);
 
-  // Load real members from Supabase / Firestore if available to enrich pool
+  // Load real members from Firestore if available to enrich pool
   useEffect(() => {
     const fetchRealProfiles = async () => {
-      if (!isSupabaseActive) return;
       try {
-        const { data } = await supabase
-          .from('profiles')
-          .select('id, username, display_name, is_verified, is_online, area, state, vibe, photo_url, avatar_url')
-          .limit(30);
-        if (data && data.length > 0) {
-          const mapped: ActiveProfile[] = data.map((p, i) => {
+        const snapshot = await getDocs(collection(db, 'profiles'));
+        const profilesList: any[] = [];
+        snapshot.forEach((docSnap) => {
+          profilesList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+
+        if (profilesList.length > 0) {
+          const mapped: ActiveProfile[] = profilesList.map((p, i) => {
             const rawVibe = (p.vibe as any) || (i % 2 === 0 ? 'FWB' : 'BESTIE');
             return {
               id: p.id,

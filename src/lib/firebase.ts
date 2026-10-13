@@ -1,111 +1,81 @@
-import { initializeApp, getApps } from 'firebase/app';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult,
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  sendPasswordResetEmail,
+  signOut as fbSignOut, 
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  onAuthStateChanged
+} from 'firebase/auth';
 import { 
   getFirestore, 
   doc, 
-  getDocFromServer, 
-  collection, 
-  getDocs, 
   getDoc, 
   setDoc, 
-  addDoc, 
   updateDoc, 
-  deleteDoc, 
+  deleteDoc,
+  collection, 
   query, 
   where, 
-  orderBy, 
-  limit, 
+  orderBy,
+  getDocs, 
+  addDoc, 
+  limit,
+  serverTimestamp, 
   onSnapshot 
 } from 'firebase/firestore';
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged,
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCrdd3_dXQpSYN-4w1ZWaufbf14ZRbkQGs",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0722566132.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0722566132",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0722566132.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "704282212306",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:704282212306:web:862e06ef987a203f47ba0b"
+};
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app, "ai-studio-0b67419f-0a72-4c9c-93e6-26709ff94079");
+export const storage = getStorage(app);
+export const googleProvider = new GoogleAuthProvider();
+
+export {
   GoogleAuthProvider,
   signInWithPopup,
-  sendPasswordResetEmail,
-  updatePassword,
-  updateProfile as updateAuthProfile
-} from 'firebase/auth';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import firebaseConfig from '../../firebase-applet-config.json';
-
-// Initialize Firebase App
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
-
-// Initialize Firestore with specific database ID if configured
-export const db = getFirestore(
-  app, 
-  (firebaseConfig as any).firestoreDatabaseId || undefined
-);
-
-// Initialize Auth
-export const auth = getAuth(app);
-
-// Initialize Messaging (browser only)
-export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
-
-// Validate Connection to Firestore on boot (Mandatory per Firebase Skill)
-export async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log('Connected to Firestore successfully.');
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-
-if (typeof window !== 'undefined') {
-  testConnection();
-}
-
-// Push notification helpers
-export const requestNotificationPermission = async () => {
-  if (!messaging) return null;
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      const token = await getToken(messaging);
-      return token;
-    }
-  } catch (error) {
-    console.error('An error occurred while retrieving FCM token: ', error);
-  }
-  return null;
-};
-
-export const onForegroundMessage = (callback: (payload: any) => void) => {
-  if (!messaging) return;
-  return onMessage(messaging, callback);
-};
-
-// Re-export core Firestore & Auth methods for convenience
-export {
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup,
   sendPasswordResetEmail,
+  fbSignOut as signOut,
   updatePassword,
-  updateAuthProfile,
-  collection,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  onAuthStateChanged,
   doc,
-  getDocs,
   getDoc,
   setDoc,
-  addDoc,
   updateDoc,
   deleteDoc,
+  collection,
   query,
   where,
   orderBy,
+  getDocs,
+  addDoc,
   limit,
-  onSnapshot
+  serverTimestamp,
+  onSnapshot,
+  ref,
+  uploadBytes,
+  getDownloadURL
 };
-
-export default app;

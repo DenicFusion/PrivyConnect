@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { auth, db, doc, getDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, signOut, updatePassword } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -99,23 +99,14 @@ export default function SettingsPage({ profile }: { profile: any }) {
 
   useEffect(() => {
     const fetchPrice = async () => {
-      if (!isSupabaseActive) return;
       try {
-        const { data } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'paystack_plan')
-          .single();
-        if (data?.value?.amount) {
-          setSubscriptionPrice(data.value.amount);
+        const settingsSnap = await getDoc(doc(db, 'system_settings', 'paystack_plan'));
+        if (settingsSnap.exists() && settingsSnap.data()?.value?.amount) {
+          setSubscriptionPrice(settingsSnap.data().value.amount);
         } else {
-          const { data: subData } = await supabase
-            .from('system_settings')
-            .select('value')
-            .eq('key', 'subscription_price')
-            .single();
-          if (subData?.value?.amount) {
-            setSubscriptionPrice(subData.value.amount);
+          const subSnap = await getDoc(doc(db, 'system_settings', 'subscription_price'));
+          if (subSnap.exists() && subSnap.data()?.value?.amount) {
+            setSubscriptionPrice(subSnap.data().value.amount);
           }
         }
       } catch (e) {
@@ -125,30 +116,28 @@ export default function SettingsPage({ profile }: { profile: any }) {
     fetchPrice();
   }, []);
 
-  // Listen for real-time payment success
+  // Listen for real-time payment success via Firestore
   useEffect(() => {
-    if (!profile?.id || !isSupabaseActive) return;
+    if (!profile?.id) return;
 
-    const channel = supabase
-      .channel(`settings-sub-tx-${profile.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'transactions',
-        filter: `profile_id=eq.${profile.id}`
-      }, (payload) => {
-        if (pendingReference && payload.new.reference === pendingReference) {
-          toast('Payment verified! VIP subscription activated.', 'success');
-          setPendingReference(null);
-          setIsProcessingSub(false);
-          setTimeout(() => window.location.reload(), 1200);
+    const q = query(collection(db, 'transactions'), where('profile_id', '==', profile.id));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const tx = change.doc.data();
+          if (pendingReference && tx.reference === pendingReference) {
+            toast('Payment verified! VIP subscription activated.', 'success');
+            setPendingReference(null);
+            setIsProcessingSub(false);
+            setTimeout(() => window.location.reload(), 1200);
+          }
         }
-      })
-      .subscribe();
+      });
+    }, (error) => {
+      console.error('Settings tx listener error:', error);
+    });
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, [profile?.id, pendingReference, toast]);
 
   const handleSubscribe = async () => {
@@ -162,11 +151,8 @@ export default function SettingsPage({ profile }: { profile: any }) {
     if (paymentGateway === 'paystack') {
       try {
         const backendUrl = APP_CONFIG.BACKEND_URL || '';
-        const { data: settingsData } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'paystack_plan')
-          .single();
+        const settingsSnap = await getDoc(doc(db, 'system_settings', 'paystack_plan'));
+        const settingsData = settingsSnap.exists() ? settingsSnap.data() : null;
 
         const planCode = settingsData?.value?.code;
 
@@ -447,11 +433,13 @@ export default function SettingsPage({ profile }: { profile: any }) {
 
       setFormData(prev => ({ ...prev, photo_url: uploadedUrl }));
 
-      if (isSupabaseActive && profile?.id) {
-        await supabase
-          .from('profiles')
-          .update({ photo_url: uploadedUrl })
-          .eq('id', profile.id);
+      if (profile?.id) {
+        await updateDoc(doc(db, 'profiles', profile.id), { photo_url: uploadedUrl });
+        try {
+          await updateDoc(doc(db, 'users', profile.id), { photo_url: uploadedUrl });
+        } catch {
+          // ignore
+        }
       }
 
       toast('Profile photo updated successfully!', 'success');
@@ -495,15 +483,13 @@ export default function SettingsPage({ profile }: { profile: any }) {
         updated_at: new Date().toISOString()
       };
 
-      if (isSupabaseActive && profile?.id) {
-        const { error } = await supabase
-          .from('profiles')
-          .update(updates)
-          .eq('id', profile.id);
-
-        if (error) throw error;
-      } else {
-        localStorage.setItem(`profile_${profile?.id || 'demo'}`, JSON.stringify({ ...profile, ...updates }));
+      if (profile?.id) {
+        await updateDoc(doc(db, 'profiles', profile.id), updates);
+        try {
+          await updateDoc(doc(db, 'users', profile.id), updates);
+        } catch {
+          // ignore
+        }
       }
 
       setSavedSuccess(true);
@@ -531,11 +517,8 @@ export default function SettingsPage({ profile }: { profile: any }) {
 
     setUpdatingPassword(true);
     try {
-      if (isSupabaseActive) {
-        const { error } = await supabase.auth.updateUser({
-          password: newPassword
-        });
-        if (error) throw error;
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newPassword);
       }
       toast('Password updated successfully!', 'success');
       setNewPassword('');
@@ -550,9 +533,7 @@ export default function SettingsPage({ profile }: { profile: any }) {
   // Handle Logout
   const handleSignOut = async () => {
     try {
-      if (isSupabaseActive) {
-        await supabase.auth.signOut();
-      }
+      await signOut(auth);
       navigate('/login');
     } catch (e) {
       console.error(e);
@@ -564,9 +545,9 @@ export default function SettingsPage({ profile }: { profile: any }) {
   const handleDeleteAccount = async () => {
     setIsDeleting(true);
     try {
-      if (isSupabaseActive && profile?.id) {
-        await supabase.from('profiles').delete().eq('id', profile.id);
-        await supabase.auth.signOut();
+      if (profile?.id) {
+        await deleteDoc(doc(db, 'profiles', profile.id));
+        await signOut(auth);
       }
       toast('Account deleted successfully', 'info');
       navigate('/login');

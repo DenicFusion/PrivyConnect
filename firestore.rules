@@ -1,101 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper Functions
     function isAuthenticated() {
       return request.auth != null;
     }
-
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isAdmin() {
-      return isAuthenticated() && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin';
+    match /profiles/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update, delete: if isOwner(userId);
     }
 
-    // Profiles
-    match /profiles/{profileId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update, delete: if isOwner(userId);
     }
 
-    // Transactions
-    match /transactions/{transactionId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAdmin();
-    }
-
-    // Chats
     match /chats/{chatId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read, write: if isAuthenticated();
     }
 
-    // Messages
     match /messages/{messageId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read, write: if isAuthenticated();
     }
 
-    // Blocked Users
-    match /blocked_users/{blockedUserId} {
-      allow read, write: if true;
+    match /transactions/{transactionId} {
+      allow read, write: if isAuthenticated();
     }
 
-    // Saved Profiles
-    match /saved_profiles/{savedProfileId} {
-      allow read, write: if true;
-    }
-
-    // Reports
-    match /reports/{reportId} {
-      allow read, write: if true;
-    }
-
-    // System Settings
-    match /system_settings/{settingId} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    // Moderation Keywords
-    match /moderation_keywords/{keywordId} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    // Notifications
-    match /notifications/{notificationId} {
-      allow read: if true;
-      allow create, update, delete: if true;
-    }
-
-    // Login Activity
-    match /login_activity/{activityId} {
-      allow read, write: if true;
-    }
-
-    // Wallet
-    match /wallet/{walletId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAdmin();
-    }
-    
-    // Presence (Realtime)
-    match /presence/{presenceId} {
-      allow read, write: if true;
+    match /notifications/{notifId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

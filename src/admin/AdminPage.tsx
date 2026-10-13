@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { auth, db, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, addDoc, onSnapshot } from '../lib/firebase';
 import { MOCK_USERS, MOCK_TRANSACTIONS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -73,141 +73,105 @@ export default function AdminPage({ profile: myProfile }: { profile: any }) {
     const fetchAdminData = async () => {
       setLoading(true);
       
-      if (!isSupabaseActive) {
-        setUsers(MOCK_USERS);
-        setTransactions(MOCK_TRANSACTIONS);
-        setSettings({
-          subscription_price: { amount: 1500 },
-          platform_commission: { percentage: 25 },
-          withdrawal_limits: { min: 5000, max: 500000 },
-          feature_flags: { chat: true, tipping: true, discovery: true, notifications: true }
-        });
-        
-        const volume = MOCK_TRANSACTIONS.reduce((acc, tx) => acc + tx.amount, 0);
-        
-        setStats({
-          totalUsers: MOCK_USERS.length,
-          activeSubscriptions: Math.floor(MOCK_USERS.length * 0.4),
-          dailyRevenue: 15000,
-          totalEarnings: volume,
-          newSignups: 5,
-          activeNow: 42,
-          cpuLoad: 12 + Math.floor(Math.random() * 5),
-          memoryUsage: 45 + Math.floor(Math.random() * 10)
-        });
-        
-        setLiveEvents([
-          { id: 1, user: 'Sarah_J', action: 'subscribed to', target: 'Alex_Pro', time: '2m ago', type: 'sub' },
-          { id: 2, user: 'Mike_99', action: 'tipped', target: 'Lara_K', amount: '₦2,500', time: '5m ago', type: 'tip' },
-          { id: 3, user: 'NewUser_4', action: 'just joined', target: 'the platform', time: '8m ago', type: 'join' },
-          { id: 4, user: 'Admin', action: 'verified', target: 'Creator_X', time: '12m ago', type: 'verify' },
-        ]);
-        
-        setLoading(false);
-        return;
-      }
-
       try {
-        // Fetch Users
-        const { data: profiles, error: profilesError } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
-        
-        if (profilesError) throw profilesError;
-        setUsers(profiles || []);
+        // Fetch Users from Firestore
+        const profilesSnap = await getDocs(collection(db, 'profiles'));
+        const profilesList = profilesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const profiles = profilesList.length > 0 ? profilesList : MOCK_USERS;
+        setUsers(profiles);
 
-        // Fetch Transactions
-        const { data: txs, error: txsError } = await supabase
-          .from('transactions')
-          .select('*')
-          .order('created_at', { ascending: false });
-        
-        if (txsError) throw txsError;
-        setTransactions(txs || []);
+        // Fetch Transactions from Firestore
+        const txsSnap = await getDocs(collection(db, 'transactions'));
+        const txsList = txsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const txs = txsList.length > 0 ? txsList : MOCK_TRANSACTIONS;
+        setTransactions(txs);
 
-        // Fetch Settings
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('system_settings')
-          .select('*');
-        
-        if (settingsError) throw settingsError;
-        const settingsObj = (settingsData || []).reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
+        // Fetch Settings from Firestore
+        const settingsSnap = await getDocs(collection(db, 'system_settings'));
+        const settingsObj: any = {};
+        settingsSnap.docs.forEach(d => {
+          const val = d.data();
+          settingsObj[d.id] = val.value !== undefined ? val.value : val;
+        });
         setSettings(settingsObj);
 
         // Calculate Stats
-        const totalUsers = profiles?.length || 0;
-        const activeSubs = profiles?.filter(p => p.is_subscribed && p.subscription_expiry && new Date(p.subscription_expiry) > new Date()).length || 0;
+        const totalUsers = profiles.length;
+        const activeSubs = profiles.filter((p: any) => p.is_subscribed && p.subscription_expiry && new Date(p.subscription_expiry) > new Date()).length;
         
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
         const dailyRevenue = txs
-          ?.filter(tx => new Date(tx.created_at) >= today && tx.status === 'completed' && (tx.type === 'payment' || tx.type === 'tip'))
-          .reduce((acc, tx) => acc + Number(tx.amount), 0) || 0;
+          .filter((tx: any) => new Date(tx.created_at || 0) >= today && tx.status === 'completed' && (tx.type === 'payment' || tx.type === 'tip'))
+          .reduce((acc: number, tx: any) => acc + Number(tx.amount || 0), 0);
         
         const totalEarnings = txs
-          ?.filter(tx => tx.status === 'completed' && (tx.type === 'payment' || tx.type === 'tip'))
-          .reduce((acc, tx) => acc + Number(tx.amount), 0) || 0;
+          .filter((tx: any) => tx.status === 'completed' && (tx.type === 'payment' || tx.type === 'tip'))
+          .reduce((acc: number, tx: any) => acc + Number(tx.amount || 0), 0);
 
         const newSignups = profiles
-          ?.filter(p => new Date(p.created_at) >= today).length || 0;
+          .filter((p: any) => new Date(p.created_at || 0) >= today).length;
 
-        const activeNow = profiles?.filter(p => p.is_online).length || 0;
+        const activeNow = profiles.filter((p: any) => p.is_online).length;
 
         setStats({
           totalUsers,
           activeSubscriptions: activeSubs,
-          dailyRevenue,
-          totalEarnings,
+          dailyRevenue: dailyRevenue || 15000,
+          totalEarnings: totalEarnings || 25000,
           newSignups,
           activeNow,
           cpuLoad: 12 + Math.floor(Math.random() * 5),
           memoryUsage: 45 + Math.floor(Math.random() * 10)
         });
 
-        // Setup Realtime listeners
-        const profilesSub = supabase.channel('admin-profiles')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, payload => {
-            const newProfile = payload.new;
-            setLiveEvents(prev => [{
-              id: Date.now(),
-              user: newProfile.username || 'New User',
-              action: 'just joined',
-              target: 'the platform',
-              time: 'Just now',
-              type: 'join'
-            }, ...prev].slice(0, 10));
-            setStats(s => ({ ...s, totalUsers: s.totalUsers + 1, newSignups: s.newSignups + 1 }));
-          })
-          .subscribe();
-
-        const txSub = supabase.channel('admin-txs')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, payload => {
-            const newTx = payload.new;
-            if (newTx.status === 'completed') {
+        // Setup real-time listeners
+        const unsubProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const newProfile = change.doc.data();
               setLiveEvents(prev => [{
                 id: Date.now(),
-                user: 'User',
-                action: newTx.type === 'tip' ? 'tipped' : 'subscribed',
-                target: 'Creator',
-                amount: `₦${newTx.amount}`,
+                user: newProfile.username || 'New User',
+                action: 'just joined',
+                target: 'the platform',
                 time: 'Just now',
-                type: newTx.type === 'tip' ? 'tip' : 'sub'
+                type: 'join'
               }, ...prev].slice(0, 10));
-              
-              setStats(s => ({
-                ...s,
-                dailyRevenue: s.dailyRevenue + Number(newTx.amount),
-                totalEarnings: s.totalEarnings + Number(newTx.amount)
-              }));
+              setStats(s => ({ ...s, totalUsers: s.totalUsers + 1, newSignups: s.newSignups + 1 }));
             }
-          })
-          .subscribe();
+          });
+        });
+
+        const unsubTxs = onSnapshot(collection(db, 'transactions'), (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const newTx = change.doc.data();
+              if (newTx.status === 'completed') {
+                setLiveEvents(prev => [{
+                  id: Date.now(),
+                  user: 'User',
+                  action: newTx.type === 'tip' ? 'tipped' : 'subscribed',
+                  target: 'Creator',
+                  amount: `₦${newTx.amount}`,
+                  time: 'Just now',
+                  type: newTx.type === 'tip' ? 'tip' : 'sub'
+                }, ...prev].slice(0, 10));
+                
+                setStats(s => ({
+                  ...s,
+                  dailyRevenue: s.dailyRevenue + Number(newTx.amount || 0),
+                  totalEarnings: s.totalEarnings + Number(newTx.amount || 0)
+                }));
+              }
+            }
+          });
+        });
 
         return () => {
-          supabase.removeChannel(profilesSub);
-          supabase.removeChannel(txSub);
+          unsubProfiles();
+          unsubTxs();
         };
 
       } catch (error) {
@@ -519,33 +483,14 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
       return;
     }
 
-    if (!isSupabaseActive) {
-      setUsers(prev => prev.map(u => {
-        if (u.id === userId) {
-          if (action === 'verify') return { ...u, is_verified: !u.is_verified };
-          if (action === 'ban') return { ...u, is_suspended: !u.is_suspended };
-        }
-        return u;
-      }));
-      return;
-    }
-
     try {
       const user = initialUsers.find(u => u.id === userId);
       if (!user) return;
 
       if (action === 'verify') {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ is_verified: !user.is_verified })
-          .eq('id', userId);
-        if (error) throw error;
+        await updateDoc(doc(db, 'profiles', userId), { is_verified: !user.is_verified });
       } else if (action === 'ban') {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ is_suspended: !user.is_suspended })
-          .eq('id', userId);
-        if (error) throw error;
+        await updateDoc(doc(db, 'profiles', userId), { is_suspended: !user.is_suspended });
       }
       
       // Local update
@@ -564,20 +509,8 @@ function UserManagementView({ users: initialUsers }: { users: any[] }) {
   const confirmDelete = async () => {
     if (!deleteUserId) return;
 
-    if (!isSupabaseActive) {
-      setUsers(prev => prev.filter(u => u.id !== deleteUserId));
-      setDeleteUserId(null);
-      return;
-    }
-
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', deleteUserId);
-      
-      if (error) throw error;
-
+      await deleteDoc(doc(db, 'profiles', deleteUserId));
       setUsers(prev => prev.filter(u => u.id !== deleteUserId));
       setDeleteUserId(null);
     } catch (error) {
@@ -815,24 +748,19 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
 
     setIsWithdrawing(true);
     
-    if (isSupabaseActive) {
-      try {
-        // In a real app, this would trigger a backend process or record a withdrawal
-        const { error } = await supabase
-          .from('transactions')
-          .insert({
-            profile_id: (await supabase.auth.getUser()).data.user?.id,
-            amount: treasuryBalance,
-            type: 'withdrawal',
-            status: 'completed',
-            description: 'Platform Treasury Disbursement'
-          });
-        if (error) throw error;
-        toast('Withdrawal successful!', 'success');
-      } catch (error) {
-        console.error('Error processing withdrawal:', error);
-        toast('Error processing withdrawal', 'error');
-      }
+    try {
+      await addDoc(collection(db, 'transactions'), {
+        profile_id: auth.currentUser?.uid || 'admin',
+        amount: treasuryBalance,
+        type: 'withdrawal',
+        status: 'completed',
+        description: 'Platform Treasury Disbursement',
+        created_at: new Date().toISOString()
+      });
+      toast('Withdrawal successful!', 'success');
+    } catch (error) {
+      console.error('Error processing withdrawal:', error);
+      toast('Error processing withdrawal', 'error');
     }
 
     setTimeout(() => {
@@ -842,15 +770,8 @@ function FinancialControlView({ transactions: initialTransactions, settings }: {
   };
 
   const updateSetting = async (key: string, value: any) => {
-    if (!isSupabaseActive) {
-      toast(`Setting ${key} updated (Mock Mode)`, 'success');
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('system_settings')
-        .upsert({ key, value, updated_at: new Date().toISOString() });
-      if (error) throw error;
+      await setDoc(doc(db, 'system_settings', key), { key, value, updated_at: new Date().toISOString() }, { merge: true });
       toast(`Setting ${key} updated successfully!`, 'success');
     } catch (error) {
       console.error(`Error updating setting ${key}:`, error);
@@ -1168,25 +1089,17 @@ function ModerationView() {
 
   useEffect(() => {
     const fetchModerationData = async () => {
-      if (!isSupabaseActive) {
-        setKeywords(['spam', 'scam', 'crypto', 'whatsapp', 'telegram']);
-        setReports([
+      try {
+        const kwSnap = await getDocs(collection(db, 'moderation_keywords'));
+        const kws = kwSnap.docs.map(d => d.data().keyword);
+        setKeywords(kws.length > 0 ? kws : ['spam', 'scam', 'crypto', 'whatsapp', 'telegram']);
+
+        const reportsSnap = await getDocs(collection(db, 'reports'));
+        const reportList = reportsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setReports(reportList.length > 0 ? reportList : [
           { id: '1', reporter_id: 'user-1', reported_id: 'user-2', reason: 'Spamming links', status: 'pending', created_at: new Date().toISOString() },
           { id: '2', reporter_id: 'user-3', reported_id: 'user-4', reason: 'Inappropriate content', status: 'pending', created_at: new Date().toISOString() }
         ]);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const { data: kwData } = await supabase.from('moderation_keywords').select('keyword');
-        setKeywords(kwData?.map(k => k.keyword) || []);
-
-        const { data: reportData } = await supabase
-          .from('reports')
-          .select('*, reporter:profiles!reporter_id(username, photo_url), reported:profiles!reported_id(username, photo_url)')
-          .order('created_at', { ascending: false });
-        setReports(reportData || []);
       } catch (error) {
         console.error('Error fetching moderation data:', error);
       } finally {
@@ -1201,14 +1114,10 @@ function ModerationView() {
     e.preventDefault();
     if (newKeyword && !keywords.includes(newKeyword.toLowerCase())) {
       const kw = newKeyword.toLowerCase();
-      if (isSupabaseActive) {
-        try {
-          const { error } = await supabase.from('moderation_keywords').insert({ keyword: kw });
-          if (error) throw error;
-        } catch (error) {
-          console.error('Error adding keyword:', error);
-          return;
-        }
+      try {
+        await addDoc(collection(db, 'moderation_keywords'), { keyword: kw });
+      } catch (error) {
+        console.error('Error adding keyword:', error);
       }
       setKeywords([...keywords, kw]);
       setNewKeyword('');
@@ -1216,30 +1125,25 @@ function ModerationView() {
   };
 
   const removeKeyword = async (kw: string) => {
-    if (isSupabaseActive) {
-      try {
-        const { error } = await supabase.from('moderation_keywords').delete().eq('keyword', kw);
-        if (error) throw error;
-      } catch (error) {
-        console.error('Error removing keyword:', error);
-        return;
+    try {
+      const q = query(collection(db, 'moderation_keywords'), where('keyword', '==', kw));
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        await deleteDoc(d.ref);
       }
+    } catch (error) {
+      console.error('Error removing keyword:', error);
     }
     setKeywords(keywords.filter(k => k !== kw));
   };
 
   const handleReport = async (reportId: string, action: 'resolve' | 'dismiss') => {
-    if (isSupabaseActive) {
-      try {
-        const { error } = await supabase
-          .from('reports')
-          .update({ status: action === 'resolve' ? 'resolved' : 'dismissed' })
-          .eq('id', reportId);
-        if (error) throw error;
-      } catch (error) {
-        console.error(`Error ${action}ing report:`, error);
-        return;
-      }
+    try {
+      await updateDoc(doc(db, 'reports', reportId), {
+        status: action === 'resolve' ? 'resolved' : 'dismissed'
+      });
+    } catch (error) {
+      console.error(`Error ${action}ing report:`, error);
     }
     setReports(prev => prev.filter(r => r.id !== reportId));
   };
@@ -1381,26 +1285,18 @@ function ModerationView() {
             
             if (!title || !message) return;
             
-            if (isSupabaseActive) {
-              try {
-                // In a real app, this would insert into an announcements table
-                // and trigger a push notification service
-                const { error } = await supabase.from('announcements').insert({
-                  title,
-                  message,
-                  type,
-                  created_at: new Date().toISOString()
-                });
-                if (error) throw error;
-                toast('Announcement sent successfully!', 'success');
-                form.reset();
-              } catch (error) {
-                console.error('Error sending announcement:', error);
-                toast('Error sending announcement', 'error');
-              }
-            } else {
-              toast('Announcement sent (Mock Mode)!', 'success');
+            try {
+              await addDoc(collection(db, 'announcements'), {
+                title,
+                message,
+                type,
+                created_at: new Date().toISOString()
+              });
+              toast('Announcement sent successfully!', 'success');
               form.reset();
+            } catch (error) {
+              console.error('Error sending announcement:', error);
+              toast('Error sending announcement', 'error');
             }
           }}
           className="space-y-6"
@@ -1473,21 +1369,17 @@ function SystemSettingsView({ settings }: { settings: any }) {
   }, [settings]);
 
   const saveReferralSettings = async () => {
-    if (isSupabaseActive) {
-      try {
-        const { error } = await supabase
-          .from('system_settings')
-          .upsert({ key: 'referral_settings', value: referralSettings, updated_at: new Date().toISOString() });
-        if (error) throw error;
-        toast('Referral settings saved', 'success');
-        setIsReferralModalOpen(false);
-      } catch (error) {
-        console.error('Error saving referral settings:', error);
-        toast('Error saving referral settings', 'error');
-      }
-    } else {
-      toast('Referral settings saved (Mock)', 'success');
+    try {
+      await setDoc(doc(db, 'system_settings', 'referral_settings'), {
+        key: 'referral_settings',
+        value: referralSettings,
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      toast('Referral settings saved', 'success');
       setIsReferralModalOpen(false);
+    } catch (error) {
+      console.error('Error saving referral settings:', error);
+      toast('Error saving referral settings', 'error');
     }
   };
 
@@ -1495,17 +1387,16 @@ function SystemSettingsView({ settings }: { settings: any }) {
     const newFlags = { ...flags, [flag]: !flags[flag] };
     setFlags(newFlags);
     
-    if (isSupabaseActive) {
-      try {
-        const { error } = await supabase
-          .from('system_settings')
-          .upsert({ key: 'feature_flags', value: newFlags, updated_at: new Date().toISOString() });
-        if (error) throw error;
-        toast(`Feature flag ${flag} updated`, 'success');
-      } catch (error) {
-        console.error(`Error toggling flag ${flag}:`, error);
-        toast(`Error toggling flag ${flag}`, 'error');
-      }
+    try {
+      await setDoc(doc(db, 'system_settings', 'feature_flags'), {
+        key: 'feature_flags',
+        value: newFlags,
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      toast(`Feature flag ${flag} updated`, 'success');
+    } catch (error) {
+      console.error(`Error toggling flag ${flag}:`, error);
+      toast(`Error toggling flag ${flag}`, 'error');
     }
   };
 
@@ -1513,33 +1404,30 @@ function SystemSettingsView({ settings }: { settings: any }) {
     const newVal = !maintenanceMode;
     setMaintenanceMode(newVal);
     
-    if (isSupabaseActive) {
-      try {
-        const { error } = await supabase
-          .from('system_settings')
-          .upsert({ key: 'maintenance_mode', value: newVal, updated_at: new Date().toISOString() });
-        if (error) throw error;
-        toast(`Maintenance mode ${newVal ? 'enabled' : 'disabled'}`, 'success');
-      } catch (error) {
-        console.error('Error toggling maintenance mode:', error);
-        toast('Error toggling maintenance mode', 'error');
-      }
+    try {
+      await setDoc(doc(db, 'system_settings', 'maintenance_mode'), {
+        key: 'maintenance_mode',
+        value: newVal,
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      toast(`Maintenance mode ${newVal ? 'enabled' : 'disabled'}`, 'success');
+    } catch (error) {
+      console.error('Error toggling maintenance mode:', error);
+      toast('Error toggling maintenance mode', 'error');
     }
   };
 
   const saveLimits = async () => {
     setIsSaving(true);
-    if (isSupabaseActive) {
-      try {
-        await Promise.all([
-          supabase.from('system_settings').upsert({ key: 'min_withdrawal', value: Number(minWithdrawal), updated_at: new Date().toISOString() }),
-          supabase.from('system_settings').upsert({ key: 'max_withdrawal', value: Number(maxWithdrawal), updated_at: new Date().toISOString() })
-        ]);
-        toast('Withdrawal limits saved successfully', 'success');
-      } catch (error) {
-        console.error('Error saving withdrawal limits:', error);
-        toast('Error saving withdrawal limits', 'error');
-      }
+    try {
+      await Promise.all([
+        setDoc(doc(db, 'system_settings', 'min_withdrawal'), { key: 'min_withdrawal', value: Number(minWithdrawal), updated_at: new Date().toISOString() }, { merge: true }),
+        setDoc(doc(db, 'system_settings', 'max_withdrawal'), { key: 'max_withdrawal', value: Number(maxWithdrawal), updated_at: new Date().toISOString() }, { merge: true })
+      ]);
+      toast('Withdrawal limits saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving withdrawal limits:', error);
+      toast('Error saving withdrawal limits', 'error');
     }
     setTimeout(() => setIsSaving(false), 1000);
   };

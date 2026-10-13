@@ -11,7 +11,7 @@ import {
   Check,
   Heart
 } from 'lucide-react';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { db, collection, getDocs } from '../lib/firebase';
 import { SubscriptionModal } from '../components/SubscriptionModal';
 import { MemberProfileModal } from '../components/MemberProfileModal';
 import { useToast } from '../components/Toaster';
@@ -419,15 +419,15 @@ export default function DiscoveryPage({ profile }: DiscoveryProps) {
 
   useEffect(() => {
     const loadFirestoreProfiles = async () => {
-      if (!isSupabaseActive) return;
       try {
-        const { data } = await supabase
-          .from('profiles')
-          .select('*')
-          .limit(30);
+        const snapshot = await getDocs(collection(db, 'profiles'));
+        const profilesList: any[] = [];
+        snapshot.forEach((docSnap) => {
+          profilesList.push({ id: docSnap.id, ...docSnap.data() });
+        });
 
-        if (data && data.length > 0) {
-          const mapped: MemberCard[] = data.map((p, idx) => {
+        if (profilesList.length > 0) {
+          const mapped: MemberCard[] = profilesList.map((p, idx) => {
             const rawState = p.state || 'Lagos';
             return {
               id: p.id,

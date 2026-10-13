@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { supabase, isSupabaseActive } from '../lib/supabase';
+import { db, collection, query, where, getDocs } from '../lib/firebase';
 import { motion } from 'motion/react';
 import { 
   MapPin, 
@@ -26,21 +26,18 @@ export default function PublicProfilePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (username && isSupabaseActive) {
+    if (username) {
       fetchProfile();
     }
   }, [username]);
 
   const fetchProfile = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single();
-
-      if (error) throw error;
-      setProfile(data);
+      const q = query(collection(db, 'profiles'), where('username', '==', username));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        setProfile({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      }
     } catch (error: any) {
       console.error(error);
     } finally {

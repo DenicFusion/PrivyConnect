@@ -1,11 +1,10 @@
 /**
  * Application Configuration
- * Toggle between Supabase (Real-time) and Mock (Local) modes
  */
 
 export const APP_CONFIG = {
-  // Set to true to use real Supabase backend, false for mock data
-  USE_SUPABASE: true,
+  // Use Firebase backend
+  USE_FIREBASE: true,
   
   // App Metadata
   NAME: 'PrivyConnect',

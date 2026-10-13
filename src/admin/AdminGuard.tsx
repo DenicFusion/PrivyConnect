@@ -48,8 +48,8 @@ export default function AdminGuard({ children, profile }: AdminGuardProps) {
             </button>
             <button 
               onClick={async () => {
-                const { supabase } = await import('../lib/supabase');
-                await supabase.auth.signOut();
+                const { auth, signOut } = await import('../lib/firebase');
+                await signOut(auth);
                 window.location.href = '/';
               }}
               className="px-6 py-3 bg-white/5 border border-white/10 text-white/60 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors"

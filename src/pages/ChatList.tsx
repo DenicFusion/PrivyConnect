@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase, isSupabaseActive } from '../lib/supabase';
-import { MOCK_CHATS, MOCK_MESSAGES } from '../lib/mockData';
+import { db, collection, query, where, getDocs, getDoc, addDoc, updateDoc, doc, onSnapshot } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Shield, 
@@ -132,63 +131,21 @@ export default function ChatListPage({ profile }: { profile: any }) {
 
     const fetchChats = async () => {
       setLoadingChats(true);
-
-      if (!isSupabaseActive) {
-        const chatsWithUsers = MOCK_CHATS.map(chat => {
-          const otherUser = chat.participants.find(p => p.id !== profile.id) || chat.participants[1];
-          return {
-            ...chat,
-            unread: true,
-            otherUser: {
-              ...otherUser,
-              location: 'VICTORIA ISLAND, LAGOS',
-              online: true,
-              is_verified: true
-            }
-          };
-        });
-        setChats(chatsWithUsers);
-        if (!selectedChatId && window.innerWidth >= 860 && chatsWithUsers.length > 0) {
-          setSelectedChatId(chatsWithUsers[0].id);
-        }
-        setLoadingChats(false);
-        return;
-      }
-
       try {
-        const { data, error } = await supabase
-          .from('chats')
-          .select('*')
-          .contains('participants', [profile.id])
-          .order('last_timestamp', { ascending: false });
-
-        if (!error && data) {
-          const chatsWithUsers = await Promise.all(data.map(async (chat) => {
-            const otherUid = chat.participants.find((id: string) => id !== profile.id);
-            const { data: otherUser } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', otherUid)
-              .single();
-            
-            return {
-              ...chat,
-              otherUser: otherUser || { 
-                id: otherUid, 
-                username: 'Member', 
-                photo_url: '', 
-                state: 'Lagos',
-                area: 'VICTORIA ISLAND',
-                is_online: true,
-                is_verified: true
-              }
-            };
-          }));
-
-          setChats(chatsWithUsers);
-          if (!selectedChatId && window.innerWidth >= 860 && chatsWithUsers.length > 0) {
-            setSelectedChatId(chatsWithUsers[0].id);
-          }
+        const q = query(collection(db, 'chats'), where('participants', 'array-contains', profile.id));
+        const snapshot = await getDocs(q);
+        const chatsList: any[] = [];
+        for (const docSnap of snapshot.docs) {
+          const chatData = docSnap.data();
+          const otherUid = chatData.participants?.find((id: string) => id !== profile.id);
+          const userSnap = await getDoc(doc(db, 'profiles', otherUid));
+          const otherUser = userSnap.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: otherUid, username: 'Member', photo_url: '' };
+          chatsList.push({ id: docSnap.id, ...chatData, otherUser });
+        }
+        chatsList.sort((a, b) => new Date(b.last_timestamp || 0).getTime() - new Date(a.last_timestamp || 0).getTime());
+        setChats(chatsList);
+        if (!selectedChatId && window.innerWidth >= 860 && chatsList.length > 0) {
+          setSelectedChatId(chatsList[0].id);
         }
       } catch (err) {
         console.warn('Error fetching chats:', err);
@@ -199,18 +156,12 @@ export default function ChatListPage({ profile }: { profile: any }) {
 
     fetchChats();
 
-    if (!isSupabaseActive) return;
+    const q = query(collection(db, 'chats'), where('participants', 'array-contains', profile.id));
+    const unsubscribe = onSnapshot(q, () => {
+      fetchChats();
+    });
 
-    const channel = supabase
-      .channel('chats-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, () => {
-        fetchChats();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, [profile?.id]);
 
   // Load active conversation messages when selectedChatId changes
@@ -222,69 +173,21 @@ export default function ChatListPage({ profile }: { profile: any }) {
       setActiveOtherUser(currentChat.otherUser);
     }
 
-    const fetchMessages = async () => {
-      setLoadingMessages(true);
+    setLoadingMessages(true);
+    const q = query(collection(db, 'messages'), where('chat_id', '==', selectedChatId));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs: any[] = [];
+      snapshot.forEach((d) => msgs.push({ id: d.id, ...d.data() }));
+      msgs.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+      setMessages(msgs);
+      setLoadingMessages(false);
+      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }, (err) => {
+      console.warn('Error fetching messages:', err);
+      setLoadingMessages(false);
+    });
 
-      if (!isSupabaseActive) {
-        const msgs = MOCK_MESSAGES.filter(m => m.chat_id === selectedChatId || selectedChatId === 'chat-1');
-        setMessages(msgs.length > 0 ? msgs : [
-          {
-            id: 'm1',
-            chat_id: selectedChatId,
-            sender_id: currentChat?.otherUser?.id || 'other',
-            content: 'Hey there! How is your week going?',
-            created_at: new Date(Date.now() - 3600000).toISOString()
-          },
-          {
-            id: 'm2',
-            chat_id: selectedChatId,
-            sender_id: profile.id,
-            content: 'Hey! Doing great, thanks for checking in.',
-            created_at: new Date(Date.now() - 1800000).toISOString()
-          }
-        ]);
-        setLoadingMessages(false);
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('chat_id', selectedChatId)
-          .order('created_at', { ascending: true });
-
-        if (!error && data) {
-          setMessages(data);
-        }
-      } catch (err) {
-        console.warn('Error fetching messages:', err);
-      } finally {
-        setLoadingMessages(false);
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      }
-    };
-
-    fetchMessages();
-
-    if (!isSupabaseActive) return;
-
-    const channel = supabase
-      .channel(`chat-room-${selectedChatId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${selectedChatId}` },
-        (payload) => {
-          setMessages(prev => [...prev, payload.new]);
-          setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, [selectedChatId, chats, profile?.id]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -299,22 +202,8 @@ export default function ChatListPage({ profile }: { profile: any }) {
     setNewMessage('');
     setUploading(true);
 
-    if (!isSupabaseActive) {
-      const optimisticMsg = {
-        id: `mock-${Date.now()}`,
-        chat_id: selectedChatId,
-        sender_id: profile.id,
-        content: textToSend,
-        created_at: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, optimisticMsg]);
-      setUploading(false);
-      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      return;
-    }
-
     try {
-      await supabase.from('messages').insert({
+      await addDoc(collection(db, 'messages'), {
         chat_id: selectedChatId,
         sender_id: profile.id,
         content: textToSend,
@@ -322,10 +211,10 @@ export default function ChatListPage({ profile }: { profile: any }) {
         created_at: new Date().toISOString()
       });
 
-      await supabase.from('chats').update({
+      await updateDoc(doc(db, 'chats', selectedChatId!), {
         last_message: textToSend,
         last_timestamp: new Date().toISOString()
-      }).eq('id', selectedChatId);
+      });
 
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {
