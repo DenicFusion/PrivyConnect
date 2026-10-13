@@ -7,17 +7,27 @@ service cloud.firestore {
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'denic9426@gmail.com' ||
+        (request.auth.token.keys().hasAll(['email']) && request.auth.token.email.lower() == 'denic9426@gmail.com')
+      );
+    }
 
     match /profiles/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update, delete: if isOwner(userId);
+      allow read: if true;
+      allow create: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update, delete: if isOwner(userId);
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    match /wallet/{userId} {
+      allow read, write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
     }
 
     match /chats/{chatId} {
@@ -34,6 +44,40 @@ service cloud.firestore {
 
     match /notifications/{notifId} {
       allow read, write: if isAuthenticated();
+    }
+
+    match /saved_profiles/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /referrals/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /blocked_users/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /system_settings/{settingId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    match /moderation_keywords/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /reports/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /announcements/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    match /test/{docId} {
+      allow read, write: if true;
     }
   }
 }

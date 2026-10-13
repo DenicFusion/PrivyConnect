@@ -5,38 +5,60 @@ import {
   googleProvider, 
   signInWithPopup, 
   signInWithRedirect, 
+  getRedirectResult,
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   db, 
   doc, 
   getDoc, 
   setDoc, 
+  collection,
+  query,
+  where,
+  getDocs,
+  limit,
   serverTimestamp 
 } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/Toaster';
-import { ArrowLeft, Eye, EyeOff, ShieldCheck, Lock, Mail, User, MapPin, Sparkles } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, ShieldCheck, Lock, Mail, User, MapPin, Sparkles, AlertCircle, Info } from 'lucide-react';
 
 const getFriendlyError = (err: any) => {
   const code = err?.code || '';
-  switch (code) {
-    case 'auth/invalid-credential':
-    case 'auth/wrong-password':
-    case 'auth/user-not-found':
-      return 'Incorrect email or password. Please check and try again.';
-    case 'auth/email-already-in-use':
-      return 'An account with this email already exists. Please sign in instead.';
-    case 'auth/weak-password':
-      return 'Password is too weak. Please use at least 6 characters.';
-    case 'auth/invalid-email':
-      return 'Please enter a valid email address.';
-    case 'auth/network-request-failed':
-      return 'Network error. Please check your connection and try again.';
-    case 'auth/popup-closed-by-user':
-      return 'Google sign-in was cancelled.';
-    default:
-      return err?.message || 'Authentication failed. Please try again.';
+  const message = err?.message || '';
+
+  if (code === 'auth/operation-not-allowed') {
+    return 'Email/Password sign-in is currently disabled in this Firebase project. Please use "Continue with Google", or enable Email/Password under Firebase Console > Authentication > Sign-in method.';
   }
+  if (code === 'auth/unauthorized-domain') {
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+    return `This domain (${host}) is not in Firebase Auth's Authorized Domains list. Please add it in Firebase Console > Authentication > Settings > Authorized domains.`;
+  }
+  if (code === 'auth/popup-blocked') {
+    return 'The sign-in popup was blocked by your browser. Please allow popups for this page and click "Continue with Google" again.';
+  }
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+    return 'Google sign-in window was closed. Please try again.';
+  }
+  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+    return 'Incorrect email or password. Please verify your credentials or continue with Google.';
+  }
+  if (code === 'auth/email-already-in-use') {
+    return 'An account with this email already exists. Please switch to "Sign In" or use "Continue with Google".';
+  }
+  if (code === 'auth/weak-password') {
+    return 'Password is too weak. Please use at least 6 characters.';
+  }
+  if (code === 'auth/invalid-email') {
+    return 'Please enter a valid email address.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network connection error. Please check your internet connection and try again.';
+  }
+  if (code === 'permission-denied' || message.includes('Missing or insufficient permissions')) {
+    return 'Database permission error. Security rules were refreshed; please try again.';
+  }
+  return message || 'Authentication failed. Please check your details and try again.';
 };
 
 export default function LoginPage() {
@@ -59,6 +81,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -80,6 +103,36 @@ export default function LoginPage() {
   }, [location]);
 
   useEffect(() => {
+    // Check for any pending redirect auth result
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result?.user) {
+          const user = result.user;
+          const userRef = doc(db, 'profiles', user.uid);
+          const userSnap = await getDoc(userRef);
+          if (!userSnap.exists()) {
+            const newProfile = {
+              id: user.uid,
+              email: user.email || '',
+              username: user.email?.split('@')[0] || `user_${user.uid.slice(0, 5)}`,
+              display_name: user.displayName || 'Member',
+              photo_url: user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
+              gender: '',
+              is_verified: false,
+              is_subscribed: false,
+              is_online: true,
+              created_at: serverTimestamp()
+            };
+            await setDoc(userRef, newProfile);
+            await setDoc(doc(db, 'users', user.uid), newProfile);
+          }
+          navigate('/discovery', { replace: true });
+        }
+      })
+      .catch((err) => {
+        console.warn('Redirect auth result warning:', err);
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         navigate('/discovery', { replace: true });
@@ -90,6 +143,7 @@ export default function LoginPage() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorBanner(null);
     if (!loginIdentifier.trim() || !loginPassword) {
       toast('Please enter your email and password.', 'error');
       return;
@@ -97,12 +151,28 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, loginIdentifier.trim(), loginPassword);
+      let authEmail = loginIdentifier.trim();
+      // If entered username without @, try looking up their registered email
+      if (!authEmail.includes('@')) {
+        try {
+          const q = query(collection(db, 'profiles'), where('username', '==', authEmail.toLowerCase()), limit(1));
+          const snap = await getDocs(q);
+          if (!snap.empty && snap.docs[0].data().email) {
+            authEmail = snap.docs[0].data().email;
+          }
+        } catch (lookupErr) {
+          console.warn('Username query notice:', lookupErr);
+        }
+      }
+
+      await signInWithEmailAndPassword(auth, authEmail, loginPassword);
       toast('Welcome back to PrivyConnect!', 'success');
       navigate('/discovery', { replace: true });
     } catch (err: any) {
       console.error('Sign in error:', err);
-      toast(getFriendlyError(err), 'error');
+      const friendly = getFriendlyError(err);
+      setErrorBanner(friendly);
+      toast(friendly, 'error');
     } finally {
       setLoading(false);
     }
@@ -110,6 +180,7 @@ export default function LoginPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorBanner(null);
     if (!signupEmail.trim() || !signupPassword || !signupUsername.trim()) {
       toast('Please fill in your username, email, and password.', 'error');
       return;
@@ -127,7 +198,7 @@ export default function LoginPage() {
       const newProfile = {
         id: user.uid,
         email: signupEmail.trim(),
-        username: signupUsername.trim(),
+        username: signupUsername.trim().toLowerCase(),
         display_name: fullName.trim() || signupUsername.trim(),
         state: signupState,
         vibe: signupVibe,
@@ -146,26 +217,19 @@ export default function LoginPage() {
       navigate('/discovery', { replace: true });
     } catch (err: any) {
       console.error('Sign up error:', err);
-      toast(getFriendlyError(err), 'error');
+      const friendly = getFriendlyError(err);
+      setErrorBanner(friendly);
+      toast(friendly, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleAuth = async () => {
+    setErrorBanner(null);
     setLoading(true);
     try {
-      let result;
-      try {
-        result = await signInWithPopup(auth, googleProvider);
-      } catch (popupErr: any) {
-        if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user' || /mobile/i.test(navigator.userAgent)) {
-          await signInWithRedirect(auth, googleProvider);
-          return;
-        }
-        throw popupErr;
-      }
-
+      const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       const userRef = doc(db, 'profiles', user.uid);
       const userSnap = await getDoc(userRef);
@@ -192,7 +256,13 @@ export default function LoginPage() {
       navigate('/discovery', { replace: true });
     } catch (err: any) {
       console.error('Google sign in error:', err);
-      toast(getFriendlyError(err), 'error');
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        toast('Google sign-in was cancelled.', 'info');
+        return;
+      }
+      const friendly = getFriendlyError(err);
+      setErrorBanner(friendly);
+      toast(friendly, 'error');
     } finally {
       setLoading(false);
     }
@@ -293,6 +363,26 @@ export default function LoginPage() {
               >
                 Create Account
               </button>
+            </div>
+          )}
+
+          {/* Visual Error / Guidance Banner */}
+          {errorBanner && (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-xs text-red-200 flex items-start gap-3 leading-relaxed animate-in fade-in duration-200">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="space-y-1.5 flex-1">
+                <p className="font-medium text-white">{errorBanner}</p>
+                {errorBanner.includes('Firebase Console') && (
+                  <div className="text-[11px] text-white/60 space-y-1 pt-1 border-t border-white/10">
+                    <p>
+                      <strong>Quick Solution:</strong> Click <span className="text-[#00D1FF] font-semibold">"Continue with Google"</span> below for instant 1-click access without needing password setup.
+                    </p>
+                    <p className="text-[10px] text-white/40">
+                      Project: <code className="font-mono text-[#00D1FF]">gen-lang-client-0722566132</code>
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
