@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { auth, db, doc, getDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, signOut, updatePassword } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
+  ArrowRight,
   User, 
   Mail, 
   Lock, 
@@ -568,6 +569,8 @@ export default function SettingsPage({ profile }: { profile: any }) {
   };
 
   const isSubscribed = profile?.is_subscribed || false;
+  const currentEmail = (profile?.email || auth.currentUser?.email || '').toLowerCase().trim();
+  const isAdmin = currentEmail === 'denic9426@gmail.com' || profile?.role === 'admin';
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: 'account', label: 'Account' },
@@ -613,6 +616,35 @@ export default function SettingsPage({ profile }: { profile: any }) {
           </button>
         </div>
       </div>
+
+      {/* Admin Panel Quick Access Banner for Master Admin */}
+      {isAdmin && (
+        <div className="p-4 rounded-2xl bg-[#00d1ff]/10 border border-[#00d1ff]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[0_0_24px_rgba(0,209,255,0.12)]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#00d1ff]/20 border border-[#00d1ff]/40 flex items-center justify-center text-[#00d1ff] shrink-0">
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-serif text-sm text-white font-medium flex items-center gap-2">
+                <span>System Admin Console</span>
+                <span className="px-2 py-0.5 rounded-full bg-[#00d1ff] text-[#00131a] text-[9px] font-mono font-bold uppercase">
+                  Active
+                </span>
+              </div>
+              <div className="font-mono text-[10px] text-[#00d1ff] tracking-wider uppercase mt-0.5">
+                Routing Link: <span className="font-bold underline">/myadmin</span>
+              </div>
+            </div>
+          </div>
+          <Link
+            to="/myadmin"
+            className="px-4 py-2.5 bg-[#00d1ff] text-[#00131a] rounded-xl font-bold uppercase tracking-wider text-[11px] hover:bg-[#00d1ff]/90 active:scale-95 transition-all font-sans flex items-center gap-2 shadow-[0_0_15px_rgba(0,209,255,0.3)] shrink-0"
+          >
+            <span>Open Admin Panel</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
 
       {/* Row of rounded tab pills that scrolls sideways on small phones */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">

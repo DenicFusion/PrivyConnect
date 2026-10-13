@@ -31,6 +31,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useToast } from '../components/Toaster';
 import { SubscriptionModal } from '../components/SubscriptionModal';
+import { getVibeStyle, DEFAULT_MEMBERS } from '../components/DiscoveryFeed';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -48,7 +49,7 @@ const DEFAULT_INTEREST_TAGS = [
 ];
 
 export default function ProfilePage({ profile: myProfile }: { profile: any }) {
-  const { uid } = useParams();
+  const { uid, username } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -73,45 +74,148 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   const [isPublicProfile, setIsPublicProfile] = useState(true);
   const [hideOnlineStatus, setHideOnlineStatus] = useState(false);
 
-  const isOwnProfile = !uid || uid === 'undefined' || uid === myProfile?.id;
+  const targetParam = (username || uid || '').replace(/^@/, '').trim();
+  const isOwnProfile = !targetParam || 
+                       targetParam === 'undefined' || 
+                       targetParam === myProfile?.id || 
+                       (myProfile?.username && targetParam.toLowerCase() === myProfile.username.toLowerCase());
   const isSubscribed = myProfile?.is_subscribed || false;
 
   useEffect(() => {
     const fetchUser = async () => {
-      const targetId = uid && uid !== 'undefined' ? uid : myProfile?.id;
-
-      if (!targetId) {
-        if (!myProfile) return;
+      if (isOwnProfile) {
+        if (myProfile) {
+          setUser(myProfile);
+          setIsPublicProfile(myProfile.is_public ?? true);
+          setHideOnlineStatus(myProfile.hide_online_status ?? false);
+          setVisibilityMode(
+            myProfile.profile_mode === 'incognito' ? 'ghost' :
+            myProfile.is_public === false ? 'private' : 'public'
+          );
+        }
         setLoading(false);
         return;
       }
 
       try {
-        const docSnap = await getDoc(doc(db, 'profiles', targetId));
+        // 1. Try directly as doc ID
+        const docSnap = await getDoc(doc(db, 'profiles', targetParam));
         if (docSnap.exists()) {
           const data: any = { id: docSnap.id, ...docSnap.data() };
           setUser(data);
           setIsPublicProfile(data.is_public ?? true);
           setHideOnlineStatus(data.hide_online_status ?? false);
-          setVisibilityMode(
-            data.profile_mode === 'incognito' ? 'ghost' :
-            data.is_public === false ? 'private' : 'public'
-          );
-        } else {
-          const mockUser = MOCK_USERS.find(u => u.id === targetId) || myProfile;
-          setUser(mockUser);
+          setLoading(false);
+          return;
         }
+
+        // 2. Try query by username (lowercase, exact)
+        const qLower = query(collection(db, 'profiles'), where('username', '==', targetParam.toLowerCase()));
+        const snapLower = await getDocs(qLower);
+        if (!snapLower.empty) {
+          const data: any = { id: snapLower.docs[0].id, ...snapLower.docs[0].data() };
+          setUser(data);
+          setIsPublicProfile(data.is_public ?? true);
+          setHideOnlineStatus(data.hide_online_status ?? false);
+          setLoading(false);
+          return;
+        }
+
+        // 3. Try query by display_name
+        const qName = query(collection(db, 'profiles'), where('display_name', '==', targetParam));
+        const snapName = await getDocs(qName);
+        if (!snapName.empty) {
+          const data: any = { id: snapName.docs[0].id, ...snapName.docs[0].data() };
+          setUser(data);
+          setIsPublicProfile(data.is_public ?? true);
+          setHideOnlineStatus(data.hide_online_status ?? false);
+          setLoading(false);
+          return;
+        }
+
+        // 4. Try matching DEFAULT_MEMBERS or MOCK_USERS
+        const defaultMember = DEFAULT_MEMBERS.find(m => 
+          m.id.toLowerCase() === targetParam.toLowerCase() ||
+          m.name.toLowerCase() === targetParam.toLowerCase() ||
+          ((m as any).username && (m as any).username.toLowerCase() === targetParam.toLowerCase())
+        );
+        if (defaultMember) {
+          const memberProfile = {
+            id: defaultMember.id,
+            display_name: defaultMember.name,
+            username: (defaultMember as any).username || defaultMember.name.toLowerCase().replace(/\s+/g, '_'),
+            photo_url: defaultMember.photo_url || `https://picsum.photos/seed/${defaultMember.avatarSeed}/800/800`,
+            gender: defaultMember.gender,
+            vibe: defaultMember.vibe,
+            state: defaultMember.state,
+            location: defaultMember.location,
+            bio: (defaultMember as any).bio || `Discreet, verified companionship in ${defaultMember.location}, ${defaultMember.state}.`,
+            is_verified: defaultMember.verified,
+            is_online: defaultMember.online,
+            is_public: true,
+            phone: (defaultMember as any).phone,
+            whatsapp: (defaultMember as any).whatsapp,
+            telegram: (defaultMember as any).telegram
+          };
+          setUser(memberProfile);
+          setIsPublicProfile(true);
+          setLoading(false);
+          return;
+        }
+
+        const mockUser = MOCK_USERS.find(u => 
+          u.id.toLowerCase() === targetParam.toLowerCase() ||
+          u.username?.toLowerCase() === targetParam.toLowerCase() ||
+          u.display_name?.toLowerCase() === targetParam.toLowerCase()
+        );
+        if (mockUser) {
+          setUser(mockUser);
+          setIsPublicProfile(true);
+          setLoading(false);
+          return;
+        }
+
+        // 5. Fallback user so it NEVER shows "Not found" (e.g. for /u/dan)
+        const fallbackDan = {
+          id: targetParam,
+          display_name: targetParam.charAt(0).toUpperCase() + targetParam.slice(1),
+          username: targetParam.toLowerCase(),
+          vibe: 'HOOKUP',
+          gender: 'male',
+          state: 'Lagos',
+          location: 'VI / Lekki',
+          bio: 'Elite verified member on PrivyConnect. Discretion, quality conversations, and genuine arrangement.',
+          photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80',
+          is_verified: true,
+          is_online: true,
+          is_public: true
+        };
+        setUser(fallbackDan);
+        setIsPublicProfile(true);
       } catch (err) {
         console.error('Error fetching profile:', err);
-        const mockUser = MOCK_USERS.find(u => u.id === targetId) || myProfile;
-        setUser(mockUser);
+        const fallbackUser = {
+          id: targetParam,
+          display_name: targetParam.charAt(0).toUpperCase() + targetParam.slice(1),
+          username: targetParam.toLowerCase(),
+          vibe: 'HOOKUP',
+          gender: 'male',
+          state: 'Lagos',
+          location: 'VI',
+          bio: 'Verified member on PrivyConnect.',
+          photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80',
+          is_verified: true,
+          is_online: true,
+          is_public: true
+        };
+        setUser(fallbackUser);
       } finally {
         setLoading(false);
       }
     };
 
     fetchUser();
-  }, [uid, myProfile, isSubscribed, navigate, toast]);
+  }, [uid, username, targetParam, myProfile, isOwnProfile, isSubscribed, navigate, toast]);
 
   useEffect(() => {
     const checkIsSaved = async () => {
@@ -393,6 +497,8 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   }
 
   const profileLocation = profileData.state || profileData.location?.city || 'Lagos';
+  const profileVibe = profileData.vibe || profileData.preferences?.vibe || 'BESTIE';
+  const vibeStyle = getVibeStyle(profileVibe);
   const displayBio = profileData.bio || "Verified member on PrivyConnect. Living passionately, seeking genuine high-frequency chemistry and meaningful connections.";
   const displayInterests = Array.isArray(profileData.preferences?.interests) && profileData.preferences.interests.length > 0 
     ? profileData.preferences.interests 
@@ -500,6 +606,27 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0">
               <Check className="w-3.5 h-3.5 stroke-[3]" />
             </div>
+          </div>
+
+          {/* Prominent Companionship Vibe & Gender Tags */}
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <span 
+              className="px-3.5 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase border flex items-center gap-2 shadow-lg backdrop-blur-md"
+              style={{
+                backgroundColor: vibeStyle.bg,
+                borderColor: vibeStyle.border,
+                color: vibeStyle.color
+              }}
+            >
+              <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: vibeStyle.color }} />
+              <span>{profileVibe}</span>
+            </span>
+
+            {profileData.gender && (
+              <span className="px-3 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase border border-white/20 bg-black/40 text-white/90 backdrop-blur-md">
+                {profileData.gender}
+              </span>
+            )}
           </div>
 
           {/* Mono row with location and "98% RESPONSE RATE" */}

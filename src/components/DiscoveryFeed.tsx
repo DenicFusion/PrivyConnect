@@ -553,8 +553,9 @@ export function DiscoveryFeed({
   }, []);
 
   const handleMemberClick = (member: MemberCard) => {
-    // Both subscribed and unsubscribed users can view about the member!
-    setProfileModalMember(member);
+    // Open as the user's page profile, not like a modal!
+    const target = (member as any).username || member.name.toLowerCase().replace(/\s+/g, '_') || member.id;
+    navigate(`/u/${target}`);
   };
 
   const handleStateClick = (stateName: string) => {

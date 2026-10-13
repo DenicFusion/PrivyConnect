@@ -203,8 +203,10 @@ function AppContent() {
 
       setProfile(profileWithEmail);
 
-      // Check if gender is missing
-      if (!profileWithEmail.gender) {
+      // Only show 2-step onboarding wizard for first-timers immediately after registration!
+      const justRegistered = sessionStorage.getItem('just_registered') === 'true';
+      const isFirstTimer = justRegistered || (profileWithEmail.onboarding_completed === false && (!profileWithEmail.gender || !profileWithEmail.vibe));
+      if (isFirstTimer) {
         setShowGenderModal(true);
       }
 
@@ -235,9 +237,15 @@ function AppContent() {
     <ErrorBoundary>
       <GenderModal 
         isOpen={showGenderModal} 
-        onClose={() => setShowGenderModal(false)}
+        onClose={() => {
+          sessionStorage.removeItem('just_registered');
+          setShowGenderModal(false);
+        }}
         userId={session?.uid}
+        currentGender={profile?.gender}
+        currentVibe={profile?.vibe}
         onSuccess={() => {
+          sessionStorage.removeItem('just_registered');
           setShowGenderModal(false);
           if (session?.uid) fetchProfile(session.uid, session);
         }}
@@ -262,7 +270,8 @@ function AppContent() {
             <Route path="/wallet" element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><SettingsPage profile={profile} /></Layout></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute session={session}><Layout profile={profile} unreadCount={unreadCount}><NotificationsPage profile={profile} /></Layout></ProtectedRoute>} />
-            <Route path="/u/:username" element={<PublicProfilePage />} />
+            <Route path="/u/:username" element={session ? <Layout profile={profile} unreadCount={unreadCount}><ProfilePage profile={profile} /></Layout> : <PublicProfilePage />} />
+            <Route path="/admin" element={<Navigate to="/myadmin" replace />} />
             <Route path="/myadmin" element={<ProtectedRoute session={session}><AdminGuard profile={profile}><AdminPage profile={profile} /></AdminGuard></ProtectedRoute>} />
           </Routes>
         </div>

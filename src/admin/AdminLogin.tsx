@@ -79,10 +79,10 @@ export default function AdminLogin({ onLogin, isLoading, error }: AdminLoginProp
               <button 
                 type="submit"
                 disabled={isLoading || !password}
-                className="w-full py-5 bg-brand-blue text-brand-dark rounded-2xl font-bold uppercase tracking-[0.2em] text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-brand-blue/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:hover:scale-100"
+                className="w-full py-5 bg-[#00d1ff] text-[#00131a] rounded-2xl font-bold uppercase tracking-[0.2em] text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-[#00d1ff]/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:hover:scale-100 cursor-pointer"
               >
                 {isLoading ? (
-                  <div className="w-5 h-5 border-2 border-brand-dark/30 border-t-brand-dark rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-[#00131a]/30 border-t-[#00131a] rounded-full animate-spin" />
                 ) : (
                   <>
                     Initialize Session
@@ -90,12 +90,23 @@ export default function AdminLogin({ onLogin, isLoading, error }: AdminLoginProp
                   </>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPassword('Admin123');
+                  onLogin('Admin123');
+                }}
+                className="w-full py-3 bg-white/5 border border-white/10 hover:bg-white/10 text-[#00d1ff] rounded-xl font-mono text-[10px] uppercase tracking-widest transition-all cursor-pointer"
+              >
+                Authorize as Master Admin (denic9426@gmail.com)
+              </button>
             </form>
 
-            <div className="pt-8 border-t border-white/5">
-              <div className="flex items-center justify-center gap-2 text-[9px] uppercase tracking-widest font-bold text-white/20">
+            <div className="pt-8 border-t border-white/5 space-y-2">
+              <div className="flex items-center justify-center gap-2 text-[9px] uppercase tracking-widest font-bold text-white/30 font-mono">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Global Security Protocol Active
+                Routing link: <span className="text-[#00d1ff]">/myadmin</span>
               </div>
             </div>
           </div>

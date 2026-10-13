@@ -201,8 +201,9 @@ export default function LoginPage() {
         username: signupUsername.trim().toLowerCase(),
         display_name: fullName.trim() || signupUsername.trim(),
         state: signupState,
-        vibe: signupVibe,
+        vibe: '',
         gender: '',
+        onboarding_completed: false,
         is_verified: false,
         is_subscribed: false,
         is_online: true,
@@ -212,6 +213,7 @@ export default function LoginPage() {
       await setDoc(doc(db, 'profiles', user.uid), newProfile);
       await setDoc(doc(db, 'users', user.uid), newProfile);
 
+      sessionStorage.setItem('just_registered', 'true');
       localStorage.removeItem('referral_code');
       toast('Welcome to PrivyConnect! Account created.', 'success');
       navigate('/discovery', { replace: true });
@@ -242,6 +244,8 @@ export default function LoginPage() {
           display_name: user.displayName || 'Member',
           photo_url: user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
           gender: '',
+          vibe: '',
+          onboarding_completed: false,
           is_verified: false,
           is_subscribed: false,
           is_online: true,
@@ -249,6 +253,7 @@ export default function LoginPage() {
         };
         await setDoc(userRef, newProfile);
         await setDoc(doc(db, 'users', user.uid), newProfile);
+        sessionStorage.setItem('just_registered', 'true');
         toast('Account created successfully!', 'success');
       } else {
         toast('Signed in successfully!', 'success');
