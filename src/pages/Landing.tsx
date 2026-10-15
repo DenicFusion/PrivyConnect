@@ -20,22 +20,7 @@ interface ActiveProfile {
   photo_url: string;
 }
 
-const INITIAL_PROFILES_POOL: ActiveProfile[] = [
-  { id: 'm1', name: 'Hauwa', verified: true, online: true, area: 'VICTORIA ISLAND', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm2', name: 'Amara', verified: true, online: true, area: 'LEKKI', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm3', name: 'Tobi', verified: true, online: true, area: 'VICTORIA ISLAND', state: 'LAGOS', vibe: 'SUGAR DADDY', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm4', name: 'Chioma', verified: true, online: true, area: 'IKOYI', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm5', name: 'David', verified: true, online: true, area: 'IKEJA', state: 'LAGOS', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm6', name: 'Funke', verified: true, online: true, area: 'SURULERE', state: 'LAGOS', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm7', name: 'Boma', verified: true, online: true, area: 'YABA', state: 'LAGOS', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm8', name: 'Kenneth', verified: true, online: true, area: 'LEKKI PHASE 1', state: 'LAGOS', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p12', name: 'Fatima', verified: true, online: true, area: 'MAITAMA', state: 'ABUJA', vibe: 'SUGAR MUMMY', photo_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p18', name: 'Stephanie', verified: true, online: true, area: 'ASABA', state: 'DELTA', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p4', name: 'Dayo', verified: true, online: true, area: 'MAKURDI', state: 'BENUE', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p1', name: 'Obinna', verified: true, online: true, area: 'ADO-EKITI', state: 'EKITI', vibe: 'FWB', photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p17', name: 'Emeka', verified: true, online: true, area: 'INDEPENDENCE', state: 'ENUGU', vibe: 'HOOKUP', photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
-  { id: 'p9', name: 'Zara', verified: true, online: true, area: 'MINNA', state: 'NIGER', vibe: 'BESTIE', photo_url: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=600&q=80' }
-];
+const INITIAL_PROFILES_POOL: ActiveProfile[] = [];
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -78,14 +63,12 @@ export default function LandingPage() {
     });
   };
 
-  // Active profiles pool & online count
-  const [activeProfiles, setActiveProfiles] = useState<ActiveProfile[]>(() => {
-    return INITIAL_PROFILES_POOL.slice(0, 4);
-  });
-  const [onlineCount, setOnlineCount] = useState(98);
-  const [pool, setPool] = useState<ActiveProfile[]>(INITIAL_PROFILES_POOL);
+  // Active profiles pool & online count (real users only)
+  const [activeProfiles, setActiveProfiles] = useState<ActiveProfile[]>([]);
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [pool, setPool] = useState<ActiveProfile[]>([]);
 
-  // Load real members from Firestore if available to enrich pool
+  // Load real members from Firestore exclusively
   useEffect(() => {
     const fetchRealProfiles = async () => {
       try {
@@ -96,27 +79,32 @@ export default function LandingPage() {
         });
 
         if (profilesList.length > 0) {
-          const mapped: ActiveProfile[] = profilesList.map((p, i) => {
-            const rawVibe = (p.vibe as any) || (i % 2 === 0 ? 'FWB' : 'BESTIE');
+          const mapped: ActiveProfile[] = profilesList.map((p) => {
+            const rawVibe = (p.vibe as any) || 'HOOKUP';
+            const isSub = Boolean(p.is_subscribed || p.subscription_status === 'active');
             return {
               id: p.id,
-              name: p.username || p.display_name || 'Member',
-              verified: Boolean(p.is_verified),
+              name: p.display_name || p.username || 'Member',
+              verified: isSub,
               online: p.is_online !== false,
-              area: (p.area || 'CENTRAL').toUpperCase(),
+              area: (p.city || p.area || 'LAGOS').toUpperCase(),
               state: (p.state || 'LAGOS').toUpperCase(),
               vibe: rawVibe,
-              photo_url: p.photo_url || p.avatar_url || INITIAL_PROFILES_POOL[i % INITIAL_PROFILES_POOL.length].photo_url
+              photo_url: p.photo_url || p.avatar_url || (Array.isArray(p.photos) ? p.photos[0] : '')
             };
           });
-          setPool(prev => {
-            const existing = new Set(prev.map(item => item.id));
-            const newOnes = mapped.filter(item => !existing.has(item.id));
-            return [...prev, ...newOnes];
-          });
+          setPool(mapped);
+          setActiveProfiles(mapped.slice(0, 4));
+          setOnlineCount(mapped.filter(m => m.online).length || mapped.length);
+        } else {
+          setPool([]);
+          setActiveProfiles([]);
+          setOnlineCount(0);
         }
       } catch (e) {
         console.warn('Real profiles fetch skipped:', e);
+        setPool([]);
+        setActiveProfiles([]);
       }
     };
     fetchRealProfiles();
@@ -124,6 +112,7 @@ export default function LandingPage() {
 
   // Update a card every few seconds (just like seen on user screenshots)
   useEffect(() => {
+    if (pool.length === 0) return;
     const interval = setInterval(() => {
       // Pick a random slot 0..3 to replace
       const slotToReplace = Math.floor(Math.random() * 4);
@@ -142,11 +131,11 @@ export default function LandingPage() {
         return updated;
       });
 
-      // Fluctuate online count slightly between 95 and 115 for live feel
       setOnlineCount(prev => {
-        const delta = Math.floor(Math.random() * 5) - 2;
+        if (pool.length === 0) return 0;
+        const delta = Math.floor(Math.random() * 3) - 1;
         const next = prev + delta;
-        return Math.max(95, Math.min(125, next));
+        return Math.max(1, Math.min(pool.length, next));
       });
     }, 2800);
 
@@ -285,7 +274,10 @@ export default function LandingPage() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         transition={{ duration: 0.45 }}
-                        onClick={() => setSelectedLandingMember(member)}
+                        onClick={() => {
+                          const target = (member as any).username || member.name.toLowerCase().replace(/\s+/g, '_') || member.id;
+                          navigate(`/u/${target}`);
+                        }}
                         className="group absolute inset-0 rounded-[24px] bg-[#090b0d] border border-[rgba(255,255,255,0.075)] overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:border-[rgba(255,255,255,0.2)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.6)] flex flex-col justify-between p-3.5 sm:p-4 select-none"
                       >
                         {/* Background Photo - UNBLURRED Full Cover Photo */}

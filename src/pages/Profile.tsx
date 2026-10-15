@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs } from '../lib/firebase';
-import { MOCK_USERS } from '../lib/mockData';
+import { calculateDistanceKm, formatDistance } from '../lib/location';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, 
@@ -12,7 +12,6 @@ import {
   Heart, 
   Lock, 
   MessageSquare, 
-  DollarSign, 
   ShieldOff,
   Globe,
   EyeOff,
@@ -31,7 +30,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useToast } from '../components/Toaster';
 import { SubscriptionModal } from '../components/SubscriptionModal';
-import { getVibeStyle, DEFAULT_MEMBERS } from '../components/DiscoveryFeed';
+import { getVibeStyle } from '../components/DiscoveryFeed';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -55,14 +54,12 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [showTipModal, setShowTipModal] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showQR, setShowQR] = useState(false);
   
   const [quickMessage, setQuickMessage] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
-  const [tipAmount, setTipAmount] = useState('2000');
   
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -133,82 +130,22 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           return;
         }
 
-        // 4. Try matching DEFAULT_MEMBERS or MOCK_USERS
-        const defaultMember = DEFAULT_MEMBERS.find(m => 
-          m.id.toLowerCase() === targetParam.toLowerCase() ||
-          m.name.toLowerCase() === targetParam.toLowerCase() ||
-          ((m as any).username && (m as any).username.toLowerCase() === targetParam.toLowerCase())
-        );
-        if (defaultMember) {
-          const memberProfile = {
-            id: defaultMember.id,
-            display_name: defaultMember.name,
-            username: (defaultMember as any).username || defaultMember.name.toLowerCase().replace(/\s+/g, '_'),
-            photo_url: defaultMember.photo_url || `https://picsum.photos/seed/${defaultMember.avatarSeed}/800/800`,
-            gender: defaultMember.gender,
-            vibe: defaultMember.vibe,
-            state: defaultMember.state,
-            location: defaultMember.location,
-            bio: (defaultMember as any).bio || `Discreet, verified companionship in ${defaultMember.location}, ${defaultMember.state}.`,
-            is_verified: defaultMember.verified,
-            is_online: defaultMember.online,
-            is_public: true,
-            phone: (defaultMember as any).phone,
-            whatsapp: (defaultMember as any).whatsapp,
-            telegram: (defaultMember as any).telegram
-          };
-          setUser(memberProfile);
-          setIsPublicProfile(true);
+        // 4. Also check users collection in Firestore
+        const userSnap = await getDoc(doc(db, 'users', targetParam));
+        if (userSnap.exists()) {
+          const data: any = { id: userSnap.id, ...userSnap.data() };
+          setUser(data);
+          setIsPublicProfile(data.is_public ?? true);
+          setHideOnlineStatus(data.hide_online_status ?? false);
           setLoading(false);
           return;
         }
 
-        const mockUser = MOCK_USERS.find(u => 
-          u.id.toLowerCase() === targetParam.toLowerCase() ||
-          u.username?.toLowerCase() === targetParam.toLowerCase() ||
-          u.display_name?.toLowerCase() === targetParam.toLowerCase()
-        );
-        if (mockUser) {
-          setUser(mockUser);
-          setIsPublicProfile(true);
-          setLoading(false);
-          return;
-        }
-
-        // 5. Fallback user so it NEVER shows "Not found" (e.g. for /u/dan)
-        const fallbackDan = {
-          id: targetParam,
-          display_name: targetParam.charAt(0).toUpperCase() + targetParam.slice(1),
-          username: targetParam.toLowerCase(),
-          vibe: 'HOOKUP',
-          gender: 'male',
-          state: 'Lagos',
-          location: 'VI / Lekki',
-          bio: 'Elite verified member on PrivyConnect. Discretion, quality conversations, and genuine arrangement.',
-          photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80',
-          is_verified: true,
-          is_online: true,
-          is_public: true
-        };
-        setUser(fallbackDan);
-        setIsPublicProfile(true);
+        // Profile not found in real database
+        setUser(null);
       } catch (err) {
         console.error('Error fetching profile:', err);
-        const fallbackUser = {
-          id: targetParam,
-          display_name: targetParam.charAt(0).toUpperCase() + targetParam.slice(1),
-          username: targetParam.toLowerCase(),
-          vibe: 'HOOKUP',
-          gender: 'male',
-          state: 'Lagos',
-          location: 'VI',
-          bio: 'Verified member on PrivyConnect.',
-          photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80',
-          is_verified: true,
-          is_online: true,
-          is_public: true
-        };
-        setUser(fallbackUser);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -386,33 +323,6 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     }
   };
 
-  const handleSendTip = async () => {
-    if (!user?.id || !myProfile) return;
-    const amount = Number(tipAmount);
-    if (!amount || amount <= 0) {
-      toast('Please enter a valid tip amount', 'error');
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, 'transactions'), {
-        profile_id: myProfile.id,
-        receiver_id: user.id,
-        sender_id: myProfile.id,
-        amount: amount,
-        type: 'tip',
-        status: 'completed',
-        description: `Tip to ${user.display_name || user.username}`,
-        created_at: new Date().toISOString(),
-      });
-
-      setShowTipModal(false);
-      toast(`₦${amount.toLocaleString()} tip sent successfully!`, 'success');
-    } catch (err: any) {
-      toast(err.message || 'Failed to send tip', 'error');
-    }
-  };
-
   const handleSaveProfile = async () => {
     if (!myProfile || !user?.id) {
       setIsSaved(!isSaved);
@@ -504,11 +414,16 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     ? profileData.preferences.interests 
     : (Array.isArray(profileData.preferences) ? profileData.preferences : DEFAULT_INTEREST_TAGS);
 
-  const galleryImages = [
-    profileData.photo_url || `https://picsum.photos/seed/${profileData.id || 'privy'}/800/800`,
-    `https://picsum.photos/seed/${(profileData.id || 'privy') + '-gallery1'}/800/800`,
-    `https://picsum.photos/seed/${(profileData.id || 'privy') + '-gallery2'}/800/800`,
-  ];
+  const galleryImages: string[] = Array.isArray(profileData.photos) && profileData.photos.length > 0
+    ? profileData.photos
+    : (profileData.photo_url ? [profileData.photo_url] : []);
+
+  const myLat = myProfile?.coarse_lat;
+  const myLng = myProfile?.coarse_lng;
+  const targetLat = profileData.coarse_lat || profileData.location?.lat;
+  const targetLng = profileData.coarse_lng || profileData.location?.lng;
+  const distKm = calculateDistanceKm(myLat, myLng, targetLat, targetLng);
+  const distanceText = distKm != null ? formatDistance(distKm) : null;
 
   return (
     <div className="max-w-xl mx-auto space-y-6 pb-28 px-4 sm:px-0">
@@ -552,17 +467,25 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         </div>
       </div>
 
-      {/* Cover: large 30px-radius photo, dark gradient to the bottom, "Online now" tag top-left, giant serif name, a cyan round tick, then a mono row with the location and "98% RESPONSE RATE" */}
+      {/* Cover: large 30px-radius photo, dark gradient to the bottom, "Online now" tag top-left, giant serif name */}
       <div className="rounded-[30px] overflow-hidden relative aspect-[4/5] sm:aspect-[3/4] bg-zinc-950 border border-white/[0.075] shadow-2xl">
-        <img 
-          src={profileData.photo_url || `https://picsum.photos/seed/${profileData.id || 'privy'}/1200/1600`} 
-          alt={profileData.display_name || profileData.username}
-          className={cn(
-            "w-full h-full object-cover transition-all duration-700",
-            !isSubscribed && !isOwnProfile && "blur-2xl scale-105 grayscale-[0.3]"
-          )}
-          referrerPolicy="no-referrer"
-        />
+        {profileData.photo_url ? (
+          <img 
+            src={profileData.photo_url} 
+            alt={profileData.display_name || profileData.username}
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#0c1015] via-[#090b0d] to-[#040506]">
+            <div className="w-28 h-28 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center shadow-inner">
+              <span className="font-serif text-5xl font-bold text-[#00d1ff]">
+                {(profileData.display_name || profileData.username || 'P').charAt(0).toUpperCase()}
+              </span>
+            </div>
+            <span className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-[#59636d]">Privy Member</span>
+          </div>
+        )}
 
         {/* Dark gradient to the bottom */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#040506] via-[#040506]/55 to-transparent pointer-events-none" />
@@ -575,37 +498,18 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           </span>
         </div>
 
-        {/* Unsubscribed Viewing Lock Overlay */}
-        {!isSubscribed && !isOwnProfile && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-[3px] z-30 p-6 text-center space-y-4">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto shadow-2xl">
-              <Lock className="w-6 h-6 text-[#f2b04b]" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-2xl font-serif text-[#f3f6f8]">VIP Profile Locked</h3>
-              <p className="font-mono text-[11px] text-[#8d97a1] uppercase tracking-[0.14em]">
-                Upgrade to explore photos & connect nationwide
-              </p>
-            </div>
-            <button 
-              onClick={() => setShowLockModal(true)}
-              className="px-6 py-3 bg-[#00d1ff] text-[#00131a] font-bold text-xs uppercase tracking-wider rounded-[14px] shadow-[0_0_20px_rgba(0,209,255,0.3)] active:scale-95 transition-all cursor-pointer font-sans"
-            >
-              Unlock Nationwide · ₦2,000
-            </button>
-          </div>
-        )}
-
-        {/* Bottom Details Overlay: giant serif name, cyan round tick, mono row */}
+        {/* Bottom Details Overlay: giant serif name, cyan round tick (subscribers only), mono row */}
         <div className="absolute bottom-6 left-6 right-6 z-20 space-y-2">
           <div className="flex items-center gap-2.5">
             <h1 className="font-serif text-3xl sm:text-5xl text-[#f3f6f8] tracking-tight leading-none font-normal">
               {profileData.display_name || profileData.username}
             </h1>
-            {/* Cyan round tick */}
-            <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0">
-              <Check className="w-3.5 h-3.5 stroke-[3]" />
-            </div>
+            {/* Cyan round tick - Only for Subscribers */}
+            {(profileData.is_subscribed || profileData.subscription_status === 'active') && (
+              <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0" title="Subscribed VIP Member">
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              </div>
+            )}
           </div>
 
           {/* Prominent Companionship Vibe & Gender Tags */}
@@ -629,9 +533,22 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             )}
           </div>
 
-          {/* Mono row with location and "98% RESPONSE RATE" */}
+          {/* Mono row with location, distance and response rate */}
           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#8d97a1]">
             <span>{profileLocation.toUpperCase()} · NIGERIA</span>
+            <span>·</span>
+            {isSubscribed ? (
+              <span className="text-[#00d1ff] font-semibold">{distanceText || 'Nearby'}</span>
+            ) : (
+              <button 
+                type="button" 
+                onClick={() => setShowLockModal(true)}
+                className="inline-flex items-center gap-1 text-[#f2b04b] hover:text-[#f2b04b]/90 transition-colors cursor-pointer"
+              >
+                <Lock className="w-3 h-3" />
+                <span>Subscribe to see distance</span>
+              </button>
+            )}
             <span>·</span>
             <span className="text-[#35e0a1]">98% RESPONSE RATE</span>
           </div>
@@ -665,11 +582,11 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             <span>Message</span>
           </button>
           <button 
-            onClick={() => setShowTipModal(true)}
+            onClick={handleShare}
             className="flex items-center justify-center gap-2 py-4 px-6 bg-transparent border border-white/15 text-[#f3f6f8] rounded-[14px] font-sans font-bold text-sm hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
           >
-            <DollarSign className="w-4 h-4 text-[#00d1ff]" />
-            <span>Send Tip</span>
+            <Share2 className="w-4 h-4 text-[#00d1ff]" />
+            <span>Share</span>
           </button>
         </div>
       )}
@@ -1079,74 +996,6 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                   {isSendingChat ? 'Sending...' : 'Send Message'}
                 </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Direct Tip Modal */}
-      <AnimatePresence>
-        {showTipModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowTipModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="relative w-full max-w-md bg-[#090b0d] border border-white/15 rounded-[28px] p-7 space-y-5 shadow-2xl z-10"
-            >
-              <div className="flex items-center justify-between border-b border-white/[0.075] pb-4">
-                <div className="space-y-1">
-                  <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-                    DIRECT APPRECIATION
-                  </span>
-                  <h3 className="font-serif text-2xl text-[#f3f6f8]">
-                    Send Tip to {user?.display_name || user?.username}
-                  </h3>
-                </div>
-                <button onClick={() => setShowTipModal(false)} className="p-2 text-[#59636d] hover:text-[#f3f6f8]">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                {['1000', '2000', '5000', '10000', '25000', '50000'].map(amt => (
-                  <button
-                    key={amt}
-                    onClick={() => setTipAmount(amt)}
-                    className={cn(
-                      "py-3 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer",
-                      tipAmount === amt ? "bg-[#00d1ff] text-[#00131a] border-[#00d1ff] shadow-md" : "bg-white/[0.03] border-white/10 text-[#8d97a1] hover:bg-white/10"
-                    )}
-                  >
-                    ₦{Number(amt).toLocaleString()}
-                  </button>
-                ))}
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block">Custom Amount (NGN)</label>
-                <input 
-                  type="number" 
-                  value={tipAmount}
-                  onChange={(e) => setTipAmount(e.target.value)}
-                  placeholder="2000"
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-[14px] py-3.5 px-4 font-serif text-lg text-[#f3f6f8] focus:outline-none focus:border-[#00d1ff]"
-                />
-              </div>
-
-              <button 
-                onClick={handleSendTip}
-                className="w-full py-4 bg-[#00d1ff] hover:bg-[#00d1ff]/90 text-[#00131a] font-sans font-bold text-xs uppercase tracking-wider rounded-[14px] shadow-[0_0_20px_rgba(0,209,255,0.25)] transition-all cursor-pointer"
-              >
-                Send ₦{Number(tipAmount || 0).toLocaleString()} Tip
-              </button>
             </motion.div>
           </div>
         )}

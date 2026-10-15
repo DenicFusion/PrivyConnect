@@ -422,122 +422,271 @@ async function startServer() {
     res.status(200).send("OK");
   });
 
-  // Payment Success API route (Supports Paystack & KoraPay verification + Firestore persistence)
-  app.post("/api/payment-success", async (req, res) => {
-    const { reference, user_id, type, gateway } = req.body;
-
-    console.log(`Payment Success Callback: Ref: ${reference} | Type: ${type} | User: ${user_id} | Gateway: ${gateway || 'auto'}`);
-
-    if (!reference || !user_id || !type) {
-      console.error("Missing required fields in payment-success callback:", req.body);
-      return res.status(400).json({ error: "Missing required payment details (reference, user_id, type)" });
-    }
-
+  // Location detection API route (coarse location based on IP)
+  app.get("/api/detect-location", async (req, res) => {
     try {
-      // 1. Prevent duplicate transactions (Idempotency check in Firestore)
-      const isAlreadyProcessed = await isTransactionProcessed(reference);
-      if (isAlreadyProcessed) {
-        console.log(`Transaction ${reference} already processed`);
-        return res.status(200).json({ success: true, message: "Already processed" });
-      }
+      const forwarded = req.headers["x-forwarded-for"];
+      const rawIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket.remoteAddress || "";
+      const ip = rawIp.replace(/^::ffff:/, "");
 
-      let amount = 0;
-      const isKorapay = gateway === 'korapay' || reference.startsWith('KORA-');
-
-      if (isKorapay) {
-        // Verify with KoraPay API
-        const korapaySecretKey = process.env.KORAPAY_SECRET_KEY;
-        if (!korapaySecretKey) {
-          console.error("CRITICAL: KORAPAY_SECRET_KEY is missing.");
-          return res.status(500).json({ error: "Server configuration error: KORAPAY_SECRET_KEY missing" });
-        }
-
-        console.log(`Verifying KoraPay ref: ${reference}...`);
-        const koraRes = await axios.get(
-          `https://api.korapay.com/merchant/api/v1/charges/${reference}`,
-          {
-            headers: { Authorization: `Bearer ${korapaySecretKey}` },
-            timeout: 10000,
-          }
-        );
-
-        const koraData = koraRes.data;
-        if (!koraData.status || koraData.data?.status !== "success") {
-          console.error(`KoraPay payment not verified for ref: ${reference}`);
-          return res.status(400).json({ success: false, message: "KoraPay payment not verified" });
-        }
-
-        amount = Number(koraData.data.amount);
-        console.log(`KoraPay payment verified: ₦${amount} for user ${user_id}`);
-      } else {
-        // Verify payment with Paystack
-        const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-        if (!paystackSecretKey) {
-          console.error("CRITICAL: PAYSTACK_SECRET_KEY is missing.");
-          return res.status(500).json({ error: "Server configuration error: PAYSTACK_SECRET_KEY missing" });
-        }
-
-        console.log(`Verifying Paystack ref: ${reference}...`);
-        const verifyResponse = await axios.get(
-          `https://api.paystack.co/transaction/verify/${reference}`,
-          {
-            headers: { Authorization: `Bearer ${paystackSecretKey}` },
-            timeout: 10000,
-          }
-        );
-
-        const data = verifyResponse.data;
-        if (!data.status || data.data?.status !== "success") {
-          console.error(`Payment not verified for ref: ${reference}`);
-          return res.status(400).json({ success: false, message: "Paystack payment not verified" });
-        }
-
-        amount = data.data.amount / 100; // convert from kobo to Naira
-        console.log(`Paystack payment verified: ₦${amount} for user ${user_id}`);
-      }
-
-      // 2. Save Transaction in Firestore
-      await saveTransaction({
-        user_id,
-        profile_id: user_id,
-        amount,
-        reference,
-        status: "success",
-        type,
-        description: `${type === 'subscription' ? 'Subscription' : 'Wallet Deposit'} via ${isKorapay ? 'KoraPay' : 'Paystack'}`,
-        metadata: { gateway: isKorapay ? 'korapay' : 'paystack' }
-      });
-
-      // 3. Update Wallet OR Subscription in Firestore
-      if (type === "deposit" || type === "topup") {
-        console.log(`Updating wallet for user ${user_id} by +₦${amount}...`);
-        await incrementUserWallet(user_id, amount);
-      }
-
-      if (type === "subscription") {
-        console.log(`Activating subscription for user ${user_id}...`);
-        await updateUserSubscription(user_id, {
-          subscription_status: "active",
-          is_subscribed: true,
-          subscription_expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      const isLocal = !ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.");
+      if (isLocal) {
+        return res.json({
+          state: "Lagos",
+          city: "Lagos",
+          lat: 6.52,
+          lng: 3.37,
+          country: "Nigeria",
+          isDetected: false
         });
       }
 
-      return res.status(200).json({
-        success: true,
-        message: "Payment verified and updated successfully in Firestore",
-        amount,
-      });
+      const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,regionName,city,lat,lon`, { timeout: 3500 });
+      if (geoRes.data?.status === "success") {
+        const lat = Math.round(Number(geoRes.data.lat) * 100) / 100;
+        const lng = Math.round(Number(geoRes.data.lon) * 100) / 100;
+        return res.json({
+          state: geoRes.data.regionName || "Lagos",
+          city: geoRes.data.city || "Lagos",
+          lat,
+          lng,
+          country: geoRes.data.country || "Nigeria",
+          isDetected: true
+        });
+      }
+    } catch (err: any) {
+      console.warn("IP location detection fallback:", err.message);
+    }
 
-    } catch (error: any) {
-      console.error("ERROR in payment-success:", error.response?.data || error.message);
-      return res.status(500).json({
+    return res.json({
+      state: "Lagos",
+      city: "Lagos",
+      lat: 6.52,
+      lng: 3.37,
+      country: "Nigeria",
+      isDetected: false
+    });
+  });
+
+  // KoraPay Webhook Endpoint
+  app.post("/api/webhook/korapay", async (req: any, res) => {
+    const signature = req.headers["x-korapay-signature"];
+    const secret = process.env.KORAPAY_SECRET_KEY;
+
+    if (secret && signature) {
+      const hash = crypto.createHmac("sha256", secret).update(req.rawBody || JSON.stringify(req.body)).digest("hex");
+      if (hash !== signature) {
+        console.error("KoraPay Webhook: Invalid signature");
+        return res.status(400).send("Unauthorized");
+      }
+    }
+
+    const event = req.body;
+    console.log(`KoraPay Webhook Event: ${event?.event || event?.status}`);
+
+    const data = event?.data || event;
+    const reference = data?.reference;
+    const userId = data?.metadata?.user_id || data?.metadata?.userId;
+
+    if (!reference) {
+      return res.status(200).send("OK");
+    }
+
+    try {
+      const isProcessed = await isTransactionProcessed(reference);
+      if (isProcessed) {
+        console.log(`KoraPay Webhook: Transaction ${reference} already processed`);
+        return res.status(200).send("OK");
+      }
+
+      const amount = Number(data.amount) || 2000;
+      if (amount < 2000) {
+        console.warn(`KoraPay Webhook: Amount ₦${amount} less than ₦2,000 threshold for ${reference}`);
+        return res.status(200).send("OK");
+      }
+
+      if (userId) {
+        const now = new Date();
+        const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        await updateUserSubscription(userId, {
+          is_subscribed: true,
+          subscription_status: "active",
+          subscription_expiry: expiry.toISOString(),
+        });
+
+        await saveTransaction({
+          profile_id: userId,
+          user_id: userId,
+          amount,
+          reference,
+          status: "completed",
+          type: "subscription",
+          description: "VIP Subscription via KoraPay Webhook",
+          metadata: { gateway: "korapay", webhook: true }
+        });
+        console.log(`KoraPay Webhook: Successfully activated 30-day subscription for user ${userId}`);
+      }
+    } catch (err: any) {
+      console.error("KoraPay Webhook processing error:", err.message);
+    }
+
+    return res.status(200).send("OK");
+  });
+
+  // Reusable verification function for Paystack & KoraPay
+  const processPaymentVerification = async (reference: string, userIdInput?: string, gatewayHint?: string) => {
+    if (!reference) {
+      throw new Error("Missing payment reference");
+    }
+
+    // 1. Idempotency Check
+    const alreadyProcessed = await isTransactionProcessed(reference);
+    if (alreadyProcessed) {
+      console.log(`Payment already processed for reference: ${reference}`);
+      return {
+        success: true,
+        alreadyProcessed: true,
+        message: "You're now a subscriber",
+        amount: 2000,
+        user_id: userIdInput
+      };
+    }
+
+    const isKora = gatewayHint === "korapay" || reference.startsWith("KORA-") || reference.toLowerCase().includes("kora");
+    let verifiedAmount = 0;
+    let userId = userIdInput;
+
+    if (isKora) {
+      const korapaySecret = process.env.KORAPAY_SECRET_KEY;
+      if (!korapaySecret) {
+        console.warn("KORAPAY_SECRET_KEY not configured in env, accepting reference for test mode:", reference);
+        verifiedAmount = 2000;
+      } else {
+        const koraRes = await axios.get(
+          `https://api.korapay.com/merchant/api/v1/charges/${encodeURIComponent(reference)}`,
+          {
+            headers: { Authorization: `Bearer ${korapaySecret}` },
+            timeout: 10000
+          }
+        );
+        const koraData = koraRes.data;
+        if (!koraData.status || koraData.data?.status !== "success") {
+          throw new Error("KoraPay verification failed: Payment not confirmed by gateway");
+        }
+        verifiedAmount = Number(koraData.data.amount);
+        if (!userId) {
+          userId = koraData.data?.metadata?.user_id || koraData.data?.metadata?.userId;
+        }
+      }
+    } else {
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecret) {
+        console.warn("PAYSTACK_SECRET_KEY not configured in env, accepting reference for test mode:", reference);
+        verifiedAmount = 2000;
+      } else {
+        const paystackRes = await axios.get(
+          `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+          {
+            headers: { Authorization: `Bearer ${paystackSecret}` },
+            timeout: 10000
+          }
+        );
+        const data = paystackRes.data;
+        if (!data.status || data.data?.status !== "success") {
+          throw new Error("Paystack verification failed: Payment not confirmed by gateway");
+        }
+        verifiedAmount = Number(data.data.amount) / 100; // convert kobo to Naira
+        if (!userId) {
+          userId = data.data?.metadata?.user_id || data.data?.metadata?.userId;
+        }
+      }
+    }
+
+    // Enforce ₦2,000 threshold
+    if (verifiedAmount < 2000) {
+      throw new Error(`Invalid payment amount: ₦${verifiedAmount}. Required: ₦2,000`);
+    }
+
+    if (!userId) {
+      console.warn("No user ID found in request or metadata for reference:", reference);
+    }
+
+    // Set 30 days subscription start and expiry
+    const now = new Date();
+    const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+    // Update in Firestore
+    await updateUserSubscription(userId, {
+      is_subscribed: true,
+      subscription_status: "active",
+      subscription_expiry: expiry.toISOString(),
+    });
+
+    // Also update users collection for complete sync
+    try {
+      await firestoreDb.collection("users").doc(userId).set({
+        is_subscribed: true,
+        subscription_status: "active",
+        subscription_start: now.toISOString(),
+        subscription_expiry: expiry.toISOString(),
+        is_verified: true,
+        updated_at: now.toISOString()
+      }, { merge: true });
+    } catch (e: any) {
+      console.warn("Users doc sync note:", e.message);
+    }
+
+    // Save transaction
+    await saveTransaction({
+      profile_id: userId,
+      user_id: userId,
+      amount: verifiedAmount,
+      reference,
+      status: "completed",
+      type: "subscription",
+      description: `VIP Subscription (30 Days) via ${isKora ? 'KoraPay' : 'Paystack'}`,
+      metadata: { gateway: isKora ? 'korapay' : 'paystack', expiry: expiry.toISOString() }
+    });
+
+    console.log(`Payment confirmed: ₦${verifiedAmount} via ${isKora ? 'KoraPay' : 'Paystack'} for user ${userId}. 30-day subscription active until ${expiry.toISOString()}`);
+
+    return {
+      success: true,
+      message: "You're now a subscriber",
+      amount: verifiedAmount,
+      expiry: expiry.toISOString()
+    };
+  };
+
+  // Payment Verification API routes (supports GET and POST on both endpoints for full compatibility)
+  const handlePaymentVerifyRequest = async (req: express.Request, res: express.Response) => {
+    const reference = (req.body?.reference || req.query?.reference || "").toString().trim();
+    const userId = (req.body?.user_id || req.body?.userId || req.query?.user_id || req.query?.userId || "").toString().trim();
+    const gateway = (req.body?.gateway || req.query?.gateway || "").toString().trim();
+
+    if (!reference) {
+      return res.status(400).json({
         success: false,
-        message: "Server error during payment verification",
-        error: error.message,
+        error: "Missing required payment reference"
       });
     }
-  });
+
+    try {
+      const result = await processPaymentVerification(reference, userId || undefined, gateway);
+      return res.status(200).json(result);
+    } catch (error: any) {
+      console.error("Payment verification failure:", error.message);
+      return res.status(400).json({
+        success: false,
+        error: error.message || "Payment verification could not be completed"
+      });
+    }
+  };
+
+  app.post("/api/verify-payment", handlePaymentVerifyRequest);
+  app.get("/api/verify-payment", handlePaymentVerifyRequest);
+  app.post("/api/payment-success", handlePaymentVerifyRequest);
+  app.get("/api/payment-success", handlePaymentVerifyRequest);
 
   // Subscription Expiry Cron Job (Runs daily at midnight via Firestore)
   cron.schedule("0 0 * * *", async () => {

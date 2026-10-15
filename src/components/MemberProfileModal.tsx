@@ -124,12 +124,21 @@ export function MemberProfileModal({
         >
           {/* Header Bar */}
           <div className="relative h-72 sm:h-80 w-full shrink-0 overflow-hidden bg-[#111418]">
-            {/* Unblurred Cover / Portrait Photo */}
-            <img
-              src={member.photo_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80'}
-              alt={member.name}
-              className="w-full h-full object-cover brightness-95 contrast-[1.02]"
-            />
+            {member.photo_url ? (
+              <img
+                src={member.photo_url}
+                alt={member.name}
+                className="w-full h-full object-cover brightness-95 contrast-[1.02]"
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#0c1015] via-[#090b0d] to-[#040506]">
+                <div className="w-20 h-20 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center">
+                  <span className="font-serif text-4xl font-bold text-[#00d1ff]">
+                    {member.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              </div>
+            )}
             
             {/* Top gradient vignette */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#090b0d] via-black/25 to-black/60 pointer-events-none" />

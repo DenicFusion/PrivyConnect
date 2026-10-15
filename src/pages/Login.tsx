@@ -22,6 +22,7 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/Toaster';
 import { ArrowLeft, Eye, EyeOff, ShieldCheck, Lock, Mail, User, MapPin, Sparkles, AlertCircle, Info } from 'lucide-react';
+import { detectLocationFromServer, getStateCoords } from '../lib/location';
 
 const getFriendlyError = (err: any) => {
   const code = err?.code || '';
@@ -67,7 +68,7 @@ export default function LoginPage() {
   // Sign in fields
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  
+
   // Sign up fields
   const [fullName, setFullName] = useState('');
   const [signupUsername, setSignupUsername] = useState('');
@@ -75,7 +76,6 @@ export default function LoginPage() {
   const [signupPassword, setSignupPassword] = useState('');
   const signupState = 'Lagos';
   const signupVibe = 'BESTIE';
-  const [referralCode, setReferralCode] = useState('');
 
   // UI state
   const [showPassword, setShowPassword] = useState(false);
@@ -91,14 +91,6 @@ export default function LoginPage() {
     const params = new URLSearchParams(location.search);
     if (params.get('mode') === 'signup' || location.pathname === '/signup') {
       setMode('signup');
-    }
-    const ref = params.get('ref');
-    if (ref) {
-      setReferralCode(ref);
-      localStorage.setItem('referral_code', ref);
-    } else {
-      const stored = localStorage.getItem('referral_code');
-      if (stored) setReferralCode(stored);
     }
   }, [location]);
 
@@ -195,14 +187,25 @@ export default function LoginPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, signupEmail.trim(), signupPassword);
       const user = userCredential.user;
 
+      const detectedLoc = await detectLocationFromServer().catch(() => null);
+      const chosenState = signupState || (detectedLoc?.isDetected ? detectedLoc.state : 'Lagos');
+      const coords = detectedLoc?.isDetected 
+        ? { lat: detectedLoc.lat, lng: detectedLoc.lng } 
+        : getStateCoords(chosenState);
+
       const newProfile = {
         id: user.uid,
         email: signupEmail.trim(),
         username: signupUsername.trim().toLowerCase(),
         display_name: fullName.trim() || signupUsername.trim(),
-        state: signupState,
+        state: chosenState,
+        city: detectedLoc?.city || chosenState,
+        coarse_lat: coords.lat,
+        coarse_lng: coords.lng,
         vibe: '',
         gender: '',
+        photos: [],
+        photo_url: '',
         onboarding_completed: false,
         is_verified: false,
         is_subscribed: false,
@@ -214,7 +217,6 @@ export default function LoginPage() {
       await setDoc(doc(db, 'users', user.uid), newProfile);
 
       sessionStorage.setItem('just_registered', 'true');
-      localStorage.removeItem('referral_code');
       toast('Welcome to PrivyConnect! Account created.', 'success');
       navigate('/discovery', { replace: true });
     } catch (err: any) {
@@ -524,12 +526,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {referralCode && (
-                <div className="p-2.5 bg-[#00D1FF]/10 border border-[#00D1FF]/30 rounded-2xl text-[11px] text-[#00D1FF] flex items-center gap-2">
-                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                  <span>Referral code <strong className="font-mono">{referralCode}</strong> applied</span>
-                </div>
-              )}
+
 
               <button
                 type="submit"

@@ -34,6 +34,8 @@ import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
 import PublicProfilePage from './pages/PublicProfile';
 
+import { detectLocationFromServer, getStateCoords } from './lib/location';
+
 // Subscription Guard Component
 function SubscriptionGuard({ children, profile }: { children: React.ReactNode, profile: any }) {
   if (!profile) return null;
@@ -203,15 +205,31 @@ function AppContent() {
 
       setProfile(profileWithEmail);
 
-      // Only show 2-step onboarding wizard for first-timers immediately after registration!
+      // Only show 3-step onboarding wizard for first-timers immediately after registration!
       const justRegistered = sessionStorage.getItem('just_registered') === 'true';
-      const isFirstTimer = justRegistered || (profileWithEmail.onboarding_completed === false && (!profileWithEmail.gender || !profileWithEmail.vibe));
+      const hasMinPhotos = Array.isArray(profileWithEmail.photos) && profileWithEmail.photos.length >= 2;
+      const isFirstTimer = justRegistered || (profileWithEmail.onboarding_completed === false && (!profileWithEmail.gender || !profileWithEmail.vibe || !hasMinPhotos));
       if (isFirstTimer) {
         setShowGenderModal(true);
       }
 
-      // Update online status
-      await updateDoc(userRef, { is_online: true, last_active: new Date().toISOString() }).catch(() => {});
+      // Detect location server-side and update online status
+      detectLocationFromServer().then(async (loc) => {
+        const chosenState = data.state || (loc.isDetected ? loc.state : 'Lagos');
+        const coords = loc.isDetected ? { lat: loc.lat, lng: loc.lng } : getStateCoords(chosenState);
+        const locUpdates = {
+          state: chosenState,
+          city: data.city || (loc.isDetected ? loc.city : chosenState),
+          coarse_lat: coords.lat,
+          coarse_lng: coords.lng,
+          is_online: true,
+          last_active: new Date().toISOString()
+        };
+        await updateDoc(userRef, locUpdates).catch(() => {});
+        setProfile((prev: any) => prev ? { ...prev, ...locUpdates } : prev);
+      }).catch(() => {
+        updateDoc(userRef, { is_online: true, last_active: new Date().toISOString() }).catch(() => {});
+      });
     } catch (err) {
       console.error('Error fetching profile:', err);
     } finally {

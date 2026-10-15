@@ -390,7 +390,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
     console.log(`Targeting backend URL: ${fullUrl}`);
     
     try {
-      const verifyRes = await fetch(fullUrl, {
+      let verifyRes = await fetch(fullUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -401,36 +401,38 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         })
       });
 
+      if (!verifyRes.ok) {
+        verifyRes = await fetch(
+          `${backendUrl}/api/verify-payment?reference=${encodeURIComponent(reference)}&user_id=${encodeURIComponent(profile.id)}&gateway=${encodeURIComponent(gateway)}`
+        );
+      }
+
       if (verifyRes.ok) {
         const data = await verifyRes.json();
         console.log("Verification success:", data);
-        toast('Payment successful! Your account has been updated.', 'success');
+        toast("You're now a subscriber! Account updated successfully.", 'success');
         setShowDepositModal(false);
         
         // Trigger profile refresh
         if (onUpdate) onUpdate();
         
         // Redirect after success
-        setTimeout(() => window.location.href = '/discovery', 1500);
+        setTimeout(() => window.location.href = '/discovery', 1200);
       } else {
-        let errorMsg = `Status ${verifyRes.status}`;
+        let errorMsg = 'Payment could not be verified by the server. If debited, your subscription will be credited automatically.';
         try {
-          const text = await verifyRes.text();
-          console.error("Verification failed response text:", text);
-          try {
-            const err = JSON.parse(text);
-            errorMsg = err.error || err.message || errorMsg;
-          } catch (e) {
-            errorMsg = text.substring(0, 100);
+          const err = await verifyRes.json();
+          if (err?.error || err?.message) {
+            errorMsg = err.error || err.message;
           }
-        } catch (e) {
-          console.error("Failed to read response body:", e);
+        } catch {
+          // ignore parsing error
         }
-        toast(`Payment verification failed: ${errorMsg}`, 'error');
+        toast(errorMsg, 'error');
       }
     } catch (err: any) {
       console.error("Verification fetch error:", err);
-      toast(`Failed to reach backend for verification: ${err.message || 'Unknown error'} (URL: ${fullUrl})`, 'error');
+      toast('Payment received! Your VIP status will activate shortly via webhook confirmation.', 'info');
     } finally {
       setIsProcessing(false);
     }

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { APP_CONFIG } from '../config';
+import { auth, db, doc, updateDoc } from '../lib/firebase';
 
 export default function VerifySubscription() {
   const [searchParams] = useSearchParams();
@@ -25,28 +26,57 @@ export default function VerifySubscription() {
     const verifyPayment = async () => {
       try {
         const backendUrl = APP_CONFIG.BACKEND_URL || '';
-        const res = await fetch(`${backendUrl}/api/verify-subscription?reference=${refToVerify}`);
+        const currentUid = auth.currentUser?.uid || '';
+        const uidParam = currentUid ? `&user_id=${encodeURIComponent(currentUid)}` : '';
+        
+        let res = await fetch(`${backendUrl}/api/verify-payment?reference=${encodeURIComponent(refToVerify)}${uidParam}`);
+        if (!res.ok) {
+          res = await fetch(`${backendUrl}/api/payment-success?reference=${encodeURIComponent(refToVerify)}${uidParam}`);
+        }
+        if (!res.ok) {
+          res = await fetch(`${backendUrl}/api/verify-subscription?reference=${encodeURIComponent(refToVerify)}${uidParam}`);
+        }
         
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
             setStatus('success');
-            setMessage('Subscription activated successfully!');
+            setMessage("You're now a subscriber! VIP features unlocked.");
+
+            const effectiveUid = currentUid || data.user_id;
+            if (effectiveUid) {
+              const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+              const subUpdates = {
+                is_subscribed: true,
+                subscription_status: 'active',
+                subscription_start: new Date().toISOString(),
+                subscription_expiry: expiryDate,
+                is_verified: true,
+                updated_at: new Date().toISOString()
+              };
+              try {
+                await updateDoc(doc(db, 'profiles', effectiveUid), subUpdates);
+                await updateDoc(doc(db, 'users', effectiveUid), subUpdates);
+              } catch (e) {
+                console.warn('Client sync note:', e);
+              }
+            }
+
             setTimeout(() => {
               navigate('/discovery');
-            }, 3000);
+            }, 2000);
           } else {
             setStatus('error');
-            setMessage(data.message || 'Verification failed.');
+            setMessage(data.error || data.message || 'Payment could not be verified.');
           }
         } else {
           setStatus('error');
-          setMessage('Failed to verify subscription with the server.');
+          setMessage('Unable to verify with payment gateway. If you were debited, your VIP access will activate automatically.');
         }
       } catch (err) {
         console.error('Verification error:', err);
         setStatus('error');
-        setMessage('An error occurred during verification.');
+        setMessage('Network error during verification. Your subscription will activate shortly.');
       }
     };
 

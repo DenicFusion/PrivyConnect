@@ -8,9 +8,11 @@ import {
   Search, 
   ShieldCheck,
   Sparkles,
-  Heart
+  Heart,
+  Compass
 } from 'lucide-react';
 import { db, collection, getDocs, limit, query } from '../lib/firebase';
+import { calculateDistanceKm, formatDistance } from '../lib/location';
 import { SubscriptionModal } from './SubscriptionModal';
 import { MemberProfileModal } from './MemberProfileModal';
 import { useToast } from './Toaster';
@@ -25,10 +27,14 @@ export interface DiscoveryFeedProps {
 export interface MemberCard {
   id: string;
   name: string;
+  username?: string;
   verified: boolean;
+  is_subscribed?: boolean;
   online: boolean;
   location: string;
   state: string;
+  coarse_lat?: number;
+  coarse_lng?: number;
   vibe: 'BESTIE' | 'FWB' | 'HOOKUP' | 'SUGAR DADDY' | 'SUGAR MUMMY';
   avatarSeed: string;
   gender: string;
@@ -136,317 +142,7 @@ export const getVibeStyle = (vibe: string) => {
   };
 };
 
-export const DEFAULT_MEMBERS: MemberCard[] = [
-  // --- LAGOS MEMBERS ---
-  {
-    id: 'm1',
-    name: 'Hauwa',
-    verified: true,
-    online: true,
-    location: 'VICTORIA ISLAND',
-    state: 'Lagos',
-    vibe: 'BESTIE',
-    avatarSeed: 'hauwa',
-    gender: 'female',
-    age: 24,
-    bio: 'Lifestyle curator, tech enthusiast and coffee addict in VI. Looking for genuine friendship and adventurous city hangouts.',
-    photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 803 456 7890',
-    whatsapp: '+234 803 456 7890',
-    telegram: '@hauwa_vi'
-  },
-  {
-    id: 'm2',
-    name: 'Amara',
-    verified: true,
-    online: true,
-    location: 'LEKKI',
-    state: 'Lagos',
-    vibe: 'HOOKUP',
-    avatarSeed: 'amara',
-    gender: 'female',
-    age: 23,
-    bio: 'Spontaneous, playful vibe. Love beach club sunsets in Lekki and good energy with respectful company.',
-    photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 814 123 9988',
-    whatsapp: '+234 814 123 9988',
-    telegram: '@amara_lekki'
-  },
-  {
-    id: 'm3',
-    name: 'Tobi',
-    verified: true,
-    online: true,
-    location: 'VICTORIA ISLAND',
-    state: 'Lagos',
-    vibe: 'SUGAR DADDY',
-    avatarSeed: 'tobi',
-    gender: 'male',
-    age: 38,
-    bio: 'Financier & angel investor. Frequent business trips. Value elegance, intelligence and discrete companionship.',
-    photo_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 802 776 5432',
-    whatsapp: '+234 802 776 5432',
-    telegram: '@tobi_invest'
-  },
-  {
-    id: 'm4',
-    name: 'Chioma',
-    verified: true,
-    online: true,
-    location: 'IKOYI',
-    state: 'Lagos',
-    vibe: 'BESTIE',
-    avatarSeed: 'chioma',
-    gender: 'female',
-    age: 26,
-    bio: 'Interior designer based in Ikoyi. Warm laughs, rooftop dinners and authentic conversations.',
-    photo_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 809 332 1100',
-    whatsapp: '+234 809 332 1100',
-    telegram: '@chioma_ikoyi'
-  },
-  {
-    id: 'm5',
-    name: 'David',
-    verified: true,
-    online: true,
-    location: 'IKEJA',
-    state: 'Lagos',
-    vibe: 'FWB',
-    avatarSeed: 'david',
-    gender: 'male',
-    age: 28,
-    bio: 'Creative director & fitness lover. Upbeat, fun-loving and always zero drama.',
-    photo_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 812 555 4321',
-    whatsapp: '+234 812 555 4321',
-    telegram: '@david_ikeja'
-  },
-  {
-    id: 'm6',
-    name: 'Funke',
-    verified: true,
-    online: true,
-    location: 'SURULERE',
-    state: 'Lagos',
-    vibe: 'SUGAR MUMMY',
-    avatarSeed: 'funke',
-    gender: 'female',
-    age: 39,
-    bio: 'Hospitality entrepreneur. Generous, cultured, seeking charming company for luxury travels and private dinners.',
-    photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 805 998 1234',
-    whatsapp: '+234 805 998 1234',
-    telegram: '@funke_luxury'
-  },
-  {
-    id: 'm7',
-    name: 'Boma',
-    verified: true,
-    online: true,
-    location: 'YABA',
-    state: 'Lagos',
-    vibe: 'BESTIE',
-    avatarSeed: 'boma',
-    gender: 'female',
-    age: 22,
-    bio: 'Software developer and bookworm. Chill weekends, board games and deep midnight chats.',
-    photo_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 818 443 2190',
-    whatsapp: '+234 818 443 2190',
-    telegram: '@boma_tech'
-  },
-  {
-    id: 'm8',
-    name: 'Kenneth',
-    verified: true,
-    online: true,
-    location: 'LEKKI PHASE 1',
-    state: 'Lagos',
-    vibe: 'HOOKUP',
-    avatarSeed: 'kenneth',
-    gender: 'male',
-    age: 27,
-    bio: 'Architect in Lekki Phase 1. High energy, good vibes only and private connections.',
-    photo_url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 807 889 6543',
-    whatsapp: '+234 807 889 6543',
-    telegram: '@kenneth_arch'
-  },
-
-  // --- NATIONWIDE MEMBERS ---
-  {
-    id: 'm9',
-    name: 'Fatima',
-    verified: true,
-    online: true,
-    location: 'MAITAMA',
-    state: 'Abuja (FCT)',
-    vibe: 'SUGAR MUMMY',
-    avatarSeed: 'fatima',
-    gender: 'female',
-    age: 41,
-    bio: 'Diplomat & businesswoman in Maitama. Elegant, discreet and loves fine dining and quiet luxury.',
-    photo_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 803 111 2233',
-    whatsapp: '+234 803 111 2233',
-    telegram: '@fatima_abj'
-  },
-  {
-    id: 'm10',
-    name: 'Somto',
-    verified: true,
-    online: true,
-    location: 'GRA PHASE 2',
-    state: 'Rivers',
-    vibe: 'BESTIE',
-    avatarSeed: 'somto',
-    gender: 'female',
-    age: 25,
-    bio: 'Petroleum engineer by day, foodie by weekend in Port Harcourt. Looking for cool friends and great hangout spots.',
-    photo_url: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 816 777 8899',
-    whatsapp: '+234 816 777 8899',
-    telegram: '@somto_ph'
-  },
-  {
-    id: 'm11',
-    name: 'Zara',
-    verified: true,
-    online: true,
-    location: 'MINNA',
-    state: 'Niger',
-    vibe: 'BESTIE',
-    avatarSeed: 'zara',
-    gender: 'female',
-    age: 23,
-    bio: 'Art director with an affinity for photography and road trips across Northern Nigeria.',
-    photo_url: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 802 334 5566',
-    whatsapp: '+234 802 334 5566',
-    telegram: '@zara_art'
-  },
-  {
-    id: 'm12',
-    name: 'Aisha',
-    verified: true,
-    online: true,
-    location: 'SOKOTO CENTRAL',
-    state: 'Sokoto',
-    vibe: 'BESTIE',
-    avatarSeed: 'aisha',
-    gender: 'female',
-    age: 24,
-    bio: 'Pharmacist with a passion for wellness and travel. Easygoing and friendly.',
-    photo_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 813 999 0011',
-    whatsapp: '+234 813 999 0011',
-    telegram: '@aisha_skt'
-  },
-  {
-    id: 'm13',
-    name: 'Yusuf',
-    verified: true,
-    online: true,
-    location: 'CALABAR ROAD',
-    state: 'Cross River',
-    vibe: 'FWB',
-    avatarSeed: 'yusuf',
-    gender: 'male',
-    age: 29,
-    bio: 'Ecologist & mountain hiker in Calabar. Easy going, drama-free companion.',
-    photo_url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 806 445 6677',
-    whatsapp: '+234 806 445 6677',
-    telegram: '@yusuf_cal'
-  },
-  {
-    id: 'm14',
-    name: 'Halima',
-    verified: true,
-    online: true,
-    location: 'NASSARAWA',
-    state: 'Kano',
-    vibe: 'BESTIE',
-    avatarSeed: 'halima',
-    gender: 'female',
-    age: 25,
-    bio: 'Fashion designer in Kano. Warm-hearted, love authentic connections and sharing stories.',
-    photo_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 815 223 3445',
-    whatsapp: '+234 815 223 3445',
-    telegram: '@halima_kn'
-  },
-  {
-    id: 'm15',
-    name: 'Femi',
-    verified: true,
-    online: true,
-    location: 'BODIJA',
-    state: 'Oyo',
-    vibe: 'BESTIE',
-    avatarSeed: 'femi',
-    gender: 'male',
-    age: 27,
-    bio: 'University researcher and acoustic guitarist in Ibadan. Enjoy calm conversations and good food.',
-    photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 808 667 7889',
-    whatsapp: '+234 808 667 7889',
-    telegram: '@femi_ibd'
-  },
-  {
-    id: 'm16',
-    name: 'Osas',
-    verified: true,
-    online: true,
-    location: 'GRA',
-    state: 'Edo',
-    vibe: 'SUGAR DADDY',
-    avatarSeed: 'osas',
-    gender: 'male',
-    age: 42,
-    bio: 'Real estate developer in Benin City. Respectful, generous and private.',
-    photo_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 803 888 9900',
-    whatsapp: '+234 803 888 9900',
-    telegram: '@osas_gra'
-  },
-  {
-    id: 'm17',
-    name: 'Emeka',
-    verified: true,
-    online: true,
-    location: 'INDEPENDENCE LAYOUT',
-    state: 'Enugu',
-    vibe: 'HOOKUP',
-    avatarSeed: 'emeka',
-    gender: 'male',
-    age: 26,
-    bio: 'Music producer based in Enugu. Spontaneous nights, good music and chemistry.',
-    photo_url: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 811 556 6778',
-    whatsapp: '+234 811 556 6778',
-    telegram: '@emeka_042'
-  },
-  {
-    id: 'm18',
-    name: 'Stephanie',
-    verified: true,
-    online: true,
-    location: 'ASABA',
-    state: 'Delta',
-    vibe: 'FWB',
-    avatarSeed: 'stephanie',
-    gender: 'female',
-    age: 24,
-    bio: 'Digital marketer in Asaba. Enjoy riverfront breezes, weekend road trips and chill partners.',
-    photo_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80',
-    phone: '+234 814 332 2110',
-    whatsapp: '+234 814 332 2110',
-    telegram: '@steph_delta'
-  }
-];
+export const DEFAULT_MEMBERS: MemberCard[] = [];
 
 export function DiscoveryFeed({ 
   profile, 
@@ -456,7 +152,7 @@ export function DiscoveryFeed({
 }: DiscoveryFeedProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [members, setMembers] = useState<MemberCard[]>(DEFAULT_MEMBERS);
+  const [members, setMembers] = useState<MemberCard[]>([]);
   const [chipFilter, setChipFilter] = useState<'everyone' | 'online' | 'verified' | 'favorites'>('everyone');
   const [vibeFilter, setVibeFilter] = useState<string>('all');
   const [genderFilter, setGenderFilter] = useState<string>('all');
@@ -515,42 +211,50 @@ export function DiscoveryFeed({
   useEffect(() => {
     const loadFirestoreProfiles = async () => {
       try {
-        const q = query(collection(db, 'profiles'), limit(30));
+        const q = query(collection(db, 'profiles'), limit(100));
         const snap = await getDocs(q);
         const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         if (data && data.length > 0) {
-          const mapped: MemberCard[] = data.map((p: any, idx) => {
-            const rawState = p.state || 'Lagos';
-            return {
-              id: p.id,
-              name: p.username || p.display_name || 'Member',
-              verified: !!p.is_verified,
-              online: p.is_online !== false,
-              location: (p.area || p.location || rawState).toUpperCase(),
-              state: rawState,
-              vibe: (p.vibe as any) || DEFAULT_MEMBERS[idx % DEFAULT_MEMBERS.length].vibe,
-              avatarSeed: p.id,
-              gender: p.gender || 'unspecified',
-              photo_url: p.photo_url || p.avatar_url || DEFAULT_MEMBERS[idx % DEFAULT_MEMBERS.length].photo_url,
-              bio: p.bio || undefined,
-              age: p.age || 25,
-              phone: p.phone,
-              whatsapp: p.whatsapp || p.phone,
-              telegram: p.telegram
-            };
-          });
+          const mapped: MemberCard[] = data
+            .filter((p: any) => p.id !== profile?.id)
+            .map((p: any) => {
+              const rawState = p.state || 'Lagos';
+              const isSub = Boolean(p.is_subscribed || p.subscription_status === 'active');
+              return {
+                id: p.id,
+                name: p.display_name || p.username || 'Member',
+                username: p.username || p.id,
+                verified: isSub,
+                is_subscribed: isSub,
+                online: p.is_online !== false,
+                location: (p.city || p.area || p.location || rawState).toUpperCase(),
+                state: rawState,
+                coarse_lat: p.coarse_lat || (typeof p.location === 'object' ? p.location?.lat : undefined),
+                coarse_lng: p.coarse_lng || (typeof p.location === 'object' ? p.location?.lng : undefined),
+                vibe: (p.vibe as any) || 'HOOKUP',
+                avatarSeed: p.id,
+                gender: p.gender || 'unspecified',
+                photo_url: p.photo_url || p.avatar_url || (Array.isArray(p.photos) ? p.photos[0] : undefined),
+                bio: p.bio || undefined,
+                age: p.age || 25,
+                phone: p.phone,
+                whatsapp: p.whatsapp || p.phone,
+                telegram: p.telegram
+              };
+            });
 
-          const existingIds = new Set(mapped.map(m => m.id));
-          const dedupedDefaults = DEFAULT_MEMBERS.filter(m => !existingIds.has(m.id));
-          setMembers([...mapped, ...dedupedDefaults]);
+          setMembers(mapped);
+        } else {
+          setMembers([]);
         }
       } catch (err) {
-        console.warn('Could not load firestore profiles for discovery, using defaults', err);
+        console.warn('Could not load firestore profiles for discovery:', err);
+        setMembers([]);
       }
     };
     loadFirestoreProfiles();
-  }, []);
+  }, [profile?.id]);
 
   const handleMemberClick = (member: MemberCard) => {
     // Open as the user's page profile, not like a modal!
@@ -821,6 +525,10 @@ export function DiscoveryFeed({
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4 pt-1">
         {filteredMembers.slice(0, visibleCount).map((member) => {
           const vibeStyle = getVibeStyle(member.vibe);
+          const myLat = profile?.coarse_lat;
+          const myLng = profile?.coarse_lng;
+          const distKm = calculateDistanceKm(myLat, myLng, member.coarse_lat, member.coarse_lng);
+          const distanceStr = distKm != null ? formatDistance(distKm) : null;
 
           return (
             <div
@@ -828,7 +536,7 @@ export function DiscoveryFeed({
               onClick={() => handleMemberClick(member)}
               className="group relative aspect-[3/4] rounded-[24px] bg-[#090b0d] border border-[rgba(255,255,255,0.075)] overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:border-[rgba(255,255,255,0.2)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.6)] flex flex-col justify-between p-3.5 sm:p-4 select-none"
             >
-              {/* Background Photo - UNBLURRED for all users! */}
+              {/* Background Photo - Real photos only or monogram */}
               <div className="absolute inset-0 z-0 overflow-hidden bg-[#0f1215]">
                 {member.photo_url ? (
                   <img
@@ -837,10 +545,14 @@ export function DiscoveryFeed({
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 brightness-95 contrast-[1.02]"
                   />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-[#171b1f] to-[#090b0d]" />
+                  <div className="w-full h-full bg-gradient-to-br from-[#171b1f] to-[#090b0d] flex items-center justify-center">
+                    <span className="font-serif text-3xl sm:text-4xl font-bold text-[#00d1ff]">
+                      {member.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
                 )}
                 {/* Gradient vignette so text at bottom remains crisp */}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#040506] via-[#040506]/40 to-black/30" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#040506] via-[#040506]/40 to-black/30 pointer-events-none" />
               </div>
 
               {/* TOP ROW: 'Online' tag with green dot + Favorite Heart button */}
@@ -850,7 +562,7 @@ export function DiscoveryFeed({
                   <span>Online</span>
                 </div>
 
-                {/* Favorite Heart Button (Works for all users even as not subscribed!) */}
+                {/* Favorite Heart Button */}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -869,7 +581,7 @@ export function DiscoveryFeed({
                 </button>
               </div>
 
-              {/* BOTTOM ROW: Coloured companionship tag, serif first name with cyan verified shield, mono area · state */}
+              {/* BOTTOM ROW: Coloured companionship tag, serif first name with cyan verified shield, mono area · state · distance */}
               <div className="relative z-10 space-y-1">
                 {/* Coloured companionship tag */}
                 <div className="inline-block">
@@ -885,20 +597,38 @@ export function DiscoveryFeed({
                   </span>
                 </div>
 
-                {/* Name in Serif with Cyan Shield */}
+                {/* Name in Serif with Cyan Shield (Subscribers Only) */}
                 <div className="flex items-center gap-1.5">
                   <h3 className="font-serif text-xl sm:text-2xl text-[#f3f6f8] font-normal leading-tight truncate">
                     {member.name}
                   </h3>
-                  {member.verified && (
-                    <ShieldCheck className="w-4 h-4 text-[#00d1ff] shrink-0 fill-[#00d1ff]/20" />
+                  {member.verified && member.is_subscribed && (
+                    <span title="Subscribed VIP Member" className="shrink-0 flex items-center">
+                      <ShieldCheck className="w-4 h-4 text-[#00d1ff] fill-[#00d1ff]/20" />
+                    </span>
                   )}
                 </div>
 
-                {/* Mono Area · State */}
-                <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.16em] text-[#8d97a1] truncate">
-                  {member.location} · {member.state}
-                </p>
+                {/* Mono Area · State · Distance */}
+                <div className="flex flex-wrap items-center gap-1 font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.16em] text-[#8d97a1] truncate">
+                  <span>{member.location} · {member.state}</span>
+                  <span>·</span>
+                  {isSubscribed ? (
+                    <span className="text-[#00d1ff] font-semibold">{distanceStr || 'Nearby'}</span>
+                  ) : (
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowUpgradeModal(true);
+                      }}
+                      className="inline-flex items-center gap-1 text-[#f2b04b] hover:text-[#f2b04b]/90 cursor-pointer"
+                    >
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Subscribe to see distance</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -920,17 +650,24 @@ export function DiscoveryFeed({
 
       {/* Empty State */}
       {filteredMembers.length === 0 && (
-        <div className="py-16 text-center space-y-2">
-          <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#59636d]">
-            NO MEMBERS MATCH YOUR CURRENT FILTERS
-          </p>
+        <div className="py-20 text-center space-y-4 max-w-md mx-auto">
+          <div className="w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center mx-auto text-[#00d1ff]">
+            <Compass className="w-7 h-7 stroke-1" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-serif text-2xl text-[#f3f6f8]">No members here yet. Be the first.</h3>
+            <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#8d97a1]">
+              Invite connections or explore members across other states.
+            </p>
+          </div>
           <button
             onClick={() => {
+              setSelectedState(isSubscribed ? 'all' : 'Lagos');
               setVibeFilter('all');
               setGenderFilter('all');
               setChipFilter('everyone');
             }}
-            className="text-xs text-[#00d1ff] underline underline-offset-4 cursor-pointer hover:text-white pt-2 inline-block"
+            className="px-6 py-2.5 rounded-full bg-white/5 border border-white/10 hover:border-[#00d1ff]/40 text-xs text-[#00d1ff] font-mono uppercase tracking-wider transition-all cursor-pointer"
           >
             Reset filters
           </button>

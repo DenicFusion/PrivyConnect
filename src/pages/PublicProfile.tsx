@@ -20,8 +20,7 @@ import {
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { DEFAULT_MEMBERS, getVibeStyle } from '../components/DiscoveryFeed';
-import { MOCK_USERS } from '../lib/mockData';
+import { getVibeStyle } from '../components/DiscoveryFeed';
 import { useToast } from '../components/Toaster';
 
 function cn(...inputs: ClassValue[]) {
@@ -83,76 +82,18 @@ export default function PublicProfilePage() {
         return;
       }
 
-      // 5. Match DEFAULT_MEMBERS
-      const defaultMember = DEFAULT_MEMBERS.find(m => 
-        m.id.toLowerCase() === targetKey.toLowerCase() ||
-        m.name.toLowerCase() === targetKey.toLowerCase() ||
-        ((m as any).username && (m as any).username.toLowerCase() === targetKey.toLowerCase())
-      );
-      if (defaultMember) {
-        setProfile({
-          id: defaultMember.id,
-          display_name: defaultMember.name,
-          username: (defaultMember as any).username || defaultMember.name.toLowerCase().replace(/\s+/g, '_'),
-          photo_url: defaultMember.photo_url || `https://picsum.photos/seed/${defaultMember.avatarSeed}/800/800`,
-          gender: defaultMember.gender,
-          vibe: defaultMember.vibe,
-          state: defaultMember.state,
-          location: { city: `${defaultMember.location}, ${defaultMember.state}` },
-          bio: (defaultMember as any).bio || `Discreet, verified companionship in ${defaultMember.location}, ${defaultMember.state}.`,
-          is_verified: defaultMember.verified,
-          is_online: defaultMember.online,
-          is_public: true
-        });
+      // 5. Check users collection in Firestore
+      const userDoc = await getDoc(doc(db, 'users', targetKey));
+      if (userDoc.exists()) {
+        setProfile({ id: userDoc.id, ...userDoc.data() });
         setLoading(false);
         return;
       }
 
-      // 6. Match MOCK_USERS
-      const mockUser = MOCK_USERS.find(u => 
-        u.id.toLowerCase() === targetKey.toLowerCase() ||
-        u.username?.toLowerCase() === targetKey.toLowerCase() ||
-        u.display_name?.toLowerCase() === targetKey.toLowerCase()
-      );
-      if (mockUser) {
-        setProfile(mockUser);
-        setLoading(false);
-        return;
-      }
-
-      // 7. Fallback profile so it NEVER shows "Not found" (e.g. for /u/dan)
-      const fallbackDan = {
-        id: targetKey,
-        display_name: targetKey.charAt(0).toUpperCase() + targetKey.slice(1),
-        username: targetKey.toLowerCase(),
-        vibe: 'HOOKUP',
-        gender: 'male',
-        state: 'Lagos',
-        location: { city: 'VI / LEKKI, LAGOS' },
-        bio: 'Elite verified member on PrivyConnect. Discretion, quality conversations, and genuine arrangement.',
-        photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80',
-        is_verified: true,
-        is_online: true,
-        is_public: true
-      };
-      setProfile(fallbackDan);
+      setProfile(null);
     } catch (error: any) {
       console.error('Error fetching public profile:', error);
-      // Fallback gracefully on any error
-      setProfile({
-        id: targetKey,
-        display_name: targetKey.charAt(0).toUpperCase() + targetKey.slice(1),
-        username: targetKey.toLowerCase(),
-        vibe: 'HOOKUP',
-        gender: 'male',
-        state: 'Lagos',
-        location: { city: 'LAGOS' },
-        bio: 'Verified member on PrivyConnect.',
-        photo_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80',
-        is_verified: true,
-        is_online: true,
-        is_public: true
-      });
+      setProfile(null);
     } finally {
       setLoading(false);
     }
@@ -253,12 +194,23 @@ export default function PublicProfilePage() {
         <div className="relative rounded-[32px] overflow-hidden bg-[#090b0d] border border-white/[0.08] shadow-2xl">
           {/* Cover Photo */}
           <div className="relative aspect-[4/3] sm:aspect-[16/9] w-full overflow-hidden bg-[#0e1115]">
-            <img 
-              src={profile.photo_url || `https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=1200&q=80`}
-              alt={profile.display_name || profile.username}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#090b0d] via-[#090b0d]/50 to-transparent" />
+            {profile.photo_url ? (
+              <img 
+                src={profile.photo_url} 
+                alt={profile.display_name || profile.username}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#0c1015] via-[#090b0d] to-[#040506]">
+                <div className="w-24 h-24 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center shadow-inner">
+                  <span className="font-serif text-4xl font-bold text-[#00d1ff]">
+                    {(profile.display_name || profile.username || 'P').charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="mt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[#59636d]">Privy Member</span>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#090b0d] via-[#090b0d]/50 to-transparent pointer-events-none" />
 
             {/* Online badge */}
             <div className="absolute top-5 left-5 flex items-center gap-2 px-3 py-1.5 bg-black/60 backdrop-blur-md border border-white/15 rounded-full shadow-lg">
@@ -274,9 +226,11 @@ export default function PublicProfilePage() {
                 <h1 className="font-serif text-3xl sm:text-5xl text-[#f3f6f8] tracking-tight">
                   {profile.display_name || profile.username}
                 </h1>
-                <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0">
-                  <Check className="w-3.5 h-3.5 stroke-[3]" />
-                </div>
+                {(profile.is_subscribed || profile.subscription_status === 'active') && (
+                  <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0" title="Subscribed VIP Member">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                )}
               </div>
 
               {/* Tags row */}
