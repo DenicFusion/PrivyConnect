@@ -15,10 +15,16 @@ import {
   incrementUserWallet, 
   isTransactionProcessed, 
   saveTransaction, 
-  updateUserSubscription 
+  updateUserSubscription,
+  recordProfileViewServer,
+  checkAndUpdateConversationConnectionServer,
+  handleDeleteConversationServer,
+  handleDeleteAccountServer,
+  recalculateProfileStrengthServer,
+  getUserStatsServer
 } from "./server/services/firebaseService.ts";
 import { uploadToCloudinary, isCloudinaryConfigured } from "./server/services/cloudinaryService.ts";
-import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
+import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,12 +48,14 @@ async function startServer() {
     next();
   });
 
-  // Use raw body for webhook signature verification
+  // Use raw body for webhook signature verification and increased limit for photo uploads
   app.use(express.json({
+    limit: '50mb',
     verify: (req: any, res, buf) => {
       req.rawBody = buf;
     }
   }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -423,36 +431,65 @@ async function startServer() {
   });
 
   // Location detection API route (coarse location based on IP)
+  // Location detection API route (coarse location based on IP)
   app.get("/api/detect-location", async (req, res) => {
     try {
       const forwarded = req.headers["x-forwarded-for"];
-      const rawIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket.remoteAddress || "";
-      const ip = rawIp.replace(/^::ffff:/, "");
+      let rawIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket.remoteAddress || "";
+      let ip = rawIp.replace(/^::ffff:/, "").trim();
 
       const isLocal = !ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.");
+      
+      // If local/proxy IP, discover external public IP
       if (isLocal) {
-        return res.json({
-          state: "Lagos",
-          city: "Lagos",
-          lat: 6.52,
-          lng: 3.37,
-          country: "Nigeria",
-          isDetected: false
-        });
+        try {
+          const ipify = await axios.get("https://api.ipify.org?format=json", { timeout: 2500 });
+          if (ipify.data?.ip) {
+            ip = ipify.data.ip.trim();
+          }
+        } catch {
+          // continue with empty or local
+        }
       }
 
-      const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,regionName,city,lat,lon`, { timeout: 3500 });
-      if (geoRes.data?.status === "success") {
-        const lat = Math.round(Number(geoRes.data.lat) * 100) / 100;
-        const lng = Math.round(Number(geoRes.data.lon) * 100) / 100;
-        return res.json({
-          state: geoRes.data.regionName || "Lagos",
-          city: geoRes.data.city || "Lagos",
-          lat,
-          lng,
-          country: geoRes.data.country || "Nigeria",
-          isDetected: true
-        });
+      // 1. Try ipwho.is with IP
+      try {
+        const queryUrl = ip && !isLocal ? `https://ipwho.is/${ip}` : "https://ipwho.is/";
+        const geoRes = await axios.get(queryUrl, { timeout: 3500 });
+        if (geoRes.data?.success !== false && (geoRes.data?.region || geoRes.data?.city)) {
+          const lat = Math.round(Number(geoRes.data.latitude || 6.52) * 100) / 100;
+          const lng = Math.round(Number(geoRes.data.longitude || 3.37) * 100) / 100;
+          return res.json({
+            state: geoRes.data.region || geoRes.data.city || "Lagos",
+            city: geoRes.data.city || geoRes.data.region || "Lagos",
+            lat,
+            lng,
+            country: geoRes.data.country || "Nigeria",
+            isDetected: true
+          });
+        }
+      } catch (err: any) {
+        console.warn("ipwho.is lookup failed:", err.message);
+      }
+
+      // 2. Try freeipapi.com
+      try {
+        const freeApiUrl = ip && !isLocal ? `https://freeipapi.com/api/json/${ip}` : "https://freeipapi.com/api/json";
+        const geoRes2 = await axios.get(freeApiUrl, { timeout: 3500 });
+        if (geoRes2.data?.regionName || geoRes2.data?.cityName) {
+          const lat = Math.round(Number(geoRes2.data.latitude || 6.52) * 100) / 100;
+          const lng = Math.round(Number(geoRes2.data.longitude || 3.37) * 100) / 100;
+          return res.json({
+            state: geoRes2.data.regionName || geoRes2.data.cityName || "Lagos",
+            city: geoRes2.data.cityName || geoRes2.data.regionName || "Lagos",
+            lat,
+            lng,
+            country: geoRes2.data.countryName || "Nigeria",
+            isDetected: true
+          });
+        }
+      } catch (err: any) {
+        console.warn("freeipapi lookup failed:", err.message);
       }
     } catch (err: any) {
       console.warn("IP location detection fallback:", err.message);
@@ -609,6 +646,7 @@ async function startServer() {
 
     if (!userId) {
       console.warn("No user ID found in request or metadata for reference:", reference);
+      throw new Error("User ID is required to activate subscription");
     }
 
     // Set 30 days subscription start and expiry
@@ -751,6 +789,95 @@ async function startServer() {
     } catch (error) {
       console.error('Error sending notification:', error);
       res.status(500).json({ error: 'Failed to send notification' });
+    }
+  });
+
+  // 1. Profile Views endpoint
+  app.post("/api/profile/view", async (req, res) => {
+    try {
+      const { viewerId, ownerId } = req.body;
+      if (!viewerId || !ownerId) {
+        return res.status(400).json({ error: "viewerId and ownerId are required" });
+      }
+      const result = await recordProfileViewServer(viewerId, ownerId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error in /api/profile/view:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 2. Chat Connection Check endpoint
+  app.post("/api/chat/check-connection", async (req, res) => {
+    try {
+      const { chatId } = req.body;
+      if (!chatId) {
+        return res.status(400).json({ error: "chatId is required" });
+      }
+      const result = await checkAndUpdateConversationConnectionServer(chatId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error in /api/chat/check-connection:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 2b. Delete Conversation endpoint (Subtracts connections if connected)
+  app.post("/api/chat/delete", async (req, res) => {
+    try {
+      const { chatId, requestedByUserId } = req.body;
+      if (!chatId) {
+        return res.status(400).json({ error: "chatId is required" });
+      }
+      const result = await handleDeleteConversationServer(chatId, requestedByUserId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error in /api/chat/delete:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 2c. Delete Account endpoint (Subtracts connections for peers in connected chats)
+  app.post("/api/account/delete", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      const result = await handleDeleteAccountServer(userId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error in /api/account/delete:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 3. Recalculate Strength endpoint
+  app.post("/api/profile/recalculate-strength", async (req, res) => {
+    try {
+      const { userId, profileData } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      const score = await recalculateProfileStrengthServer(userId, profileData);
+      res.json({ success: true, strength: score });
+    } catch (error: any) {
+      console.error("Error in /api/profile/recalculate-strength:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 4. User Stats Chart endpoint
+  app.get("/api/user-stats/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const range = (req.query.range as any) || "week";
+      const metric = (req.query.metric as any) || "views";
+      const stats = await getUserStatsServer(userId, range, metric);
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Error in /api/user-stats/:userId:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 

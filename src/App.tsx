@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { auth, db, doc, getDoc, setDoc, updateDoc, serverTimestamp, signOut } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { APP_CONFIG } from './config';
-import { Home, Search, MessageSquare, User, Wallet, Shield, LogOut, Menu, X, Bell, Settings, AlertCircle, Lock, ShieldAlert, ShieldCheck, Activity, ArrowLeft, Mail, Key, EyeOff, Eye, Zap, Compass } from 'lucide-react';
+import { Home, Search, MessageSquare, User, Shield, LogOut, Menu, X, Bell, Settings, AlertCircle, Lock, ShieldAlert, ShieldCheck, Activity, ArrowLeft, Mail, Key, EyeOff, Eye, Zap, Compass } from 'lucide-react';
 import { PrivyHeader } from './components/PrivyHeader';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -34,7 +33,7 @@ import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
 import PublicProfilePage from './pages/PublicProfile';
 
-import { detectLocationFromServer, getStateCoords } from './lib/location';
+import { detectLocationFromServer, getStateCoords, syncUserLiveLocation } from './lib/location';
 
 // Subscription Guard Component
 function SubscriptionGuard({ children, profile }: { children: React.ReactNode, profile: any }) {
@@ -213,23 +212,28 @@ function AppContent() {
         setShowGenderModal(true);
       }
 
-      // Detect location server-side and update online status
-      detectLocationFromServer().then(async (loc) => {
-        const chosenState = data.state || (loc.isDetected ? loc.state : 'Lagos');
-        const coords = loc.isDetected ? { lat: loc.lat, lng: loc.lng } : getStateCoords(chosenState);
-        const locUpdates = {
-          state: chosenState,
-          city: data.city || (loc.isDetected ? loc.city : chosenState),
-          coarse_lat: coords.lat,
-          coarse_lng: coords.lng,
-          is_online: true,
-          last_active: new Date().toISOString()
-        };
-        await updateDoc(userRef, locUpdates).catch(() => {});
-        setProfile((prev: any) => prev ? { ...prev, ...locUpdates } : prev);
-      }).catch(() => {
-        updateDoc(userRef, { is_online: true, last_active: new Date().toISOString() }).catch(() => {});
-      });
+      // Automatically sync live GPS / client location and update online status
+      syncUserLiveLocation(uid, profileWithEmail)
+        .then((locResult) => {
+          if (locResult.updated) {
+            setProfile((prev: any) => prev ? {
+              ...prev,
+              state: locResult.state,
+              city: locResult.city,
+              coarse_lat: locResult.lat,
+              coarse_lng: locResult.lng,
+              location: {
+                city: locResult.city,
+                state: locResult.state,
+                lat: locResult.lat,
+                lng: locResult.lng
+              }
+            } : prev);
+          }
+        })
+        .catch((e) => console.warn('Location sync non-fatal error:', e));
+
+      updateDoc(userRef, { is_online: true, last_active: new Date().toISOString() }).catch(() => {});
     } catch (err) {
       console.error('Error fetching profile:', err);
     } finally {

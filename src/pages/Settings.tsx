@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { auth, db, doc, getDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, signOut, updatePassword } from '../lib/firebase';
+import { calculateProfileStrength, recalculateProfileStrengthOnServer, deleteAccount } from '../lib/stats';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowRight,
@@ -26,6 +27,8 @@ import {
   Sparkles, 
   Copy, 
   X,
+  Plus,
+  RefreshCw,
   Globe,
   Zap,
   ShieldCheck
@@ -37,6 +40,7 @@ import { useToast } from '../components/Toaster';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { NIGERIAN_STATES } from './Discovery';
+import { syncUserLiveLocation, normalizeNigerianState, getStateCoords } from '../lib/location';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -71,14 +75,18 @@ export default function SettingsPage({ profile }: { profile: any }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // 5 SEPARATE TABS - per strict user specification (no long scroll)
   const [activeTab, setActiveTab] = useState<SettingsTab>('account');
 
   const [loading, setLoading] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [syncingLocation, setSyncingLocation] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [showStateDropdown, setShowStateDropdown] = useState(false);
+  const [showPrivacyStateDropdown, setShowPrivacyStateDropdown] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   // Password change state
@@ -388,11 +396,15 @@ export default function SettingsPage({ profile }: { profile: any }) {
     gender: profile?.gender || 'female',
     looking_for: profile?.looking_for || 'everyone',
     state: profile?.state || profile?.preferences?.state || 'Lagos',
+    city: profile?.city || profile?.state || 'Lagos',
+    coarse_lat: profile?.coarse_lat || undefined,
+    coarse_lng: profile?.coarse_lng || undefined,
     vibe: profile?.vibe || profile?.preferences?.vibe || 'SUGAR MUMMY',
     interests: Array.isArray(profile?.preferences?.interests) 
       ? profile.preferences.interests 
       : (Array.isArray(profile?.preferences) ? profile.preferences : ['Fine Dining', 'Luxury Travel', 'Nightlife', 'Art & Culture']),
     photo_url: profile?.photo_url || '',
+    photos: Array.isArray(profile?.photos) ? profile.photos : (profile?.photo_url ? [profile.photo_url] : []),
     messaging_privacy: profile?.messaging_privacy || 'everyone',
     location_privacy: profile?.location_privacy || 'exact',
     is_public: profile?.is_public ?? true,
@@ -401,7 +413,6 @@ export default function SettingsPage({ profile }: { profile: any }) {
     auto_renew: profile?.auto_renew ?? false,
     notification_settings: profile?.notification_settings || {
       chat: true,
-      tips: true,
       subscriptions: true,
       promotions: false
     }
@@ -419,11 +430,15 @@ export default function SettingsPage({ profile }: { profile: any }) {
         gender: profile.gender || prev.gender,
         looking_for: profile.looking_for || prev.looking_for,
         state: profile.state || profile.preferences?.state || prev.state,
+        city: profile.city || prev.city || prev.state,
+        coarse_lat: profile.coarse_lat || prev.coarse_lat,
+        coarse_lng: profile.coarse_lng || prev.coarse_lng,
         vibe: profile.vibe || profile.preferences?.vibe || prev.vibe,
         interests: Array.isArray(profile.preferences?.interests)
           ? profile.preferences.interests
           : (Array.isArray(profile.preferences) ? profile.preferences : prev.interests),
         photo_url: profile.photo_url || prev.photo_url,
+        photos: Array.isArray(profile.photos) && profile.photos.length > 0 ? profile.photos : (profile.photo_url ? [profile.photo_url] : prev.photos),
         messaging_privacy: profile.messaging_privacy || prev.messaging_privacy,
         location_privacy: profile.location_privacy || prev.location_privacy,
         is_public: profile.is_public ?? prev.is_public,
@@ -472,9 +487,12 @@ export default function SettingsPage({ profile }: { profile: any }) {
       setFormData(prev => ({ ...prev, photo_url: uploadedUrl }));
 
       if (profile?.id) {
-        await updateDoc(doc(db, 'profiles', profile.id), { photo_url: uploadedUrl });
+        const updatedProfile = { ...(profile || {}), photo_url: uploadedUrl };
+        const newScore = calculateProfileStrength(updatedProfile);
+        await updateDoc(doc(db, 'profiles', profile.id), { photo_url: uploadedUrl, strength: newScore });
+        recalculateProfileStrengthOnServer(profile.id, updatedProfile);
         try {
-          await updateDoc(doc(db, 'users', profile.id), { photo_url: uploadedUrl });
+          await updateDoc(doc(db, 'users', profile.id), { photo_url: uploadedUrl, strength: newScore });
         } catch {
           // ignore
         }
@@ -486,6 +504,119 @@ export default function SettingsPage({ profile }: { profile: any }) {
       toast(err.message || 'Failed to upload photo', 'error');
     } finally {
       setUploadingPhoto(false);
+    }
+  };
+
+  const handleUploadGalleryPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !profile?.id) return;
+
+    try {
+      setUploadingGallery(true);
+      toast('Compressing and uploading photo(s)...', 'info');
+
+      const currentPhotos: string[] = [...(formData.photos || [])];
+
+      for (let i = 0; i < files.length; i++) {
+        if (currentPhotos.length >= 12) {
+          toast('Maximum 12 photos allowed in gallery', 'info');
+          break;
+        }
+        const file = files[i];
+        if (!file.type.startsWith('image/')) continue;
+
+        const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true };
+        const compressed = await imageCompression(file, options);
+        const uploadedResult = await uploadToCloudinary(compressed);
+        const url = typeof uploadedResult === 'string' ? uploadedResult : (uploadedResult.url || '');
+
+        if (url && typeof url === 'string' && !currentPhotos.includes(url)) {
+          currentPhotos.push(url);
+        }
+      }
+
+      const mainPhoto = formData.photo_url || currentPhotos[0] || '';
+      const updated = {
+        ...formData,
+        photos: currentPhotos,
+        photo_url: mainPhoto
+      };
+
+      setFormData(updated);
+
+      const newStrength = calculateProfileStrength({ ...(profile || {}), ...updated });
+
+      await updateDoc(doc(db, 'profiles', profile.id), {
+        photos: currentPhotos,
+        photo_url: mainPhoto,
+        strength: newStrength,
+        updated_at: new Date().toISOString()
+      });
+      recalculateProfileStrengthOnServer(profile.id, { ...(profile || {}), ...updated, strength: newStrength });
+
+      toast('Photos added to your gallery! Live on your public profile now.', 'success');
+    } catch (err: any) {
+      console.error('Error adding gallery photos:', err);
+      toast(err.message || 'Failed to upload photos', 'error');
+    } finally {
+      setUploadingGallery(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteGalleryPhoto = async (photoUrlToDelete: string) => {
+    if (!profile?.id) return;
+
+    try {
+      const currentPhotos = (formData.photos || []).filter((u: string) => u !== photoUrlToDelete);
+      let newPhotoUrl = formData.photo_url;
+      if (newPhotoUrl === photoUrlToDelete) {
+        newPhotoUrl = currentPhotos[0] || '';
+      }
+
+      const updated = {
+        ...formData,
+        photos: currentPhotos,
+        photo_url: newPhotoUrl
+      };
+
+      setFormData(updated);
+
+      const newStrength = calculateProfileStrength({ ...(profile || {}), ...updated });
+
+      await updateDoc(doc(db, 'profiles', profile.id), {
+        photos: currentPhotos,
+        photo_url: newPhotoUrl,
+        strength: newStrength,
+        updated_at: new Date().toISOString()
+      });
+      recalculateProfileStrengthOnServer(profile.id, { ...(profile || {}), ...updated, strength: newStrength });
+
+      toast('Photo removed from gallery', 'info');
+    } catch (err: any) {
+      console.error('Error removing photo:', err);
+      toast('Failed to remove photo', 'error');
+    }
+  };
+
+  const handleDetectNow = async () => {
+    if (!profile?.id || syncingLocation) return;
+    setSyncingLocation(true);
+    toast('Detecting your live location...', 'info');
+    try {
+      const res = await syncUserLiveLocation(profile.id, { ...(profile || {}), ...formData }, true);
+      setFormData(prev => ({
+        ...prev,
+        state: res.state,
+        city: res.city,
+        coarse_lat: res.lat,
+        coarse_lng: res.lng
+      }));
+      toast(`Location updated to ${res.city || res.state}, ${res.state}!`, 'success');
+    } catch (err: any) {
+      toast('Could not detect location. Please select your state manually.', 'error');
+    } finally {
+      setSyncingLocation(false);
     }
   };
 
@@ -502,8 +633,12 @@ export default function SettingsPage({ profile }: { profile: any }) {
         gender: formData.gender,
         looking_for: formData.looking_for,
         state: formData.state,
+        city: formData.city,
+        coarse_lat: formData.coarse_lat,
+        coarse_lng: formData.coarse_lng,
         vibe: formData.vibe,
         photo_url: formData.photo_url,
+        photos: formData.photos,
         messaging_privacy: formData.messaging_privacy,
         location_privacy: formData.location_privacy,
         is_public: formData.is_public,
@@ -521,8 +656,15 @@ export default function SettingsPage({ profile }: { profile: any }) {
         updated_at: new Date().toISOString()
       };
 
+      const newStrength = calculateProfileStrength({
+        ...(profile || {}),
+        ...updates
+      });
+      (updates as any).strength = newStrength;
+
       if (profile?.id) {
         await updateDoc(doc(db, 'profiles', profile.id), updates);
+        recalculateProfileStrengthOnServer(profile.id, { ...(profile || {}), ...updates });
         try {
           await updateDoc(doc(db, 'users', profile.id), updates);
         } catch {
@@ -584,7 +726,8 @@ export default function SettingsPage({ profile }: { profile: any }) {
     setIsDeleting(true);
     try {
       if (profile?.id) {
-        await deleteDoc(doc(db, 'profiles', profile.id));
+        await deleteAccount(profile.id);
+        await deleteDoc(doc(db, 'profiles', profile.id)).catch(() => {});
         await signOut(auth);
       }
       toast('Account deleted successfully', 'info');
@@ -750,6 +893,88 @@ export default function SettingsPage({ profile }: { profile: any }) {
                 <p className="font-mono text-[11px] text-[#59636d] uppercase tracking-[0.14em]">
                   JPG, PNG or WEBP · Verified badge preserved
                 </p>
+              </div>
+            </div>
+
+            {/* Gallery Photos (Up to 12) with Add photos button & remove triggers */}
+            <div className="p-5 bg-white/[0.02] border border-white/[0.075] rounded-[22px] space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] font-semibold">
+                      Profile Gallery Photos
+                    </span>
+                    <span className="font-mono text-[11px] text-[#00d1ff] font-semibold">
+                      ({(formData.photos || []).length}/12)
+                    </span>
+                  </div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#8d97a1] mt-0.5">
+                    More photos bring more visitors.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={uploadingGallery || (formData.photos || []).length >= 12}
+                  className="px-3.5 py-1.5 rounded-full bg-[#00d1ff]/10 hover:bg-[#00d1ff]/20 text-[#00d1ff] border border-[#00d1ff]/30 text-xs font-mono uppercase tracking-wider font-semibold transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{uploadingGallery ? 'Uploading...' : 'Add photos'}</span>
+                </button>
+              </div>
+
+              {/* Hidden file input for gallery */}
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleUploadGalleryPhoto}
+                className="hidden"
+              />
+
+              {/* Photos grid */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2.5">
+                {(formData.photos || []).map((src: string, i: number) => (
+                  <div 
+                    key={i} 
+                    className="aspect-square rounded-[16px] overflow-hidden bg-white/5 border border-white/[0.075] relative group"
+                  >
+                    <img 
+                      src={src} 
+                      alt={`Gallery ${i + 1}`} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGalleryPhoto(src)}
+                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/75 hover:bg-[#ff5a5f] text-white flex items-center justify-center transition-colors cursor-pointer border border-white/20 shadow-md opacity-80 hover:opacity-100"
+                      title="Remove photo"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    {src === formData.photo_url && (
+                      <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-[#00d1ff] text-[#00131a] font-mono text-[8px] font-bold uppercase tracking-wider">
+                        Main
+                      </span>
+                    )}
+                  </div>
+                ))}
+
+                {(formData.photos || []).length < 12 && (
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    disabled={uploadingGallery}
+                    className="aspect-square rounded-[16px] border-2 border-dashed border-white/15 hover:border-[#00d1ff]/50 bg-white/[0.02] hover:bg-[#00d1ff]/5 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer group"
+                  >
+                    <Plus className="w-5 h-5 text-[#8d97a1] group-hover:text-[#00d1ff]" />
+                    <span className="font-mono text-[9px] uppercase tracking-wider text-[#8d97a1] group-hover:text-white">
+                      Add
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1163,6 +1388,78 @@ export default function SettingsPage({ profile }: { profile: any }) {
               </div>
             </div>
 
+            {/* Location & State Preferences (with manual choice and Detect now button) */}
+            <div className="space-y-3 pt-3">
+              <div className="flex items-center justify-between">
+                <label className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
+                  Location & State
+                </label>
+                <button
+                  type="button"
+                  onClick={handleDetectNow}
+                  disabled={syncingLocation}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#00d1ff]/10 hover:bg-[#00d1ff]/20 text-[#00d1ff] border border-[#00d1ff]/30 text-xs font-mono uppercase tracking-wider font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5", syncingLocation && "animate-spin")} />
+                  <span>{syncingLocation ? 'Detecting...' : 'Detect now'}</span>
+                </button>
+              </div>
+
+              <div className="p-4 rounded-[18px] bg-white/[0.02] border border-white/10 space-y-3">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-[#8d97a1]">SAVED LOCATION:</span>
+                  <span className="text-[#00d1ff] font-semibold">{formData.city || formData.state}, {formData.state} State</span>
+                </div>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivacyStateDropdown(!showPrivacyStateDropdown)}
+                    className="w-full bg-[#040506] border border-white/15 rounded-[14px] px-4 py-3 text-sm text-[#f3f6f8] flex items-center justify-between cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-[#00d1ff]" />
+                      <span>{formData.state || 'Lagos'} State</span>
+                    </span>
+                    <ChevronDown className="w-4 h-4 text-[#8d97a1]" />
+                  </button>
+
+                  {showPrivacyStateDropdown && (
+                    <div className="absolute left-0 right-0 top-full mt-2 z-50 max-h-56 overflow-y-auto bg-[#090b0d] border border-white/15 rounded-[18px] shadow-2xl p-2 space-y-1">
+                      {NIGERIAN_STATES.map(st => (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => {
+                            const coords = getStateCoords(st);
+                            setFormData(prev => ({
+                              ...prev,
+                              state: st,
+                              city: prev.city && prev.city !== prev.state ? prev.city : st,
+                              coarse_lat: coords.lat,
+                              coarse_lng: coords.lng
+                            }));
+                            setShowPrivacyStateDropdown(false);
+                          }}
+                          className={cn(
+                            "w-full text-left px-3.5 py-2.5 rounded-[12px] text-xs font-mono uppercase tracking-wider transition-colors cursor-pointer",
+                            formData.state === st
+                              ? "bg-[#00d1ff] text-[#00131a] font-bold"
+                              : "text-[#8d97a1] hover:text-white hover:bg-white/5"
+                          )}
+                        >
+                          {st}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="font-mono text-[10px] text-[#59636d] uppercase tracking-[0.12em]">
+                  If automatic detection fails, select your state manually or tap "Detect now".
+                </p>
+              </div>
+            </div>
+
             {/* Save changes button */}
             <div className="pt-2">
               <button
@@ -1190,7 +1487,6 @@ export default function SettingsPage({ profile }: { profile: any }) {
             <div className="space-y-5 divide-y divide-white/[0.05]">
               {[
                 { key: 'chat', label: 'New Chat Messages', desc: 'Instant alerts when members send you direct messages' },
-                { key: 'tips', label: 'Tips & Gifts Received', desc: 'Notify when wallet gifts or deposits arrive' },
                 { key: 'subscriptions', label: 'Subscription & Renewal Alerts', desc: 'Reminders 48h prior to VIP membership expiration' },
                 { key: 'promotions', label: 'Curated Companion Matches', desc: 'Weekly top matches based on your desired vibe' }
               ].map(item => {

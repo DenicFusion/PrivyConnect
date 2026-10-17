@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { db, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs } from '../lib/firebase';
-import { calculateDistanceKm, formatDistance } from '../lib/location';
+import { db, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs, onSnapshot } from '../lib/firebase';
+import { calculateDistanceKm, formatDistance, syncUserLiveLocation } from '../lib/location';
+import { calculateProfileStrength, recordProfileView, checkAndUpdateConversationConnection, recalculateProfileStrengthOnServer } from '../lib/stats';
+import { UserStatsChart } from '../components/UserStatsChart';
+import imageCompression from 'browser-image-compression';
+import { uploadToCloudinary } from '../lib/cloudinary';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, 
@@ -23,7 +27,13 @@ import {
   MessageCircle,
   Send,
   Crown,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  Trash2,
+  Camera,
+  Loader2,
+  MapPin,
+  RefreshCw
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
@@ -64,7 +74,9 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [referralStats, setReferralStats] = useState({ total: 0, earned: 0 });
+  const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [syncingLocation, setSyncingLocation] = useState(false);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Privacy toggles & visibility mode state (for My Profile)
   const [visibilityMode, setVisibilityMode] = useState<'public' | 'private' | 'ghost'>('public');
@@ -130,15 +142,17 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           return;
         }
 
-        // 4. Also check users collection in Firestore
-        const userSnap = await getDoc(doc(db, 'users', targetParam));
-        if (userSnap.exists()) {
-          const data: any = { id: userSnap.id, ...userSnap.data() };
-          setUser(data);
-          setIsPublicProfile(data.is_public ?? true);
-          setHideOnlineStatus(data.hide_online_status ?? false);
-          setLoading(false);
-          return;
+        // 4. Also check users collection in Firestore if own profile
+        if (isOwnProfile) {
+          const userSnap = await getDoc(doc(db, 'users', targetParam)).catch(() => null);
+          if (userSnap && userSnap.exists()) {
+            const data: any = { id: userSnap.id, ...userSnap.data() };
+            setUser(data);
+            setIsPublicProfile(data.is_public ?? true);
+            setHideOnlineStatus(data.hide_online_status ?? false);
+            setLoading(false);
+            return;
+          }
         }
 
         // Profile not found in real database
@@ -153,6 +167,30 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
 
     fetchUser();
   }, [uid, username, targetParam, myProfile, isOwnProfile, isSubscribed, navigate, toast]);
+
+  // Real-time listener for live updates on views, connections, and profile data
+  useEffect(() => {
+    const targetId = isOwnProfile ? myProfile?.id : user?.id;
+    if (!targetId) return;
+
+    const unsub = onSnapshot(doc(db, 'profiles', targetId), (snap) => {
+      if (snap.exists()) {
+        const liveData = { id: snap.id, ...snap.data() };
+        setUser((prev: any) => ({ ...(prev || {}), ...liveData }));
+      }
+    }, (err) => {
+      console.warn('Realtime profile listener error:', err);
+    });
+
+    return () => unsub();
+  }, [isOwnProfile, myProfile?.id, user?.id]);
+
+  // 1. Record view when viewing another member's profile
+  useEffect(() => {
+    if (!isOwnProfile && myProfile?.id && user?.id && myProfile.id !== user.id) {
+      recordProfileView(myProfile.id, user.id);
+    }
+  }, [isOwnProfile, myProfile?.id, user?.id]);
 
   useEffect(() => {
     const checkIsSaved = async () => {
@@ -175,27 +213,56 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     checkIsSaved();
   }, [uid, myProfile]);
 
+  // Auto-sync location if own profile
   useEffect(() => {
-    const fetchReferralStats = async () => {
-      const targetUser = user || myProfile;
-      if (!targetUser?.id) return;
-      try {
-        const q = query(
-          collection(db, 'referrals'),
-          where('referrer_id', '==', targetUser.id)
-        );
-        const snap = await getDocs(q);
-        const referrals = snap.docs.map(d => d.data());
-        const total = referrals.length;
-        const earned = referrals.filter((r: any) => r.status === 'completed').reduce((acc: number, r: any) => acc + (Number(r.reward_amount) || 0), 0);
-        setReferralStats({ total, earned });
-      } catch (err) {
-        console.error('Error fetching referrals:', err);
+    if (isOwnProfile && myProfile?.id) {
+      syncUserLiveLocation(myProfile.id, myProfile).then((res) => {
+        if (res.updated) {
+          setUser((prev: any) => ({
+            ...(prev || myProfile),
+            state: res.state,
+            city: res.city,
+            coarse_lat: res.lat,
+            coarse_lng: res.lng
+          }));
+        }
+      }).catch(() => {});
+    }
+  }, [isOwnProfile, myProfile?.id]);
+
+  const profileData = user || myProfile;
+  const profileStrength = calculateProfileStrength(profileData);
+
+  // Sync calculated strength to firestore if needed (top-level hook before early returns)
+  useEffect(() => {
+    if (isOwnProfile && myProfile?.id && profileStrength !== undefined && profileData) {
+      if (profileData.strength !== profileStrength) {
+        updateDoc(doc(db, 'profiles', myProfile.id), {
+          strength: profileStrength,
+          updated_at: new Date().toISOString()
+        }).catch(() => {});
       }
-    };
-    
-    fetchReferralStats();
-  }, [user, myProfile]);
+    }
+  }, [isOwnProfile, myProfile?.id, profileStrength, profileData?.strength]);
+
+  const galleryImages: string[] = useMemo(() => {
+    const list: string[] = [];
+    if (Array.isArray(profileData?.photos)) {
+      profileData.photos.forEach((p: any) => {
+        const u = typeof p === 'string' ? p : p?.url;
+        if (u && typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:image')) && !list.includes(u)) {
+          list.push(u);
+        }
+      });
+    }
+    if (profileData?.photo_url) {
+      const mainU = typeof profileData.photo_url === 'string' ? profileData.photo_url : profileData.photo_url?.url;
+      if (mainU && typeof mainU === 'string' && (mainU.startsWith('http') || mainU.startsWith('data:image')) && !list.includes(mainU)) {
+        list.unshift(mainU);
+      }
+    }
+    return list;
+  }, [profileData?.photos, profileData?.photo_url]);
 
   const handleEditClick = () => {
     navigate('/settings');
@@ -208,6 +275,162 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     setCopiedLink(true);
     toast('Profile link copied to clipboard!', 'success');
     setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const handleRefreshLocation = async () => {
+    if (!myProfile?.id || syncingLocation) return;
+    setSyncingLocation(true);
+    toast('Detecting your live location...', 'info');
+    try {
+      const res = await syncUserLiveLocation(myProfile.id, profileData);
+      setUser((prev: any) => ({
+        ...(prev || myProfile),
+        state: res.state,
+        city: res.city,
+        coarse_lat: res.lat,
+        coarse_lng: res.lng,
+        location: {
+          city: res.city,
+          state: res.state,
+          lat: res.lat,
+          lng: res.lng
+        }
+      }));
+      toast(`Location updated to ${res.city || res.state}, ${res.state}!`, 'success');
+    } catch (e: any) {
+      toast('Could not detect location. Please allow GPS permission in your browser.', 'error');
+    } finally {
+      setSyncingLocation(false);
+    }
+  };
+
+  const handleUploadGalleryPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !myProfile?.id) return;
+
+    try {
+      setUploadingGallery(true);
+      toast('Processing and uploading photo(s)...', 'info');
+
+      // Extract existing valid photos
+      const currentPhotos: string[] = [];
+      if (Array.isArray(profileData?.photos)) {
+        profileData.photos.forEach((p: any) => {
+          const u = typeof p === 'string' ? p : p?.url;
+          if (u && typeof u === 'string' && u.startsWith('http') && !currentPhotos.includes(u)) {
+            currentPhotos.push(u);
+          }
+        });
+      }
+      if (profileData?.photo_url) {
+        const mainU = typeof profileData.photo_url === 'string' ? profileData.photo_url : profileData.photo_url?.url;
+        if (mainU && typeof mainU === 'string' && mainU.startsWith('http') && !currentPhotos.includes(mainU)) {
+          currentPhotos.unshift(mainU);
+        }
+      }
+
+      for (let i = 0; i < files.length; i++) {
+        if (currentPhotos.length >= 12) {
+          toast('Maximum 12 photos allowed in gallery', 'info');
+          break;
+        }
+        const file = files[i];
+        if (!file.type.startsWith('image/')) continue;
+
+        const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true };
+        const compressed = await imageCompression(file, options);
+        const uploadResult = await uploadToCloudinary(compressed);
+        const url = typeof uploadResult === 'string' ? uploadResult : (uploadResult.url || '');
+
+        if (url && typeof url === 'string' && !currentPhotos.includes(url)) {
+          currentPhotos.push(url);
+        }
+      }
+
+      const mainPhoto = currentPhotos[0] || profileData?.photo_url || '';
+      const updatedProfile = {
+        ...(profileData || {}),
+        photos: currentPhotos,
+        photo_url: mainPhoto
+      };
+
+      const newStrength = calculateProfileStrength(updatedProfile);
+
+      await updateDoc(doc(db, 'profiles', myProfile.id), {
+        photos: currentPhotos,
+        photo_url: mainPhoto,
+        strength: newStrength,
+        updated_at: new Date().toISOString()
+      });
+
+      try {
+        await updateDoc(doc(db, 'users', myProfile.id), {
+          photos: currentPhotos,
+          photo_url: mainPhoto,
+          strength: newStrength
+        });
+      } catch {}
+
+      recalculateProfileStrengthOnServer(myProfile.id, updatedProfile);
+
+      setUser((prev: any) => ({ ...prev, ...updatedProfile, strength: newStrength }));
+      toast(`Gallery updated! You now have ${currentPhotos.length} photo(s).`, 'success');
+    } catch (err: any) {
+      console.error('Gallery upload error:', err);
+      toast(err.message || 'Failed to upload photo', 'error');
+    } finally {
+      setUploadingGallery(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteGalleryPhoto = async (photoUrlToDelete: string) => {
+    if (!isOwnProfile || !myProfile?.id) return;
+
+    try {
+      const currentPhotos = (Array.isArray(profileData?.photos) ? profileData.photos : []).filter(
+        (p: any) => {
+          const u = typeof p === 'string' ? p : p?.url;
+          return u !== photoUrlToDelete;
+        }
+      );
+
+      let newPhotoUrl = profileData?.photo_url;
+      if (newPhotoUrl === photoUrlToDelete) {
+        const nextPhoto = currentPhotos[0];
+        newPhotoUrl = (typeof nextPhoto === 'string' ? nextPhoto : nextPhoto?.url) || '';
+      }
+
+      const updatedProfile = {
+        ...(profileData || {}),
+        photos: currentPhotos,
+        photo_url: newPhotoUrl
+      };
+
+      const newStrength = calculateProfileStrength(updatedProfile);
+
+      await updateDoc(doc(db, 'profiles', myProfile.id), {
+        photos: currentPhotos,
+        photo_url: newPhotoUrl,
+        strength: newStrength,
+        updated_at: new Date().toISOString()
+      });
+
+      try {
+        await updateDoc(doc(db, 'users', myProfile.id), {
+          photos: currentPhotos,
+          photo_url: newPhotoUrl,
+          strength: newStrength
+        });
+      } catch {}
+
+      recalculateProfileStrengthOnServer(myProfile.id, updatedProfile);
+
+      setUser((prev: any) => ({ ...prev, ...updatedProfile, strength: newStrength }));
+      toast('Photo removed from gallery', 'info');
+    } catch (e) {
+      toast('Failed to remove photo', 'error');
+    }
   };
 
   const handleShare = async () => {
@@ -312,6 +535,7 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
           content: quickMessage.trim(),
           timestamp: new Date().toISOString(),
         });
+        checkAndUpdateConversationConnection(chatId);
       }
 
       navigate(`/chat/${chatId}`);
@@ -386,8 +610,6 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
     );
   }
 
-  const profileData = user || myProfile;
-
   if (!profileData) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6 space-y-4">
@@ -410,13 +632,12 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   const profileVibe = profileData.vibe || profileData.preferences?.vibe || 'BESTIE';
   const vibeStyle = getVibeStyle(profileVibe);
   const displayBio = profileData.bio || "Verified member on PrivyConnect. Living passionately, seeking genuine high-frequency chemistry and meaningful connections.";
+
   const displayInterests = Array.isArray(profileData.preferences?.interests) && profileData.preferences.interests.length > 0 
     ? profileData.preferences.interests 
     : (Array.isArray(profileData.preferences) ? profileData.preferences : DEFAULT_INTEREST_TAGS);
 
-  const galleryImages: string[] = Array.isArray(profileData.photos) && profileData.photos.length > 0
-    ? profileData.photos
-    : (profileData.photo_url ? [profileData.photo_url] : []);
+
 
   const myLat = myProfile?.coarse_lat;
   const myLng = myProfile?.coarse_lng;
@@ -512,6 +733,13 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
             )}
           </div>
 
+          {/* @username tag under full name */}
+          {profileData.username && (
+            <p className="font-mono text-sm sm:text-base text-[#00d1ff] font-semibold tracking-wide">
+              @{profileData.username.replace(/^@/, '')}
+            </p>
+          )}
+
           {/* Prominent Companionship Vibe & Gender Tags */}
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
             <span 
@@ -549,8 +777,12 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                 <span>Subscribe to see distance</span>
               </button>
             )}
-            <span>·</span>
-            <span className="text-[#35e0a1]">98% RESPONSE RATE</span>
+            {profileData.is_verified && (
+              <>
+                <span>·</span>
+                <span className="text-[#35e0a1]">VERIFIED</span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -558,15 +790,21 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
       {/* Stats: one card split into 3 (Views, Connections, Strength), big serif numbers with mono labels */}
       <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] grid grid-cols-3 divide-x divide-white/[0.075] p-5 text-center shadow-lg">
         <div className="space-y-1">
-          <div className="font-serif text-2xl sm:text-3xl text-[#f3f6f8] leading-tight">1.2k</div>
+          <div className="font-serif text-2xl sm:text-3xl text-[#f3f6f8] leading-tight">
+            {Number(profileData.views) || 0}
+          </div>
           <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">Views</div>
         </div>
         <div className="space-y-1">
-          <div className="font-serif text-2xl sm:text-3xl text-[#00d1ff] leading-tight">48</div>
+          <div className="font-serif text-2xl sm:text-3xl text-[#00d1ff] leading-tight">
+            {Number(profileData.connections) || 0}
+          </div>
           <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">Connections</div>
         </div>
         <div className="space-y-1">
-          <div className="font-serif text-2xl sm:text-3xl text-[#35e0a1] leading-tight">98%</div>
+          <div className="font-serif text-2xl sm:text-3xl text-[#35e0a1] leading-tight">
+            {profileStrength}%
+          </div>
           <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">Strength</div>
         </div>
       </div>
@@ -618,11 +856,38 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         </div>
       </div>
 
-      {/* Section: Gallery (3-column square grid with rounded corners) with mono label */}
-      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-3.5">
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-          GALLERY
-        </span>
+      {/* Section: Gallery (up to 12 photos) with mono label and Add photos button */}
+      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] font-semibold">
+                GALLERY
+              </span>
+              <span className="font-mono text-[11px] text-[#00d1ff] font-semibold">
+                ({galleryImages.length}/12)
+              </span>
+            </div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#8d97a1] mt-0.5">
+              More photos bring more visitors.
+            </p>
+          </div>
+
+          {isOwnProfile && (
+            <div>
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={uploadingGallery || galleryImages.length >= 12}
+                className="px-3.5 py-1.5 rounded-full bg-[#00d1ff]/10 hover:bg-[#00d1ff]/20 text-[#00d1ff] border border-[#00d1ff]/30 text-xs font-mono uppercase tracking-wider font-semibold transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{uploadingGallery ? 'Uploading...' : 'Add photos'}</span>
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-3 gap-3">
           {galleryImages.map((src, i) => (
             <div 
@@ -635,8 +900,41 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 brightness-95 contrast-[1.02]"
                 referrerPolicy="no-referrer"
               />
+
+              {/* Remove button on each photo for owner */}
+              {isOwnProfile && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteGalleryPhoto(src);
+                  }}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-[#ff5a5f] text-white flex items-center justify-center transition-colors cursor-pointer border border-white/20 shadow-md opacity-80 hover:opacity-100"
+                  title="Remove photo"
+                  aria-label="Remove photo"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           ))}
+
+          {/* Add photo tile placeholder if less than 12 */}
+          {isOwnProfile && galleryImages.length < 12 && (
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              disabled={uploadingGallery}
+              className="aspect-square rounded-[18px] border-2 border-dashed border-white/15 hover:border-[#00d1ff]/50 bg-white/[0.02] hover:bg-[#00d1ff]/5 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group"
+            >
+              <div className="w-9 h-9 rounded-full bg-white/5 group-hover:bg-[#00d1ff]/20 text-[#8d97a1] group-hover:text-[#00d1ff] flex items-center justify-center transition-colors">
+                <Plus className="w-5 h-5" />
+              </div>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-[#8d97a1] group-hover:text-white">
+                Add photo
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -665,21 +963,22 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                   <div>
                     <p className="text-[10px] font-mono uppercase tracking-wider text-[#8d97a1]">Direct Line</p>
                     <p className="text-sm font-semibold text-white">
-                      {profileData.phone || `+234 81${(10 + (profileData.username || 'user').length * 3)} 492 841`}
+                      {profileData.phone || 'Not provided'}
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const phone = profileData.phone || `+234 81${(10 + (profileData.username || 'user').length * 3)} 492 841`;
-                    navigator.clipboard.writeText(phone);
-                    toast('Phone number copied!', 'success');
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-mono text-white/80 hover:text-white transition-colors"
-                >
-                  Copy
-                </button>
+                {profileData.phone && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(profileData.phone);
+                      toast('Phone number copied!', 'success');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-mono text-white/80 hover:text-white transition-colors"
+                  >
+                    Copy
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.03] border border-white/10">
@@ -690,18 +989,20 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
                   <div>
                     <p className="text-[10px] font-mono uppercase tracking-wider text-[#8d97a1]">WhatsApp</p>
                     <p className="text-sm font-semibold text-white">
-                      {profileData.whatsapp || profileData.phone || `+234 81${(10 + (profileData.username || 'user').length * 3)} 492 841`}
+                      {profileData.whatsapp || profileData.phone || 'Not provided'}
                     </p>
                   </div>
                 </div>
-                <a
-                  href={`https://wa.me/${(profileData.whatsapp || profileData.phone || '2348100000000').replace(/[^0-9]/g, '')}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-xs uppercase tracking-wider flex items-center gap-1 transition-colors"
-                >
-                  Chat <ExternalLink className="w-3 h-3" />
-                </a>
+                {(profileData.whatsapp || profileData.phone) && (
+                  <a
+                    href={`https://wa.me/${(profileData.whatsapp || profileData.phone).replace(/[^0-9]/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-xs uppercase tracking-wider flex items-center gap-1 transition-colors"
+                  >
+                    Chat <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.03] border border-white/10">
@@ -882,47 +1183,17 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         </div>
       )}
 
-      {/* Invite and Earn Card: referral link in a dark box with a cyan round copy button, plus two small stat boxes (Referrals, Earned) */}
-      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-4">
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-          INVITE & EARN
-        </span>
+      {/* 7. PRIVATE STATS CHART (only the profile owner can see this) */}
+      {isOwnProfile && myProfile?.id && (
+        <UserStatsChart 
+          userId={myProfile.id}
+          allTimeViews={Number(profileData.views) || 0}
+          allTimeConnections={Number(profileData.connections) || 0}
+          currentStrength={profileStrength}
+        />
+      )}
 
-        {/* Dark box with referral link and round cyan copy button */}
-        <div className="bg-[#040506] border border-white/10 rounded-[18px] p-2.5 pl-4 flex items-center justify-between">
-          <div className="font-mono text-xs text-[#8d97a1] truncate mr-3">
-            {window.location.origin}/u/{profileData.username || 'member'}
-          </div>
-          <button 
-            type="button"
-            onClick={copyProfileUrl}
-            className="w-10 h-10 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center font-bold shrink-0 hover:bg-[#00d1ff]/90 transition-all shadow-[0_0_15px_rgba(0,209,255,0.25)] active:scale-95 cursor-pointer"
-            title="Copy link"
-          >
-            {copiedLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-          </button>
-        </div>
 
-        {/* Two small stat boxes: Referrals and Earned */}
-        <div className="grid grid-cols-2 gap-3 pt-1">
-          <div className="bg-white/[0.02] border border-white/[0.075] rounded-[18px] p-4 text-center space-y-1">
-            <div className="font-serif text-2xl text-[#f3f6f8]">
-              {referralStats.total || profileData.referral_count || 0}
-            </div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">
-              REFERRALS
-            </div>
-          </div>
-          <div className="bg-white/[0.02] border border-white/[0.075] rounded-[18px] p-4 text-center space-y-1">
-            <div className="font-serif text-2xl text-[#00d1ff]">
-              ₦{Number(referralStats.earned || 0).toLocaleString()}
-            </div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">
-              EARNED
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Block member button (when viewing someone else) */}
       {!isOwnProfile && (

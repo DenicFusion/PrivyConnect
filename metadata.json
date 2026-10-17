@@ -1,5 +1,12 @@
 {
   "name": "PrivyConnect",
   "description": "Find your match. Keep it fun. Meet people near you or across Nigeria on PrivyConnect.",
-  "requestFramePermissions": ["camera", "microphone", "geolocation"]
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

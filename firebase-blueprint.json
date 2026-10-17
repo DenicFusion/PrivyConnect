@@ -19,6 +19,9 @@
         "hide_online_status": { "type": "boolean" },
         "is_online": { "type": "boolean" },
         "balance": { "type": "number" },
+        "views": { "type": "number" },
+        "connections": { "type": "number" },
+        "strength": { "type": "number" },
         "gender": { "type": "string" },
         "looking_for": { "type": "string" },
         "location_privacy": { "type": "string" },
@@ -174,6 +177,34 @@
         "updated_at": { "type": "string", "format": "date-time" }
       },
       "required": ["profile_id", "balance"]
+    },
+    "profile_view": {
+      "title": "Profile View",
+      "description": "Daily view record of a profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "viewer_id": { "type": "string" },
+        "owner_id": { "type": "string" },
+        "date": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "viewer_id", "owner_id", "date"]
+    },
+    "user_daily_stat": {
+      "title": "User Daily Stat",
+      "description": "Daily aggregated stats record for chart",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "date": { "type": "string" },
+        "views": { "type": "number" },
+        "new_connections": { "type": "number" },
+        "strength": { "type": "number" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "date"]
     }
   },
   "firestore": {
@@ -224,6 +255,14 @@
     "/wallet/{walletId}": {
       "schema": "wallet",
       "description": "Collection of wallets"
+    },
+    "/profileViews/{viewId}": {
+      "schema": "profile_view",
+      "description": "Collection of unique daily profile views"
+    },
+    "/user_daily_stats/{statId}": {
+      "schema": "user_daily_stat",
+      "description": "Collection of private daily stats records for user charts"
     }
   }
 }

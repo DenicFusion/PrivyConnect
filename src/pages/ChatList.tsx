@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, collection, query, where, getDocs, getDoc, addDoc, updateDoc, doc, onSnapshot } from '../lib/firebase';
+import { checkAndUpdateConversationConnection, deleteConversation } from '../lib/stats';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Shield, 
@@ -216,12 +217,34 @@ export default function ChatListPage({ profile }: { profile: any }) {
         last_timestamp: new Date().toISOString()
       });
 
+      // 2. Evaluate connection (both sides sent at least 1 message)
+      if (selectedChatId) {
+        checkAndUpdateConversationConnection(selectedChatId);
+      }
+
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {
       console.error('Error sending message:', err);
       toast('Failed to send message', 'error');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDeleteSelectedChat = async () => {
+    if (!selectedChatId) return;
+    if (!window.confirm("Are you sure you want to delete this conversation?")) return;
+
+    try {
+      await deleteConversation(selectedChatId, profile?.id);
+      setChats(prev => prev.filter(c => c.id !== selectedChatId));
+      setSelectedChatId(null);
+      toast('Conversation deleted', 'info');
+      if (window.innerWidth < 860) {
+        navigate('/chats');
+      }
+    } catch (e) {
+      toast('Failed to delete conversation', 'error');
     }
   };
 
@@ -456,8 +479,15 @@ export default function ChatListPage({ profile }: { profile: any }) {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#35e0a1] shadow-[0_0_6px_#35e0a1]" />
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-[#35e0a1] shadow-[0_0_6px_#35e0a1]" title="Online" />
+                  <button
+                    onClick={handleDeleteSelectedChat}
+                    className="p-1.5 rounded-lg text-white/40 hover:text-[#ff5a5f] hover:bg-white/5 transition-all cursor-pointer"
+                    title="Delete Conversation"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 

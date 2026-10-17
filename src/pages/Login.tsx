@@ -22,7 +22,8 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/Toaster';
 import { ArrowLeft, Eye, EyeOff, ShieldCheck, Lock, Mail, User, MapPin, Sparkles, AlertCircle, Info } from 'lucide-react';
-import { detectLocationFromServer, getStateCoords } from '../lib/location';
+import { detectLocationFromIp, getStateCoords } from '../lib/location';
+import { calculateProfileStrength, recalculateProfileStrengthOnServer } from '../lib/stats';
 
 const getFriendlyError = (err: any) => {
   const code = err?.code || '';
@@ -187,7 +188,7 @@ export default function LoginPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, signupEmail.trim(), signupPassword);
       const user = userCredential.user;
 
-      const detectedLoc = await detectLocationFromServer().catch(() => null);
+      const detectedLoc = await detectLocationFromIp().catch(() => null);
       const chosenState = signupState || (detectedLoc?.isDetected ? detectedLoc.state : 'Lagos');
       const coords = detectedLoc?.isDetected 
         ? { lat: detectedLoc.lat, lng: detectedLoc.lng } 
@@ -210,11 +211,16 @@ export default function LoginPage() {
         is_verified: false,
         is_subscribed: false,
         is_online: true,
+        views: 0,
+        connections: 0,
+        strength: 0,
         created_at: serverTimestamp()
       };
+      newProfile.strength = calculateProfileStrength(newProfile);
 
       await setDoc(doc(db, 'profiles', user.uid), newProfile);
       await setDoc(doc(db, 'users', user.uid), newProfile);
+      recalculateProfileStrengthOnServer(user.uid, newProfile);
 
       sessionStorage.setItem('just_registered', 'true');
       toast('Welcome to PrivyConnect! Account created.', 'success');
@@ -239,22 +245,37 @@ export default function LoginPage() {
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
+        const detectedLoc = await detectLocationFromIp().catch(() => null);
+        const autoState = detectedLoc?.isDetected ? detectedLoc.state : 'Lagos';
+        const coords = detectedLoc?.isDetected 
+          ? { lat: detectedLoc.lat, lng: detectedLoc.lng } 
+          : getStateCoords(autoState);
+
         const newProfile = {
           id: user.uid,
           email: user.email || '',
           username: user.email?.split('@')[0] || `user_${user.uid.slice(0, 5)}`,
           display_name: user.displayName || 'Member',
           photo_url: user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
+          state: autoState,
+          city: detectedLoc?.city || autoState,
+          coarse_lat: coords.lat,
+          coarse_lng: coords.lng,
           gender: '',
           vibe: '',
           onboarding_completed: false,
           is_verified: false,
           is_subscribed: false,
           is_online: true,
+          views: 0,
+          connections: 0,
+          strength: 0,
           created_at: serverTimestamp()
         };
+        newProfile.strength = calculateProfileStrength(newProfile);
         await setDoc(userRef, newProfile);
         await setDoc(doc(db, 'users', user.uid), newProfile);
+        recalculateProfileStrengthOnServer(user.uid, newProfile);
         sessionStorage.setItem('just_registered', 'true');
         toast('Account created successfully!', 'success');
       } else {

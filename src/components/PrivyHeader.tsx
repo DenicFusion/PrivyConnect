@@ -4,7 +4,6 @@ import {
   X, 
   Compass, 
   MessageSquare, 
-  Wallet, 
   User, 
   Settings, 
   Sparkles, 
@@ -216,7 +215,7 @@ export function PrivyHeader({ profile, unreadCount = 0 }: PrivyHeaderProps) {
                   </button>
                 </div>
 
-                {/* Plan status & Wallet preview */}
+                {/* Plan status */}
                 <div className="flex items-center justify-between bg-white/[0.03] border border-white/5 rounded-2xl p-2.5 text-xs">
                   <div className="flex items-center gap-1.5">
                     {isSubscribed ? (
@@ -225,7 +224,7 @@ export function PrivyHeader({ profile, unreadCount = 0 }: PrivyHeaderProps) {
                       </span>
                     ) : (
                       <span className="text-white/60 text-[10px] font-mono uppercase">
-                        Free Plan · Lagos
+                        Free Plan · {(profile?.state || 'Current State').toUpperCase()}
                       </span>
                     )}
                   </div>

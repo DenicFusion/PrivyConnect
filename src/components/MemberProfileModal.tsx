@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { db, auth, doc, onSnapshot } from '../lib/firebase';
+import { calculateProfileStrength, recordProfileView } from '../lib/stats';
 import { 
   X, 
   Heart, 
@@ -35,6 +37,11 @@ export interface ProfileDetails {
   telegram?: string;
   interests?: string[];
   occupation?: string;
+  username?: string;
+  views?: number;
+  connections?: number;
+  strength?: number;
+  [key: string]: any;
 }
 
 interface MemberProfileModalProps {
@@ -60,11 +67,40 @@ export function MemberProfileModal({
 }: MemberProfileModalProps) {
   const { toast } = useToast();
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [liveMember, setLiveMember] = useState<any>(member);
+
+  useEffect(() => {
+    setLiveMember(member);
+  }, [member]);
+
+  // Real-time listener for live updates on views, connections, and profile data
+  useEffect(() => {
+    if (!isOpen || !member?.id) return;
+
+    const unsub = onSnapshot(doc(db, 'profiles', member.id), (snap) => {
+      if (snap.exists()) {
+        setLiveMember((prev: any) => ({ ...(prev || {}), id: snap.id, ...snap.data() }));
+      }
+    }, (err) => {
+      console.warn('Realtime member modal listener error:', err);
+    });
+
+    return () => unsub();
+  }, [isOpen, member?.id]);
+
+  // Record view when opened
+  useEffect(() => {
+    if (!isOpen || !member?.id) return;
+    const currentUid = auth.currentUser?.uid;
+    if (currentUid && currentUid !== member.id) {
+      recordProfileView(currentUid, member.id);
+    }
+  }, [isOpen, member?.id]);
 
   if (!isOpen || !member) return null;
 
-  // Sensible defaults based on ID/Name if not provided
-  const age = member.age || (22 + (member.name.charCodeAt(0) % 9));
+  // Defaults based on member data
+  const age = member.age || 24;
   const occupation = member.occupation || (
     member.gender === 'male' 
       ? 'Tech Entrepreneur & Investor' 
@@ -84,13 +120,17 @@ export function MemberProfileModal({
   ];
 
   // Contact numbers
-  const maskedPhone = '+234 81• ••• ••' + (member.name.length * 7).toString().padStart(2, '4');
-  const realPhone = member.phone || `+234 81${(10 + member.name.length * 3).toString()} 492 ${(100 + member.name.length * 11).toString()}`;
+  const maskedPhone = member.phone ? member.phone.replace(/(\+234\s?\d{2})\d{4}(\d{2})/, '$1••••$2') : '+234 81• ••• ••84';
+  const realPhone = member.phone || '';
   const realWhatsApp = member.whatsapp || realPhone;
-  const maskedHandle = '@••••••_' + member.state.toLowerCase().replace(/[^a-z]/g, '').slice(0, 5);
-  const realTelegram = member.telegram || `@${member.name.toLowerCase()}_privy`;
+  const maskedHandle = '@••••••_privy';
+  const realTelegram = member.telegram || (member.username ? `@${member.username.toLowerCase()}_privy` : '');
 
   const copyToClipboard = (text: string, fieldName: string) => {
+    if (!text) {
+      toast(`${fieldName} not provided by user`, 'error');
+      return;
+    }
     navigator.clipboard.writeText(text);
     setCopiedField(fieldName);
     toast(`${fieldName} copied to clipboard!`, 'success');
@@ -191,12 +231,18 @@ export function MemberProfileModal({
 
               <div className="flex items-center gap-2">
                 <h2 className="font-serif text-3xl sm:text-4xl text-[#f3f6f8] font-normal tracking-tight">
-                  {member.name}, <span className="font-sans font-light text-2xl sm:text-3xl text-white/80">{age}</span>
+                  {member.name}{age ? `, ` : ''}{age && <span className="font-sans font-light text-2xl sm:text-3xl text-white/80">{age}</span>}
                 </h2>
                 {member.verified && (
                   <ShieldCheck className="w-5 h-5 text-[#00d1ff] fill-[#00d1ff]/20 shrink-0" />
                 )}
               </div>
+
+              {member.username && (
+                <p className="font-mono text-sm text-[#00d1ff] font-semibold tracking-wide">
+                  @{member.username.replace(/^@/, '')}
+                </p>
+              )}
 
               <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#8d97a1] flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-[#00d1ff]" />
@@ -208,6 +254,28 @@ export function MemberProfileModal({
           {/* Scrollable Content Body */}
           <div className="flex-1 overflow-y-auto p-5 space-y-5 divide-y divide-white/[0.06]">
             
+            {/* Real Stats Card (All-time Views, Connections, Strength) */}
+            <div className="bg-[#040506] border border-white/[0.075] rounded-[20px] grid grid-cols-3 divide-x divide-white/[0.075] p-3.5 text-center shadow-lg">
+              <div className="space-y-0.5">
+                <div className="font-serif text-2xl text-[#f3f6f8] leading-tight">
+                  {Number(liveMember.views) || 0}
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Views</div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="font-serif text-2xl text-[#00d1ff] leading-tight">
+                  {Number(liveMember.connections) || 0}
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Connections</div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="font-serif text-2xl text-[#35e0a1] leading-tight">
+                  {calculateProfileStrength(liveMember)}%
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Strength</div>
+              </div>
+            </div>
+
             {/* 1. About / Bio */}
             <div className="space-y-2 pt-1">
               <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] font-semibold block">

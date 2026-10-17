@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { db, doc, getDoc, collection, query, where, getDocs } from '../lib/firebase';
+import { db, auth, doc, getDoc, collection, query, where, getDocs, onSnapshot } from '../lib/firebase';
+import { calculateProfileStrength, recordProfileView } from '../lib/stats';
 import { motion } from 'motion/react';
 import { 
   MapPin, 
@@ -82,13 +83,7 @@ export default function PublicProfilePage() {
         return;
       }
 
-      // 5. Check users collection in Firestore
-      const userDoc = await getDoc(doc(db, 'users', targetKey));
-      if (userDoc.exists()) {
-        setProfile({ id: userDoc.id, ...userDoc.data() });
-        setLoading(false);
-        return;
-      }
+
 
       setProfile(null);
     } catch (error: any) {
@@ -98,6 +93,27 @@ export default function PublicProfilePage() {
       setLoading(false);
     }
   };
+
+  // Real-time listener for live updates on views, connections, and profile data
+  useEffect(() => {
+    if (!profile?.id) return;
+    const unsub = onSnapshot(doc(db, 'profiles', profile.id), (snap) => {
+      if (snap.exists()) {
+        setProfile((prev: any) => ({ ...(prev || {}), id: snap.id, ...snap.data() }));
+      }
+    }, (err) => {
+      console.warn('Realtime public profile error:', err);
+    });
+    return () => unsub();
+  }, [profile?.id]);
+
+  // Record profile view when an authenticated visitor views this public profile
+  useEffect(() => {
+    const currentUid = auth.currentUser?.uid;
+    if (currentUid && profile?.id && currentUid !== profile.id) {
+      recordProfileView(currentUid, profile.id);
+    }
+  }, [profile?.id]);
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -233,6 +249,13 @@ export default function PublicProfilePage() {
                 )}
               </div>
 
+              {/* @username tag under full name */}
+              {profile.username && (
+                <p className="font-mono text-sm sm:text-base text-[#00d1ff] font-semibold tracking-wide">
+                  @{profile.username.replace(/^@/, '')}
+                </p>
+              )}
+
               {/* Tags row */}
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span 
@@ -252,10 +275,6 @@ export default function PublicProfilePage() {
                     {profile.gender}
                   </span>
                 )}
-
-                <span className="px-3 py-1.5 rounded-full text-[10px] font-mono tracking-wider uppercase border border-white/10 bg-black/40 text-[#8d97a1] backdrop-blur-md">
-                  @{profile.username}
-                </span>
               </div>
             </div>
           </div>
@@ -271,6 +290,28 @@ export default function PublicProfilePage() {
               <div className="flex items-center gap-2 text-[#35e0a1]">
                 <Shield className="w-4 h-4" />
                 <span>100% DISCREET & VERIFIED</span>
+              </div>
+            </div>
+
+            {/* Real Stats Card (All-time Views, Connections, Strength) */}
+            <div className="bg-[#040506] border border-white/[0.075] rounded-[20px] grid grid-cols-3 divide-x divide-white/[0.075] p-4 text-center shadow-lg">
+              <div className="space-y-1">
+                <div className="font-serif text-2xl text-[#f3f6f8] leading-tight">
+                  {Number(profile.views) || 0}
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Views</div>
+              </div>
+              <div className="space-y-1">
+                <div className="font-serif text-2xl text-[#00d1ff] leading-tight">
+                  {Number(profile.connections) || 0}
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Connections</div>
+              </div>
+              <div className="space-y-1">
+                <div className="font-serif text-2xl text-[#35e0a1] leading-tight">
+                  {calculateProfileStrength(profile)}%
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Strength</div>
               </div>
             </div>
 

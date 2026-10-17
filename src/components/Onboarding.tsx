@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { db, doc, updateDoc, setDoc } from '../lib/firebase';
+import { calculateProfileStrength, recalculateProfileStrengthOnServer } from '../lib/stats';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -28,16 +29,26 @@ export default function Onboarding({ profile, onComplete }: { profile: any, onCo
     setLoading(true);
 
     try {
+      const updatedProfile = {
+        ...(profile || {}),
+        gender,
+        looking_for: lookingFor
+      };
+      const newScore = calculateProfileStrength(updatedProfile);
+
       const userRef = doc(db, 'profiles', profile.id);
       await updateDoc(userRef, {
         gender,
         looking_for: lookingFor,
+        strength: newScore,
         updated_at: new Date().toISOString()
       });
+      recalculateProfileStrengthOnServer(profile.id, updatedProfile);
       try {
         await updateDoc(doc(db, 'users', profile.id), {
           gender,
           looking_for: lookingFor,
+          strength: newScore,
           updated_at: new Date().toISOString()
         });
       } catch {

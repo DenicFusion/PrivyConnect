@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, doc, getDoc, collection, query, where, getDocs, addDoc, updateDoc, onSnapshot } from '../lib/firebase';
+import { checkAndUpdateConversationConnection, deleteConversation } from '../lib/stats';
 import { MOCK_CHATS, MOCK_MESSAGES } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -17,7 +18,8 @@ import {
   Loader2, 
   Volume2, 
   Paperclip,
-  Crown
+  Crown,
+  Trash2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -111,12 +113,28 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
         last_timestamp: new Date().toISOString()
       });
 
+      // 2. Evaluate connection (both sides sent at least 1 message)
+      checkAndUpdateConversationConnection(chatId);
+
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {
       console.error('Error sending message:', err);
       toast('Failed to send message', 'error');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    if (!chatId) return;
+    if (!window.confirm("Are you sure you want to delete this conversation?")) return;
+
+    try {
+      await deleteConversation(chatId, profile?.id);
+      toast('Conversation deleted', 'info');
+      navigate('/chats');
+    } catch (e) {
+      toast('Failed to delete conversation', 'error');
     }
   };
 
@@ -163,8 +181,15 @@ export default function ChatRoomPage({ profile }: { profile: any }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#35e0a1] shadow-[0_0_6px_#35e0a1]" />
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-[#35e0a1] shadow-[0_0_6px_#35e0a1]" title="Online" />
+            <button
+              onClick={handleDeleteChat}
+              className="p-1.5 rounded-lg text-white/40 hover:text-[#ff5a5f] hover:bg-white/5 transition-all cursor-pointer"
+              title="Delete Conversation"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
 

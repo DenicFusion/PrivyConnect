@@ -12,7 +12,7 @@ import {
   Compass
 } from 'lucide-react';
 import { db, collection, getDocs, limit, query } from '../lib/firebase';
-import { calculateDistanceKm, formatDistance } from '../lib/location';
+import { calculateDistanceKm, formatDistance, normalizeNigerianState } from '../lib/location';
 import { SubscriptionModal } from './SubscriptionModal';
 import { MemberProfileModal } from './MemberProfileModal';
 import { useToast } from './Toaster';
@@ -156,10 +156,19 @@ export function DiscoveryFeed({
   const [chipFilter, setChipFilter] = useState<'everyone' | 'online' | 'verified' | 'favorites'>('everyone');
   const [vibeFilter, setVibeFilter] = useState<string>('all');
   const [genderFilter, setGenderFilter] = useState<string>('all');
-  const [selectedState, setSelectedState] = useState<string>('Lagos');
+  const isSubscribed = Boolean(profile?.is_subscribed);
+
+  const userCurrentState = useMemo(() => {
+    return profile?.state ? normalizeNigerianState(profile.state) : 'Lagos';
+  }, [profile?.state]);
+
+  const [selectedState, setSelectedState] = useState<string>(() => {
+    return isSubscribed ? 'all' : (profile?.state ? normalizeNigerianState(profile.state) : 'Lagos');
+  });
+  const [searchQuery, setSearchQuery] = useState('');
   const [stateSearch, setStateSearch] = useState('');
   const [visibleCount, setVisibleCount] = useState<number>(8);
-  
+
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<MemberCard | null>(null);
   const [profileModalMember, setProfileModalMember] = useState<MemberCard | null>(null);
@@ -198,15 +207,13 @@ export function DiscoveryFeed({
   // Dropdown sheet states: 'vibe' | 'gender' | 'state' | null
   const [openDropdown, setOpenDropdown] = useState<'vibe' | 'gender' | 'state' | null>(null);
 
-  const isSubscribed = Boolean(profile?.is_subscribed);
-
   useEffect(() => {
     if (isSubscribed) {
       setSelectedState('all');
     } else {
-      setSelectedState('Lagos');
+      setSelectedState(userCurrentState);
     }
-  }, [isSubscribed]);
+  }, [isSubscribed, userCurrentState]);
 
   useEffect(() => {
     const loadFirestoreProfiles = async () => {
@@ -263,8 +270,8 @@ export function DiscoveryFeed({
   };
 
   const handleStateClick = (stateName: string) => {
-    const isLagos = stateName === 'Lagos';
-    if (!isSubscribed && !isLagos) {
+    const isCurrent = stateName.toLowerCase() === userCurrentState.toLowerCase();
+    if (!isSubscribed && !isCurrent) {
       setOpenDropdown(null);
       setLockedStateAttempt(stateName);
       setShowUpgradeModal(true);
@@ -283,34 +290,58 @@ export function DiscoveryFeed({
   }, [stateSearch]);
 
   const filteredMembers = useMemo(() => {
+    const cleanSearch = searchQuery.trim().toLowerCase().replace(/^@/, '');
+    const isSearching = cleanSearch.length > 0;
+
     return members.filter(m => {
-      // For non-subscribers: ONLY Lagos state members are visible
+      // 1. Location state check
       if (!isSubscribed) {
-        const isLagos = m.state.toLowerCase() === 'lagos' || m.location.toUpperCase().includes('LAGOS');
-        if (!isLagos) return false;
+        // Free users strictly see members in their current state
+        const stateNorm = normalizeNigerianState(m.state).toLowerCase();
+        const userNorm = userCurrentState.toLowerCase();
+        const matchesCurrent = 
+          stateNorm === userNorm || 
+          m.state.toLowerCase() === userNorm ||
+          m.location.toUpperCase().includes(userNorm.toUpperCase());
+        if (!matchesCurrent) return false;
       } else {
-        if (selectedState !== 'all') {
-          const matchState = m.state.toLowerCase() === selectedState.toLowerCase() || 
-                             m.location.toUpperCase().includes(selectedState.toUpperCase());
+        // Subscribers: If actively searching, search all of Nigeria!
+        // If not searching and selectedState !== 'all', filter by selectedState
+        if (!isSearching && selectedState !== 'all') {
+          const stateNorm = normalizeNigerianState(m.state).toLowerCase();
+          const targetNorm = selectedState.toLowerCase();
+          const matchState = 
+            stateNorm === targetNorm || 
+            m.state.toLowerCase() === targetNorm ||
+            m.location.toUpperCase().includes(targetNorm.toUpperCase());
           if (!matchState) return false;
         }
       }
 
-      // Chip filters
+      // 2. Live search filter by name or @username (works with or without @)
+      if (isSearching) {
+        const nameMatch = m.name.toLowerCase().includes(cleanSearch);
+        const usernameMatch = m.username 
+          ? m.username.toLowerCase().replace(/^@/, '').includes(cleanSearch)
+          : false;
+        if (!nameMatch && !usernameMatch) return false;
+      }
+
+      // 3. Chip filters
       if (chipFilter === 'online' && !m.online) return false;
       if (chipFilter === 'verified' && !m.verified) return false;
       if (chipFilter === 'favorites' && !favorites.has(m.id)) return false;
 
-      // Companionship filter
+      // 4. Companionship filter
       if (vibeFilter !== 'all' && m.vibe !== vibeFilter) return false;
 
-      // Gender filter
+      // 5. Gender filter
       if (genderFilter === 'women' && m.gender !== 'female') return false;
       if (genderFilter === 'men' && m.gender !== 'male') return false;
 
       return true;
     });
-  }, [members, isSubscribed, selectedState, chipFilter, vibeFilter, genderFilter, favorites]);
+  }, [members, isSubscribed, userCurrentState, selectedState, searchQuery, chipFilter, vibeFilter, genderFilter, favorites]);
 
   const currentVibeConfig = COMPANIONSHIP_TYPES.find(v => v.id === vibeFilter) || COMPANIONSHIP_TYPES[0];
 
@@ -326,7 +357,7 @@ export function DiscoveryFeed({
             {!isSubscribed ? (
               <>
                 <span className="w-1.5 h-1.5 rounded-full bg-[#f2b04b]" />
-                <span>FREE PLAN · LAGOS DIRECTORY</span>
+                <span>FREE PLAN · {userCurrentState.toUpperCase()} DIRECTORY</span>
               </>
             ) : (
               <>
@@ -346,15 +377,15 @@ export function DiscoveryFeed({
             {subtitle || (
               isSubscribed
                 ? 'Browsing verified members nationwide. Connect freely with all 36 states and Abuja.'
-                : 'Browsing verified members in Lagos. Upgrade to explore all of Nigeria.'
+                : `Browsing verified members in ${userCurrentState}. Upgrade to explore all of Nigeria.`
             )}
           </p>
 
-          {/* 98 Members Online Around Your Location Banner */}
+          {/* Members Online Around Your Location Banner */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0b151b] border border-[#00d1ff]/25 shadow-[0_0_15px_rgba(0,209,255,0.06)] mt-3">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
             <span className="text-[11px] font-mono tracking-widest uppercase text-[#00d1ff] font-semibold">
-              98 MEMBERS ONLINE IN YOUR LOCATION OR AROUND YOU
+              {members.filter(m => m.online).length > 0 ? `${members.filter(m => m.online).length} ` : ''}MEMBERS ONLINE IN YOUR LOCATION OR AROUND YOU
             </span>
           </div>
         </div>
@@ -378,6 +409,36 @@ export function DiscoveryFeed({
               <Sparkles className="w-3.5 h-3.5" />
               <span>Premium</span>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* LIVE SEARCH BAR (Find people by name or @username)                        */}
+      {/* ========================================================================= */}
+      <div className="pt-1">
+        <div className="relative flex items-center">
+          <Search className="w-4 h-4 text-[#59636d] absolute left-4 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={
+              isSubscribed 
+                ? "Search people by name or @username across all of Nigeria..." 
+                : `Search people by name or @username in ${userCurrentState}...`
+            }
+            className="w-full bg-[#090b0d] border border-white/[0.08] hover:border-white/20 focus:border-[#00d1ff] rounded-[16px] pl-11 pr-10 py-3 text-sm text-[#f3f6f8] placeholder-[#59636d] focus:outline-none transition-all font-sans"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 p-1 rounded-full text-[#59636d] hover:text-white transition-colors cursor-pointer"
+              title="Clear search"
+            >
+              <X className="w-4 h-4" />
+            </button>
           )}
         </div>
       </div>
@@ -442,7 +503,7 @@ export function DiscoveryFeed({
             )}
             <span className="truncate font-medium text-xs sm:text-sm">
               {!isSubscribed
-                ? (selectedState === 'Lagos' ? 'State: Lagos (Locked)' : `State: ${selectedState} (Locked)`)
+                ? `State: ${userCurrentState} (Current Area)`
                 : (selectedState === 'all' ? 'State: All Nigeria' : `State: ${selectedState}`)}
             </span>
           </div>
@@ -609,6 +670,13 @@ export function DiscoveryFeed({
                   )}
                 </div>
 
+                {/* Show @username under name */}
+                {member.username && (
+                  <p className="font-mono text-xs text-[#00d1ff] font-medium truncate">
+                    @{member.username.replace(/^@/, '')}
+                  </p>
+                )}
+
                 {/* Mono Area · State · Distance */}
                 <div className="flex flex-wrap items-center gap-1 font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.16em] text-[#8d97a1] truncate">
                   <span>{member.location} · {member.state}</span>
@@ -651,26 +719,74 @@ export function DiscoveryFeed({
       {/* Empty State */}
       {filteredMembers.length === 0 && (
         <div className="py-20 text-center space-y-4 max-w-md mx-auto">
-          <div className="w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center mx-auto text-[#00d1ff]">
-            <Compass className="w-7 h-7 stroke-1" />
-          </div>
-          <div className="space-y-1">
-            <h3 className="font-serif text-2xl text-[#f3f6f8]">No members here yet. Be the first.</h3>
-            <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#8d97a1]">
-              Invite connections or explore members across other states.
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              setSelectedState(isSubscribed ? 'all' : 'Lagos');
-              setVibeFilter('all');
-              setGenderFilter('all');
-              setChipFilter('everyone');
-            }}
-            className="px-6 py-2.5 rounded-full bg-white/5 border border-white/10 hover:border-[#00d1ff]/40 text-xs text-[#00d1ff] font-mono uppercase tracking-wider transition-all cursor-pointer"
-          >
-            Reset filters
-          </button>
+          {searchQuery.trim() ? (
+            !isSubscribed ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center mx-auto text-[#00d1ff]">
+                  <Search className="w-7 h-7 stroke-1" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-serif text-2xl text-[#f3f6f8]">No members found in {userCurrentState}</h3>
+                  <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#8d97a1]">
+                    Subscribe to search all of Nigeria
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLockedStateAttempt('All Nigeria');
+                    setShowUpgradeModal(true);
+                  }}
+                  className="px-6 py-3 rounded-[14px] bg-[#00d1ff] hover:bg-[#33daff] text-[#00131a] font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_15px_rgba(0,209,255,0.25)] active:scale-95"
+                >
+                  Subscribe to search all of Nigeria
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center mx-auto text-[#00d1ff]">
+                  <Search className="w-7 h-7 stroke-1" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-serif text-2xl text-[#f3f6f8]">No members found for "{searchQuery}"</h3>
+                  <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#8d97a1]">
+                    Try searching by first name or username with or without @
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="px-6 py-2.5 rounded-full bg-white/5 border border-white/10 hover:border-[#00d1ff]/40 text-xs text-[#00d1ff] font-mono uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Clear search
+                </button>
+              </>
+            )
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center mx-auto text-[#00d1ff]">
+                <Compass className="w-7 h-7 stroke-1" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-serif text-2xl text-[#f3f6f8]">No members here yet. Be the first.</h3>
+                <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#8d97a1]">
+                  Invite connections or explore members across other states.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedState(isSubscribed ? 'all' : userCurrentState);
+                  setVibeFilter('all');
+                  setGenderFilter('all');
+                  setChipFilter('everyone');
+                }}
+                className="px-6 py-2.5 rounded-full bg-white/5 border border-white/10 hover:border-[#00d1ff]/40 text-xs text-[#00d1ff] font-mono uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Reset filters
+              </button>
+            </>
+          )}
         </div>
       )}
 
