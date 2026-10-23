@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, collection, query, where, getDocs, doc, updateDoc, deleteDoc, onSnapshot } from '../lib/firebase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Bell, 
@@ -28,28 +28,57 @@ export default function NotificationsPage({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (profile?.id && isSupabaseActive) {
+      fetchNotifications();
+      
+      // Subscribe to real-time notifications
+      const channel = supabase
+        .channel(`notifications-${profile.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${profile.id}`
+          },
+          (payload) => {
+            setNotifications(prev => [payload.new, ...prev]);
+          }
+        )
+        .subscribe();
 
-    const q = query(collection(db, 'notifications'), where('user_id', '==', profile.id));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: any[] = [];
-      snapshot.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      setNotifications(list);
-      setLoading(false);
-    }, (error) => {
-      console.error('Notifications snapshot error:', error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [profile?.id]);
+
+  const fetchNotifications = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setNotifications(data || []);
+    } catch (error: any) {
+      toast(error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const markAsRead = async (id: string) => {
     try {
-      await updateDoc(doc(db, 'notifications', id), { is_read: true });
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', id);
+
+      if (error) throw error;
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
     } catch (error: any) {
       toast(error.message, 'error');
@@ -58,10 +87,13 @@ export default function NotificationsPage({ profile }: { profile: any }) {
 
   const markAllAsRead = async () => {
     try {
-      const q = query(collection(db, 'notifications'), where('user_id', '==', profile.id), where('is_read', '==', false));
-      const snapshot = await getDocs(q);
-      const updates = snapshot.docs.map(d => updateDoc(doc(db, 'notifications', d.id), { is_read: true }));
-      await Promise.all(updates);
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', profile.id)
+        .eq('is_read', false);
+
+      if (error) throw error;
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       toast('All notifications marked as read', 'success');
     } catch (error: any) {
@@ -71,9 +103,12 @@ export default function NotificationsPage({ profile }: { profile: any }) {
 
   const clearAll = async () => {
     try {
-      const snapshot = await getDocs(query(collection(db, 'notifications'), where('user_id', '==', profile.id)));
-      const deletes = snapshot.docs.map(d => deleteDoc(doc(db, 'notifications', d.id)));
-      await Promise.all(deletes);
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', profile.id);
+
+      if (error) throw error;
       setNotifications([]);
       toast('All notifications cleared', 'success');
     } catch (error: any) {

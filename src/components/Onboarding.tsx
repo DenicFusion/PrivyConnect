@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { db, doc, updateDoc, setDoc } from '../lib/firebase';
-import { calculateProfileStrength, recalculateProfileStrengthOnServer } from '../lib/stats';
+import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -29,36 +28,16 @@ export default function Onboarding({ profile, onComplete }: { profile: any, onCo
     setLoading(true);
 
     try {
-      const updatedProfile = {
-        ...(profile || {}),
-        gender,
-        looking_for: lookingFor
-      };
-      const newScore = calculateProfileStrength(updatedProfile);
-
-      const userRef = doc(db, 'profiles', profile.id);
-      await updateDoc(userRef, {
-        gender,
-        looking_for: lookingFor,
-        strength: newScore,
-        updated_at: new Date().toISOString()
-      });
-      recalculateProfileStrengthOnServer(profile.id, updatedProfile);
-      try {
-        await updateDoc(doc(db, 'users', profile.id), {
-          gender,
-          looking_for: lookingFor,
-          strength: newScore,
-          updated_at: new Date().toISOString()
-        });
-      } catch {
-        await setDoc(doc(db, 'users', profile.id), {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
           gender,
           looking_for: lookingFor,
           updated_at: new Date().toISOString()
-        }, { merge: true });
-      }
+        })
+        .eq('id', profile.id);
 
+      if (error) throw error;
       toast('Welcome to PrivyConnect!', 'success');
       onComplete();
     } catch (error: any) {

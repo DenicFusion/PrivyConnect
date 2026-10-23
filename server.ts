@@ -8,26 +8,25 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import cron from "node-cron";
 import crypto from "crypto";
-import { 
-  firestoreDb, 
-  adminAuth, 
-  messaging, 
-  incrementUserWallet, 
-  isTransactionProcessed, 
-  saveTransaction, 
-  updateUserSubscription,
-  recordProfileViewServer,
-  checkAndUpdateConversationConnectionServer,
-  handleDeleteConversationServer,
-  handleDeleteAccountServer,
-  recalculateProfileStrengthServer,
-  getUserStatsServer
-} from "./server/services/firebaseService.ts";
-import { uploadToCloudinary, isCloudinaryConfigured } from "./server/services/cloudinaryService.ts";
-import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
+import { supabaseAdmin } from "./server/services/supabaseService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
+import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
+
+// Initialize Firebase Admin
+if (!getApps().length) {
+  initializeApp({
+    projectId: firebaseConfig.projectId,
+    // Note: In a real production environment, you would use a service account key.
+    // For this environment, we'll assume the default credentials are sufficient or use the project ID.
+  });
+}
+
+const messaging = getMessaging();
 
 import { sendEmail, EmailType } from "./server/services/emailService.ts";
 
@@ -48,14 +47,12 @@ async function startServer() {
     next();
   });
 
-  // Use raw body for webhook signature verification and increased limit for photo uploads
+  // Use raw body for webhook signature verification
   app.use(express.json({
-    limit: '50mb',
     verify: (req: any, res, buf) => {
       req.rawBody = buf;
     }
   }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -114,10 +111,8 @@ async function startServer() {
   // Debug API route
   app.get("/api/debug-config", (req, res) => {
     res.json({
-      backend: "Firebase Firestore",
-      firebaseProjectId: firebaseConfig.projectId,
-      firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
-      cloudinaryConfigured: isCloudinaryConfigured,
+      supabaseUrl: process.env.VITE_SUPABASE_URL ? `${process.env.VITE_SUPABASE_URL.substring(0, 15)}...` : 'MISSING',
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       hasPaystackKey: !!process.env.PAYSTACK_SECRET_KEY,
       hasKorapayKey: !!process.env.KORAPAY_SECRET_KEY,
       nodeEnv: process.env.NODE_ENV,
@@ -128,50 +123,12 @@ async function startServer() {
   // Test DB connection endpoint
   app.get("/api/test-db", async (req, res) => {
     try {
-      const snapshot = await firestoreDb.collection("profiles").limit(1).get();
-      res.json({ 
-        status: "ok", 
-        message: "Firebase Firestore active and reachable", 
-        databaseId: firebaseConfig.firestoreDatabaseId,
-        count: snapshot.size 
-      });
+      const { data, error } = await supabaseAdmin.from("profiles").select("count").limit(1);
+      if (error) throw error;
+      res.json({ status: "ok", message: "Supabase Admin connected successfully", count: data.length });
     } catch (error: any) {
-      console.warn("Firestore Admin direct connection note:", error.message);
-      res.json({ 
-        status: "ok", 
-        message: "Firebase Firestore active (Security rules enforced)", 
-        databaseId: firebaseConfig.firestoreDatabaseId,
-        note: error.message 
-      });
-    }
-  });
-
-  // Cloudinary Image Upload API route
-  app.post("/api/upload-image", async (req, res) => {
-    const { image, folder, public_id } = req.body;
-
-    if (!image) {
-      return res.status(400).json({ error: "Missing image content" });
-    }
-
-    try {
-      const uploadResult = await uploadToCloudinary(image, {
-        folder: folder || "privyconnect/uploads",
-        publicId: public_id,
-      });
-
-      return res.status(200).json({
-        success: true,
-        url: uploadResult.url,
-        public_id: uploadResult.public_id,
-        format: uploadResult.format,
-        bytes: uploadResult.bytes,
-      });
-    } catch (error: any) {
-      console.error("Error in /api/upload-image:", error);
-      return res.status(500).json({ 
-        error: error.message || "Failed to upload image to Cloudinary" 
-      });
+      console.error("DB Test Error:", error);
+      res.status(500).json({ status: "error", message: error.message });
     }
   });
 
@@ -300,8 +257,14 @@ async function startServer() {
         }
 
         // 2. Check if transaction already processed (Idempotency)
-        const isProcessed = await isTransactionProcessed(reference);
-        if (isProcessed) {
+        const { data: existingTx, error: checkError } = await supabaseAdmin
+          .from("transactions")
+          .select("id")
+          .eq("reference", reference)
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+        if (existingTx) {
           console.log(`Paystack Webhook: Transaction ${reference} already processed`);
           return res.status(200).send("OK");
         }
@@ -336,21 +299,42 @@ async function startServer() {
 
           const authCode = paymentData.authorization?.authorization_code;
           
-          // Update profile in Firestore
-          await updateUserSubscription(userId, {
-            is_subscribed: true,
-            subscription_status: "active",
-            subscription_expiry: expiryDate.toISOString(),
-            authorization_code: authCode || null,
-            next_billing_date: expiryDate.toISOString(),
-          });
+          // Update profile
+          const { error: profileError } = await supabaseAdmin
+            .from("profiles")
+            .update({
+              is_subscribed: true,
+              subscription_status: "active",
+              subscription_expiry: expiryDate.toISOString(),
+              authorization_code: authCode || null,
+              next_billing_date: expiryDate.toISOString(),
+            })
+            .eq("id", userId);
+
+          if (profileError) throw profileError;
         } else {
-          // Top-up wallet in Firestore
-          await incrementUserWallet(userId, paidAmount);
+          // Top-up wallet
+          // We use a transaction or just update the wallet table
+          const { data: wallet, error: walletFetchError } = await supabaseAdmin
+            .from("wallet")
+            .select("balance")
+            .eq("profile_id", userId)
+            .single();
+
+          if (walletFetchError) throw walletFetchError;
+
+          const newBalance = parseFloat(wallet.balance.toString()) + paidAmount;
+
+          const { error: walletUpdateError } = await supabaseAdmin
+            .from("wallet")
+            .update({ balance: newBalance, updated_at: new Date().toISOString() })
+            .eq("profile_id", userId);
+
+          if (walletUpdateError) throw walletUpdateError;
         }
 
-        // 4. Log transaction in Firestore
-        await saveTransaction({
+        // 4. Log transaction
+        const { error: txError } = await supabaseAdmin.from("transactions").insert({
           profile_id: userId,
           amount: paidAmount,
           type: type === "subscription" ? "subscription" : "deposit",
@@ -359,6 +343,8 @@ async function startServer() {
           description: `${type === 'subscription' ? 'Subscription' : 'Wallet top-up'} via Paystack`,
           metadata: { ...metadata, gateway: "paystack" }
         });
+
+        if (txError) throw txError;
 
         console.log(`Paystack Webhook: Successfully processed ${reference} for user ${userId}`);
 
@@ -388,29 +374,30 @@ async function startServer() {
         const customerEmail = customer.email;
         
         try {
-          // Find user by email in Firestore
-          const profileSnapshot = await firestoreDb
-            .collection("profiles")
-            .where("email", "==", customerEmail)
-            .limit(1)
-            .get();
+          // Find user by email
+          const { data: profile, error: profileError } = await supabaseAdmin
+            .from("profiles")
+            .select("id")
+            .eq("email", customerEmail)
+            .maybeSingle();
             
-          if (!profileSnapshot.empty) {
-            const profileDoc = profileSnapshot.docs[0];
-            const profileId = profileDoc.id;
+          if (profile && !profileError) {
             const nextBillingDate = new Date(subscription.next_payment_date);
             
-            // Update subscription in Firestore
-            await updateUserSubscription(profileId, {
-              is_subscribed: true,
-              subscription_status: "active",
-              subscription_expiry: nextBillingDate.toISOString(),
-              next_billing_date: nextBillingDate.toISOString(),
-            });
+            // Update subscription
+            await supabaseAdmin
+              .from("profiles")
+              .update({
+                is_subscribed: true,
+                subscription_status: "active",
+                subscription_expiry: nextBillingDate.toISOString(),
+                next_billing_date: nextBillingDate.toISOString(),
+              })
+              .eq("id", profile.id);
               
-            // Log transaction in Firestore
-            await saveTransaction({
-              profile_id: profileId,
+            // Log transaction
+            await supabaseAdmin.from("transactions").insert({
+              profile_id: profile.id,
               amount: amount / 100,
               type: "subscription",
               status: "completed",
@@ -419,7 +406,7 @@ async function startServer() {
               metadata: { gateway: "paystack", invoice_id: event.data.id }
             });
             
-            console.log(`Subscription renewed for user ${profileId}`);
+            console.log(`Subscription renewed for user ${profile.id}`);
           }
         } catch (err) {
           console.error("Error processing invoice.update:", err);
@@ -430,322 +417,158 @@ async function startServer() {
     res.status(200).send("OK");
   });
 
-  // Location detection API route (coarse location based on IP)
-  // Location detection API route (coarse location based on IP)
-  app.get("/api/detect-location", async (req, res) => {
-    try {
-      const forwarded = req.headers["x-forwarded-for"];
-      let rawIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket.remoteAddress || "";
-      let ip = rawIp.replace(/^::ffff:/, "").trim();
+  // Payment Success API route (Follows the "Master Fix" logic)
+  app.post("/api/payment-success", async (req, res) => {
+    const { reference, user_id, type } = req.body;
 
-      const isLocal = !ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.");
+    console.log(`Payment Success Callback: Ref: ${reference} | Type: ${type} | User: ${user_id}`);
+
+    if (!reference || !user_id || !type) {
+      console.error("Missing required fields in payment-success callback:", req.body);
+      return res.status(400).json({ error: "Missing required payment details (reference, user_id, type)" });
+    }
+
+    try {
+      // 1. Verify payment with Paystack
+      const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackSecretKey) {
+        console.error("CRITICAL: PAYSTACK_SECRET_KEY is missing.");
+        return res.status(500).json({ error: "Server configuration error" });
+      }
+
+      console.log(`Verifying Paystack ref: ${reference}...`);
+      const verifyResponse = await axios.get(
+        `https://api.paystack.co/transaction/verify/${reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${paystackSecretKey}`,
+          },
+          timeout: 10000,
+        }
+      );
+
+      const data = verifyResponse.data;
       
-      // If local/proxy IP, discover external public IP
-      if (isLocal) {
-        try {
-          const ipify = await axios.get("https://api.ipify.org?format=json", { timeout: 2500 });
-          if (ipify.data?.ip) {
-            ip = ipify.data.ip.trim();
-          }
-        } catch {
-          // continue with empty or local
-        }
+      if (!data.status || data.data.status !== "success") {
+        console.error(`Payment not verified for ref: ${reference}`);
+        return res.status(400).json({ success: false, message: "Payment not verified" });
       }
 
-      // 1. Try ipwho.is with IP
-      try {
-        const queryUrl = ip && !isLocal ? `https://ipwho.is/${ip}` : "https://ipwho.is/";
-        const geoRes = await axios.get(queryUrl, { timeout: 3500 });
-        if (geoRes.data?.success !== false && (geoRes.data?.region || geoRes.data?.city)) {
-          const lat = Math.round(Number(geoRes.data.latitude || 6.52) * 100) / 100;
-          const lng = Math.round(Number(geoRes.data.longitude || 3.37) * 100) / 100;
-          return res.json({
-            state: geoRes.data.region || geoRes.data.city || "Lagos",
-            city: geoRes.data.city || geoRes.data.region || "Lagos",
-            lat,
-            lng,
-            country: geoRes.data.country || "Nigeria",
-            isDetected: true
-          });
-        }
-      } catch (err: any) {
-        console.warn("ipwho.is lookup failed:", err.message);
+      const amount = data.data.amount / 100; // convert from kobo
+      console.log(`Payment verified: ₦${amount} for user ${user_id}`);
+
+      // 2. Prevent duplicate transactions (Idempotency)
+      const { data: existingTx, error: checkError } = await supabaseAdmin
+        .from("transactions")
+        .select("id")
+        .eq("reference", reference)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+      if (existingTx) {
+        console.log(`Transaction ${reference} already processed`);
+        return res.status(200).json({ success: true, message: "Already processed" });
       }
 
-      // 2. Try freeipapi.com
-      try {
-        const freeApiUrl = ip && !isLocal ? `https://freeipapi.com/api/json/${ip}` : "https://freeipapi.com/api/json";
-        const geoRes2 = await axios.get(freeApiUrl, { timeout: 3500 });
-        if (geoRes2.data?.regionName || geoRes2.data?.cityName) {
-          const lat = Math.round(Number(geoRes2.data.latitude || 6.52) * 100) / 100;
-          const lng = Math.round(Number(geoRes2.data.longitude || 3.37) * 100) / 100;
-          return res.json({
-            state: geoRes2.data.regionName || geoRes2.data.cityName || "Lagos",
-            city: geoRes2.data.cityName || geoRes2.data.regionName || "Lagos",
-            lat,
-            lng,
-            country: geoRes2.data.countryName || "Nigeria",
-            isDetected: true
-          });
-        }
-      } catch (err: any) {
-        console.warn("freeipapi lookup failed:", err.message);
-      }
-    } catch (err: any) {
-      console.warn("IP location detection fallback:", err.message);
-    }
-
-    return res.json({
-      state: "Lagos",
-      city: "Lagos",
-      lat: 6.52,
-      lng: 3.37,
-      country: "Nigeria",
-      isDetected: false
-    });
-  });
-
-  // KoraPay Webhook Endpoint
-  app.post("/api/webhook/korapay", async (req: any, res) => {
-    const signature = req.headers["x-korapay-signature"];
-    const secret = process.env.KORAPAY_SECRET_KEY;
-
-    if (secret && signature) {
-      const hash = crypto.createHmac("sha256", secret).update(req.rawBody || JSON.stringify(req.body)).digest("hex");
-      if (hash !== signature) {
-        console.error("KoraPay Webhook: Invalid signature");
-        return res.status(400).send("Unauthorized");
-      }
-    }
-
-    const event = req.body;
-    console.log(`KoraPay Webhook Event: ${event?.event || event?.status}`);
-
-    const data = event?.data || event;
-    const reference = data?.reference;
-    const userId = data?.metadata?.user_id || data?.metadata?.userId;
-
-    if (!reference) {
-      return res.status(200).send("OK");
-    }
-
-    try {
-      const isProcessed = await isTransactionProcessed(reference);
-      if (isProcessed) {
-        console.log(`KoraPay Webhook: Transaction ${reference} already processed`);
-        return res.status(200).send("OK");
-      }
-
-      const amount = Number(data.amount) || 2000;
-      if (amount < 2000) {
-        console.warn(`KoraPay Webhook: Amount ₦${amount} less than ₦2,000 threshold for ${reference}`);
-        return res.status(200).send("OK");
-      }
-
-      if (userId) {
-        const now = new Date();
-        const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
-        await updateUserSubscription(userId, {
-          is_subscribed: true,
-          subscription_status: "active",
-          subscription_expiry: expiry.toISOString(),
-        });
-
-        await saveTransaction({
-          profile_id: userId,
-          user_id: userId,
+      // 3. Save Transaction
+      const { error: txError } = await supabaseAdmin.from("transactions").insert([
+        {
+          user_id,
           amount,
           reference,
-          status: "completed",
-          type: "subscription",
-          description: "VIP Subscription via KoraPay Webhook",
-          metadata: { gateway: "korapay", webhook: true }
-        });
-        console.log(`KoraPay Webhook: Successfully activated 30-day subscription for user ${userId}`);
-      }
-    } catch (err: any) {
-      console.error("KoraPay Webhook processing error:", err.message);
-    }
+          status: "success",
+          type,
+        },
+      ]);
 
-    return res.status(200).send("OK");
+      if (txError) {
+        console.error("Error saving transaction:", txError);
+        // Fallback to profile_id if user_id column doesn't exist
+        if (txError.message?.includes('column "user_id"')) {
+          await supabaseAdmin.from("transactions").insert([{
+            profile_id: user_id,
+            amount,
+            reference,
+            status: "success",
+            type,
+          }]);
+        } else {
+          throw txError;
+        }
+      }
+
+      // 4. Update Wallet OR Subscription
+      if (type === "deposit" || type === "topup") {
+        console.log(`Updating wallet for user ${user_id} by +₦${amount}...`);
+        const { error: rpcError } = await supabaseAdmin.rpc("increment_wallet", {
+          user_id_input: user_id,
+          amount_input: amount,
+        });
+
+        if (rpcError) {
+          console.error("RPC increment_wallet failed, falling back to manual update:", rpcError);
+          const { data: wallet } = await supabaseAdmin.from("wallet").select("balance").eq("profile_id", user_id).single();
+          if (wallet) {
+            const newBalance = (parseFloat(wallet.balance) || 0) + amount;
+            await supabaseAdmin.from("wallet").update({ balance: newBalance }).eq("profile_id", user_id);
+          } else {
+            // Try user_id column
+            const { data: wallet2 } = await supabaseAdmin.from("wallet").select("balance").eq("user_id", user_id).single();
+            if (wallet2) {
+              const newBalance = (parseFloat(wallet2.balance) || 0) + amount;
+              await supabaseAdmin.from("wallet").update({ balance: newBalance }).eq("user_id", user_id);
+            }
+          }
+        }
+      }
+
+      if (type === "subscription") {
+        console.log(`Activating subscription for user ${user_id}...`);
+        const { error: subError } = await supabaseAdmin
+          .from("profiles")
+          .update({
+            subscription_status: "active",
+            is_subscribed: true,
+            subscription_expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+          })
+          .eq("id", user_id);
+
+        if (subError) throw subError;
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Payment verified and updated",
+      });
+
+    } catch (error: any) {
+      console.error("ERROR in payment-success:", error.response?.data || error.message);
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+      });
+    }
   });
 
-  // Reusable verification function for Paystack & KoraPay
-  const processPaymentVerification = async (reference: string, userIdInput?: string, gatewayHint?: string) => {
-    if (!reference) {
-      throw new Error("Missing payment reference");
-    }
-
-    // 1. Idempotency Check
-    const alreadyProcessed = await isTransactionProcessed(reference);
-    if (alreadyProcessed) {
-      console.log(`Payment already processed for reference: ${reference}`);
-      return {
-        success: true,
-        alreadyProcessed: true,
-        message: "You're now a subscriber",
-        amount: 2000,
-        user_id: userIdInput
-      };
-    }
-
-    const isKora = gatewayHint === "korapay" || reference.startsWith("KORA-") || reference.toLowerCase().includes("kora");
-    let verifiedAmount = 0;
-    let userId = userIdInput;
-
-    if (isKora) {
-      const korapaySecret = process.env.KORAPAY_SECRET_KEY;
-      if (!korapaySecret) {
-        console.warn("KORAPAY_SECRET_KEY not configured in env, accepting reference for test mode:", reference);
-        verifiedAmount = 2000;
-      } else {
-        const koraRes = await axios.get(
-          `https://api.korapay.com/merchant/api/v1/charges/${encodeURIComponent(reference)}`,
-          {
-            headers: { Authorization: `Bearer ${korapaySecret}` },
-            timeout: 10000
-          }
-        );
-        const koraData = koraRes.data;
-        if (!koraData.status || koraData.data?.status !== "success") {
-          throw new Error("KoraPay verification failed: Payment not confirmed by gateway");
-        }
-        verifiedAmount = Number(koraData.data.amount);
-        if (!userId) {
-          userId = koraData.data?.metadata?.user_id || koraData.data?.metadata?.userId;
-        }
-      }
-    } else {
-      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-      if (!paystackSecret) {
-        console.warn("PAYSTACK_SECRET_KEY not configured in env, accepting reference for test mode:", reference);
-        verifiedAmount = 2000;
-      } else {
-        const paystackRes = await axios.get(
-          `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-          {
-            headers: { Authorization: `Bearer ${paystackSecret}` },
-            timeout: 10000
-          }
-        );
-        const data = paystackRes.data;
-        if (!data.status || data.data?.status !== "success") {
-          throw new Error("Paystack verification failed: Payment not confirmed by gateway");
-        }
-        verifiedAmount = Number(data.data.amount) / 100; // convert kobo to Naira
-        if (!userId) {
-          userId = data.data?.metadata?.user_id || data.data?.metadata?.userId;
-        }
-      }
-    }
-
-    // Enforce ₦2,000 threshold
-    if (verifiedAmount < 2000) {
-      throw new Error(`Invalid payment amount: ₦${verifiedAmount}. Required: ₦2,000`);
-    }
-
-    if (!userId) {
-      console.warn("No user ID found in request or metadata for reference:", reference);
-      throw new Error("User ID is required to activate subscription");
-    }
-
-    // Set 30 days subscription start and expiry
-    const now = new Date();
-    const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
-
-    // Update in Firestore
-    await updateUserSubscription(userId, {
-      is_subscribed: true,
-      subscription_status: "active",
-      subscription_expiry: expiry.toISOString(),
-    });
-
-    // Also update users collection for complete sync
-    try {
-      await firestoreDb.collection("users").doc(userId).set({
-        is_subscribed: true,
-        subscription_status: "active",
-        subscription_start: now.toISOString(),
-        subscription_expiry: expiry.toISOString(),
-        is_verified: true,
-        updated_at: now.toISOString()
-      }, { merge: true });
-    } catch (e: any) {
-      console.warn("Users doc sync note:", e.message);
-    }
-
-    // Save transaction
-    await saveTransaction({
-      profile_id: userId,
-      user_id: userId,
-      amount: verifiedAmount,
-      reference,
-      status: "completed",
-      type: "subscription",
-      description: `VIP Subscription (30 Days) via ${isKora ? 'KoraPay' : 'Paystack'}`,
-      metadata: { gateway: isKora ? 'korapay' : 'paystack', expiry: expiry.toISOString() }
-    });
-
-    console.log(`Payment confirmed: ₦${verifiedAmount} via ${isKora ? 'KoraPay' : 'Paystack'} for user ${userId}. 30-day subscription active until ${expiry.toISOString()}`);
-
-    return {
-      success: true,
-      message: "You're now a subscriber",
-      amount: verifiedAmount,
-      expiry: expiry.toISOString()
-    };
-  };
-
-  // Payment Verification API routes (supports GET and POST on both endpoints for full compatibility)
-  const handlePaymentVerifyRequest = async (req: express.Request, res: express.Response) => {
-    const reference = (req.body?.reference || req.query?.reference || "").toString().trim();
-    const userId = (req.body?.user_id || req.body?.userId || req.query?.user_id || req.query?.userId || "").toString().trim();
-    const gateway = (req.body?.gateway || req.query?.gateway || "").toString().trim();
-
-    if (!reference) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required payment reference"
-      });
-    }
-
-    try {
-      const result = await processPaymentVerification(reference, userId || undefined, gateway);
-      return res.status(200).json(result);
-    } catch (error: any) {
-      console.error("Payment verification failure:", error.message);
-      return res.status(400).json({
-        success: false,
-        error: error.message || "Payment verification could not be completed"
-      });
-    }
-  };
-
-  app.post("/api/verify-payment", handlePaymentVerifyRequest);
-  app.get("/api/verify-payment", handlePaymentVerifyRequest);
-  app.post("/api/payment-success", handlePaymentVerifyRequest);
-  app.get("/api/payment-success", handlePaymentVerifyRequest);
-
-  // Subscription Expiry Cron Job (Runs daily at midnight via Firestore)
+  // Subscription Expiry Cron Job (Runs daily at midnight)
   cron.schedule("0 0 * * *", async () => {
-    console.log("Running subscription expiry check in Firestore...");
+    console.log("Running subscription expiry check...");
     try {
-      const nowIso = new Date().toISOString();
-      const snapshot = await firestoreDb
-        .collection("profiles")
-        .where("subscription_status", "==", "active")
-        .where("subscription_expiry", "<", nowIso)
-        .get();
+      const { data: expiredProfiles, error } = await supabaseAdmin
+        .from("profiles")
+        .select("id, email, username")
+        .eq("subscription_status", "active")
+        .lt("subscription_expiry", new Date().toISOString());
 
-      if (!snapshot.empty) {
-        for (const docSnap of snapshot.docs) {
-          const profile = docSnap.data();
-          // 1. Update profile status in Firestore
-          await docSnap.ref.update({
-            is_subscribed: false,
-            subscription_status: "expired",
-            updated_at: new Date().toISOString(),
-          });
+      if (error) throw error;
+
+      if (expiredProfiles && expiredProfiles.length > 0) {
+        for (const profile of expiredProfiles) {
+          // 1. Update profile status
+          await supabaseAdmin
+            .from("profiles")
+            .update({ is_subscribed: false, subscription_status: "expired" })
+            .eq("id", profile.id);
 
           // 2. Send expiry email
           if (profile.email) {
@@ -753,10 +576,10 @@ async function startServer() {
               to: profile.email,
               subject: "Your Access Has Expired 🔒",
               type: "subscription_expired",
-              data: { username: profile.username || 'User' },
+              data: { username: profile.username },
             });
           }
-          console.log(`Subscription expired for user: ${profile.username || docSnap.id}`);
+          console.log(`Subscription expired for user: ${profile.username}`);
         }
       }
     } catch (error) {
@@ -789,95 +612,6 @@ async function startServer() {
     } catch (error) {
       console.error('Error sending notification:', error);
       res.status(500).json({ error: 'Failed to send notification' });
-    }
-  });
-
-  // 1. Profile Views endpoint
-  app.post("/api/profile/view", async (req, res) => {
-    try {
-      const { viewerId, ownerId } = req.body;
-      if (!viewerId || !ownerId) {
-        return res.status(400).json({ error: "viewerId and ownerId are required" });
-      }
-      const result = await recordProfileViewServer(viewerId, ownerId);
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error in /api/profile/view:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 2. Chat Connection Check endpoint
-  app.post("/api/chat/check-connection", async (req, res) => {
-    try {
-      const { chatId } = req.body;
-      if (!chatId) {
-        return res.status(400).json({ error: "chatId is required" });
-      }
-      const result = await checkAndUpdateConversationConnectionServer(chatId);
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error in /api/chat/check-connection:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 2b. Delete Conversation endpoint (Subtracts connections if connected)
-  app.post("/api/chat/delete", async (req, res) => {
-    try {
-      const { chatId, requestedByUserId } = req.body;
-      if (!chatId) {
-        return res.status(400).json({ error: "chatId is required" });
-      }
-      const result = await handleDeleteConversationServer(chatId, requestedByUserId);
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error in /api/chat/delete:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 2c. Delete Account endpoint (Subtracts connections for peers in connected chats)
-  app.post("/api/account/delete", async (req, res) => {
-    try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
-      }
-      const result = await handleDeleteAccountServer(userId);
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error in /api/account/delete:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 3. Recalculate Strength endpoint
-  app.post("/api/profile/recalculate-strength", async (req, res) => {
-    try {
-      const { userId, profileData } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
-      }
-      const score = await recalculateProfileStrengthServer(userId, profileData);
-      res.json({ success: true, strength: score });
-    } catch (error: any) {
-      console.error("Error in /api/profile/recalculate-strength:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 4. User Stats Chart endpoint
-  app.get("/api/user-stats/:userId", async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const range = (req.query.range as any) || "week";
-      const metric = (req.query.metric as any) || "views";
-      const stats = await getUserStatsServer(userId, range, metric);
-      res.json(stats);
-    } catch (error: any) {
-      console.error("Error in /api/user-stats/:userId:", error);
-      res.status(500).json({ error: error.message });
     }
   });
 

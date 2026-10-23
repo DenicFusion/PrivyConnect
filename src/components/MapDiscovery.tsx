@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { db, collection, getDocs, doc, updateDoc } from '../lib/firebase';
+import { supabase, isSupabaseActive } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   MapPin, 
@@ -41,11 +41,11 @@ L.Marker.prototype.options.icon = DefaultIcon;
 const UserIcon = L.divIcon({
   className: 'custom-div-icon',
   html: `<div class="relative w-12 h-12 flex items-center justify-center">
-          <div class="absolute inset-0 rounded-full bg-[#00d1ff]/20 animate-ping"></div>
-          <div class="w-10 h-10 rounded-full border-2 border-[#00d1ff] bg-[#050505] flex items-center justify-center shadow-lg shadow-[#00d1ff]/40 z-10">
+          <div class="absolute inset-0 rounded-full bg-brand-blue/20 animate-ping"></div>
+          <div class="w-10 h-10 rounded-full border-2 border-brand-blue bg-brand-dark flex items-center justify-center shadow-lg shadow-brand-blue/40 z-10">
             <div class="flex flex-col items-center">
-              <div class="w-2.5 h-2.5 rounded-full bg-[#00d1ff] mb-0.5"></div>
-              <span class="text-[7px] font-black text-[#00d1ff] uppercase tracking-tighter">You</span>
+              <div class="w-2.5 h-2.5 rounded-full bg-brand-blue mb-0.5"></div>
+              <span class="text-[7px] font-black text-brand-blue uppercase tracking-tighter">You</span>
             </div>
           </div>
         </div>`,
@@ -55,8 +55,8 @@ const UserIcon = L.divIcon({
 
 const ProfileIcon = (photoUrl: string) => L.divIcon({
   className: 'custom-div-icon',
-  html: `<div class="w-12 h-12 rounded-2xl border-2 border-white/20 bg-[#050505] overflow-hidden shadow-xl transition-all hover:scale-110 hover:border-[#00d1ff] group">
-          <img src="${photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80'}" class="w-full h-full object-cover" />
+  html: `<div class="w-12 h-12 rounded-2xl border-2 border-white/20 bg-brand-dark overflow-hidden shadow-xl transition-all hover:scale-110 hover:border-brand-blue group">
+          <img src="${photoUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'}" class="w-full h-full object-cover" />
         </div>`,
   iconSize: [48, 48],
   iconAnchor: [24, 24],
@@ -93,38 +93,32 @@ export default function MapDiscovery({ profile }: { profile: any }) {
   const updateInterval = useRef<NodeJS.Timeout | null>(null);
 
   const fetchNearbyUsers = useCallback(async (center: [number, number]) => {
-    if (!center) return;
+    if (!isSupabaseActive || !center) return;
+    
     try {
-      const snapshot = await getDocs(collection(db, 'profiles'));
-      const list: any[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = { id: docSnap.id, ...(docSnap.data() as any) };
-        if (data.id !== profile?.id) {
-          list.push({
-            ...data,
-            latitude: data.latitude || (9.0820 + (Math.random() - 0.5) * 0.1),
-            longitude: data.longitude || (8.6753 + (Math.random() - 0.5) * 0.1),
-          });
-        }
+      const { data, error } = await supabase.rpc('search_nearby_users', {
+        user_lat: center[0],
+        user_lng: center[1],
+        radius_km: radius,
+        preference: profile?.looking_for || 'everyone'
       });
-      setNearbyUsers(list);
+
+      if (error) throw error;
+      setNearbyUsers(data || []);
     } catch (err) {
-      console.error('Error fetching profiles for map:', err);
+      console.error('Error fetching nearby users:', err);
     }
-  }, [profile?.id]);
+  }, [profile?.id, profile?.looking_for, radius]);
 
   const updateLocationInDB = async (lat: number, lng: number) => {
-    if (!profile?.id) return;
-    try {
-      await updateDoc(doc(db, 'profiles', profile.id), {
-        latitude: lat,
-        longitude: lng,
-        last_location_update: new Date().toISOString(),
-        location: { lat, lng, city: "Detected" }
-      });
-    } catch (err) {
-      console.error('Error updating location:', err);
-    }
+    if (!profile?.id || !isSupabaseActive) return;
+    
+    await supabase.from('profiles').update({
+      latitude: lat,
+      longitude: lng,
+      last_location_update: new Date().toISOString(),
+      location: { lat, lng, city: "Detected" }
+    }).eq('id', profile.id);
   };
 
   const requestLocation = () => {

@@ -24,7 +24,7 @@ export default function EmailPreviewPage() {
     const t = EMAIL_TEMPLATES[selectedTemplate];
     if (typeof t === 'function') {
       if (isForCopy) {
-        // Format variables for external email service
+        // Replace demo values with Supabase variables for the copy version
         // @ts-ignore
         return t('{{ .Token }}', '{{ .Data.full_name }}', '{{ .Data.amount }}', '{{ .Data.plan_name }}', '{{ .Data.location }}', '{{ .Data.device }}')
           .replace('href="#"', 'href="{{ .ConfirmationURL }}"');
@@ -58,12 +58,12 @@ export default function EmailPreviewPage() {
         <div className="flex gap-4">
           <button 
             onClick={() => {
-              const guide = document.getElementById('firebase-guide');
+              const guide = document.getElementById('supabase-guide');
               guide?.scrollIntoView({ behavior: 'smooth' });
             }}
             className="px-6 py-2.5 bg-white/5 border border-white/10 text-white/60 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all"
           >
-            Firebase Setup Guide
+            Supabase Setup Guide
           </button>
           <button 
             onClick={copyToClipboard}
@@ -123,7 +123,7 @@ export default function EmailPreviewPage() {
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <h3 className="text-lg font-bold uppercase tracking-tight italic text-brand-blue">Template Source Code</h3>
-                  <p className="text-white/20 text-[10px] uppercase tracking-widest font-bold">Copy this into Email Template Body</p>
+                  <p className="text-white/20 text-[10px] uppercase tracking-widest font-bold">Copy this into Supabase Email Body</p>
                 </div>
                 <button 
                   onClick={copyToClipboard}
@@ -147,38 +147,54 @@ export default function EmailPreviewPage() {
               </div>
             </div>
 
-            {/* Firebase Guide Section */}
-            <div id="firebase-guide" className="pt-12 border-t border-white/10 space-y-8">
+            {/* Supabase Guide Section */}
+            <div id="supabase-guide" className="pt-12 border-t border-white/10 space-y-8">
               <div className="space-y-2">
-                <h2 className="text-3xl font-display uppercase italic text-[#00d1ff]">Firebase Authentication & Console Guide</h2>
-                <p className="text-white/40 text-sm">Follow these steps to configure your Firebase Console for authentication and security.</p>
+                <h2 className="text-3xl font-display uppercase italic text-brand-blue">Supabase Configuration Guide</h2>
+                <p className="text-white/40 text-sm">Follow these steps to enable 6-digit codes and custom branding for your authentication emails.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="p-8 rounded-[32px] bg-white/5 border border-white/10 space-y-4">
-                  <div className="w-10 h-10 rounded-xl bg-[#00d1ff]/10 flex items-center justify-center text-[#00d1ff] font-bold">1</div>
-                  <h3 className="text-lg font-bold uppercase tracking-tight">Enable Auth Providers</h3>
+                  <div className="w-10 h-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold">1</div>
+                  <h3 className="text-lg font-bold uppercase tracking-tight">Enable OTP Codes</h3>
                   <p className="text-white/40 text-xs leading-relaxed">
-                    In your Firebase Console, navigate to Authentication &gt; Sign-in method:
+                    By default, Supabase sends a magic link. To send a 6-digit code instead:
                   </p>
                   <ul className="text-[10px] text-white/60 space-y-2 list-disc pl-4 uppercase tracking-widest font-bold">
-                    <li>Enable <strong>Google</strong> provider and configure support email.</li>
-                    <li>Enable <strong>Email/Password</strong> provider.</li>
-                    <li>Add your AI Studio preview and live domains under <strong>Authorized domains</strong>.</li>
+                    <li>Go to Authentication {'>'} Email Templates</li>
+                    <li>Select "Magic Link" or "Confirm Signup"</li>
+                    <li>Replace <code className="text-brand-blue">{'{{ .ConfirmationURL }}'}</code> with <code className="text-brand-blue">{'{{ .Token }}'}</code></li>
+                    <li className="text-brand-blue border border-brand-blue/20 bg-brand-blue/5 p-2 rounded-lg">
+                      <strong>CRITICAL:</strong> Go to <strong>Authentication {'>'} Providers {'>'} Email</strong> and set <code className="font-bold">OTP Length</code> to <code className="font-bold">6</code>. 
+                      <p className="mt-1 text-[8px] normal-case font-normal">If this is set to 8, your users will receive 8-digit codes like in your screenshot.</p>
+                    </li>
                   </ul>
                 </div>
 
                 <div className="p-8 rounded-[32px] bg-white/5 border border-white/10 space-y-4">
-                  <div className="w-10 h-10 rounded-xl bg-[#00d1ff]/10 flex items-center justify-center text-[#00d1ff] font-bold">2</div>
-                  <h3 className="text-lg font-bold uppercase tracking-tight">Firestore Database & Rules</h3>
+                  <div className="w-10 h-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold">2</div>
+                  <h3 className="text-lg font-bold uppercase tracking-tight">Apply Branding</h3>
                   <p className="text-white/40 text-xs leading-relaxed">
-                    Create your Firestore database and deploy security rules:
+                    To use the premium templates shown above in your Supabase emails:
                   </p>
                   <ul className="text-[10px] text-white/60 space-y-2 list-disc pl-4 uppercase tracking-widest font-bold">
-                    <li>Create Firestore database in Native mode.</li>
-                    <li>Paste <code className="text-[#00d1ff]">firestore.rules</code> in the Firebase Console Rules tab.</li>
+                    <li>Select the "OTP Verification" template on the left</li>
+                    <li>Click "Copy HTML" at the top of this page</li>
+                    <li>Paste the HTML into the Supabase Email Body editor</li>
                   </ul>
                 </div>
+              </div>
+
+              <div className="p-8 rounded-[32px] bg-brand-blue/5 border border-brand-blue/20 flex items-center justify-between gap-8">
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-brand-blue">Pro Tip: Custom SMTP</h4>
+                  <p className="text-white/40 text-[10px] uppercase tracking-widest leading-relaxed">
+                    To avoid "Sent via Supabase" footers, configure your Resend SMTP credentials in <br />
+                    <span className="text-white">Project Settings {'>'} Authentication {'>'} SMTP</span>.
+                  </p>
+                </div>
+                <ExternalLink className="w-6 h-6 text-brand-blue/40" />
               </div>
             </div>
           </div>

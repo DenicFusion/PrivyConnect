@@ -1,578 +1,389 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { db, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs, onSnapshot } from '../lib/firebase';
-import { calculateDistanceKm, formatDistance, syncUserLiveLocation } from '../lib/location';
-import { calculateProfileStrength, recordProfileView, checkAndUpdateConversationConnection, recalculateProfileStrengthOnServer } from '../lib/stats';
-import { UserStatsChart } from '../components/UserStatsChart';
-import imageCompression from 'browser-image-compression';
-import { uploadToCloudinary } from '../lib/cloudinary';
+import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MOCK_USERS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  ArrowLeft, 
-  Share2, 
-  Edit3, 
-  Check, 
-  Copy, 
-  Heart, 
-  Lock, 
-  MessageSquare, 
-  ShieldOff,
-  Globe,
-  EyeOff,
-  Eye,
-  Shield,
-  X,
-  Sparkles,
-  Phone,
-  MessageCircle,
-  Send,
-  Crown,
-  ExternalLink,
-  Plus,
-  Trash2,
-  Camera,
-  Loader2,
-  MapPin,
-  RefreshCw
-} from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import { Shield, MapPin, MessageSquare, DollarSign, Heart, Lock, Eye, Zap, ArrowLeft, Share2, CheckCircle, AlertCircle, Edit3, Camera, X, Upload, Check, Sliders, Image as ImageIcon, User, Settings, Info, ShieldOff, Copy, Share, Gift } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import Cropper from 'react-easy-crop';
+import imageCompression from 'browser-image-compression';
+
+import { Logo, PrivyLogo } from '../components/Logo';
 import { useToast } from '../components/Toaster';
-import { SubscriptionModal } from '../components/SubscriptionModal';
-import { getVibeStyle } from '../components/DiscoveryFeed';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const DEFAULT_INTEREST_TAGS = [
-  'Fine Dining',
-  'Luxury Travel',
-  'Nightlife',
-  'Art & Culture',
-  'Deep Conversations',
-  'Champagne',
-  'Gym & Fitness',
-  'Yachting'
-];
-
 export default function ProfilePage({ profile: myProfile }: { profile: any }) {
-  const { uid, username } = useParams();
+  const { uid } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showTipModal, setShowTipModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
-  const [showQR, setShowQR] = useState(false);
-  
   const [quickMessage, setQuickMessage] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
+  const [tipAmount, setTipAmount] = useState('1500');
   
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [uploadingGallery, setUploadingGallery] = useState(false);
-  const [syncingLocation, setSyncingLocation] = useState(false);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [referralStats, setReferralStats] = useState({ total: 0, earned: 0 });
+  
+  // Advanced Image Edit State
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // Privacy toggles & visibility mode state (for My Profile)
-  const [visibilityMode, setVisibilityMode] = useState<'public' | 'private' | 'ghost'>('public');
-  const [isPublicProfile, setIsPublicProfile] = useState(true);
-  const [hideOnlineStatus, setHideOnlineStatus] = useState(false);
+  // Edit form state
+  const [editForm, setEditForm] = useState({
+    username: '',
+    display_name: '',
+    bio: '',
+    photo_url: '',
+    preferences: [] as string[],
+    is_public: true,
+    hide_online_status: false,
+    profile_mode: 'public'
+  });
 
-  const targetParam = (username || uid || '').replace(/^@/, '').trim();
-  const isOwnProfile = !targetParam || 
-                       targetParam === 'undefined' || 
-                       targetParam === myProfile?.id || 
-                       (myProfile?.username && targetParam.toLowerCase() === myProfile.username.toLowerCase());
+  const isOwnProfile = uid === myProfile?.id;
   const isSubscribed = myProfile?.is_subscribed || false;
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (isOwnProfile) {
-        if (myProfile) {
-          setUser(myProfile);
-          setIsPublicProfile(myProfile.is_public ?? true);
-          setHideOnlineStatus(myProfile.hide_online_status ?? false);
-          setVisibilityMode(
-            myProfile.profile_mode === 'incognito' ? 'ghost' :
-            myProfile.is_public === false ? 'private' : 'public'
-          );
-        }
+      if (!uid || uid === 'undefined') {
+        setLoading(false);
+        return;
+      }
+
+      // If we don't have myProfile yet, wait
+      if (!myProfile && isSupabaseActive) return;
+
+      if (!isSupabaseActive) {
+        const mockUser = MOCK_USERS.find(u => u.id === uid) || MOCK_USERS[0];
+        setUser(mockUser);
+        setEditForm({
+          username: mockUser.username,
+          display_name: mockUser.display_name || mockUser.username,
+          bio: mockUser.bio || '',
+          photo_url: mockUser.photo_url || '',
+          preferences: Array.isArray(mockUser.preferences) ? mockUser.preferences : [],
+          is_public: true,
+          hide_online_status: false,
+          profile_mode: mockUser.profile_mode || 'public'
+        });
         setLoading(false);
         return;
       }
 
       try {
-        // 1. Try directly as doc ID
-        const docSnap = await getDoc(doc(db, 'profiles', targetParam));
-        if (docSnap.exists()) {
-          const data: any = { id: docSnap.id, ...docSnap.data() };
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', uid)
+          .single();
+        
+        if (error) {
+          console.error('ProfilePage: Error fetching user:', error);
+          toast('User not found', 'error');
+          navigate('/discovery');
+        } else if (data) {
           setUser(data);
-          setIsPublicProfile(data.is_public ?? true);
-          setHideOnlineStatus(data.hide_online_status ?? false);
-          setLoading(false);
-          return;
-        }
+          setEditForm({
+            username: data.username,
+            display_name: data.display_name || data.username,
+            bio: data.bio || '',
+            photo_url: data.photo_url || '',
+            preferences: Array.isArray(data.preferences) ? data.preferences : (data.preferences?.interests || []),
+            is_public: data.is_public ?? true,
+            hide_online_status: data.hide_online_status ?? false,
+            profile_mode: data.profile_mode || 'public'
+          });
 
-        // 2. Try query by username (lowercase, exact)
-        const qLower = query(collection(db, 'profiles'), where('username', '==', targetParam.toLowerCase()));
-        const snapLower = await getDocs(qLower);
-        if (!snapLower.empty) {
-          const data: any = { id: snapLower.docs[0].id, ...snapLower.docs[0].data() };
-          setUser(data);
-          setIsPublicProfile(data.is_public ?? true);
-          setHideOnlineStatus(data.hide_online_status ?? false);
-          setLoading(false);
-          return;
-        }
-
-        // 3. Try query by display_name
-        const qName = query(collection(db, 'profiles'), where('display_name', '==', targetParam));
-        const snapName = await getDocs(qName);
-        if (!snapName.empty) {
-          const data: any = { id: snapName.docs[0].id, ...snapName.docs[0].data() };
-          setUser(data);
-          setIsPublicProfile(data.is_public ?? true);
-          setHideOnlineStatus(data.hide_online_status ?? false);
-          setLoading(false);
-          return;
-        }
-
-        // 4. Also check users collection in Firestore if own profile
-        if (isOwnProfile) {
-          const userSnap = await getDoc(doc(db, 'users', targetParam)).catch(() => null);
-          if (userSnap && userSnap.exists()) {
-            const data: any = { id: userSnap.id, ...userSnap.data() };
-            setUser(data);
-            setIsPublicProfile(data.is_public ?? true);
-            setHideOnlineStatus(data.hide_online_status ?? false);
-            setLoading(false);
-            return;
+          // Check if we should show lock modal
+          const isOwn = uid === myProfile?.id;
+          if (!isOwn && !isSubscribed) {
+            setShowLockModal(true);
           }
         }
-
-        // Profile not found in real database
-        setUser(null);
       } catch (err) {
-        console.error('Error fetching profile:', err);
-        setUser(null);
+        console.error('ProfilePage: Unexpected error:', err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchUser();
-  }, [uid, username, targetParam, myProfile, isOwnProfile, isSubscribed, navigate, toast]);
-
-  // Real-time listener for live updates on views, connections, and profile data
-  useEffect(() => {
-    const targetId = isOwnProfile ? myProfile?.id : user?.id;
-    if (!targetId) return;
-
-    const unsub = onSnapshot(doc(db, 'profiles', targetId), (snap) => {
-      if (snap.exists()) {
-        const liveData = { id: snap.id, ...snap.data() };
-        setUser((prev: any) => ({ ...(prev || {}), ...liveData }));
-      }
-    }, (err) => {
-      console.warn('Realtime profile listener error:', err);
-    });
-
-    return () => unsub();
-  }, [isOwnProfile, myProfile?.id, user?.id]);
-
-  // 1. Record view when viewing another member's profile
-  useEffect(() => {
-    if (!isOwnProfile && myProfile?.id && user?.id && myProfile.id !== user.id) {
-      recordProfileView(myProfile.id, user.id);
-    }
-  }, [isOwnProfile, myProfile?.id, user?.id]);
+  }, [uid, myProfile, isSubscribed, navigate, toast]);
 
   useEffect(() => {
     const checkIsSaved = async () => {
-      if (!myProfile || !uid || uid === 'undefined' || uid === myProfile.id) return;
-      try {
-        const q = query(
-          collection(db, 'saved_profiles'),
-          where('user_id', '==', myProfile.id),
-          where('saved_profile_id', '==', uid)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          setIsSaved(true);
-        }
-      } catch (err) {
-        console.error('Error checking saved profile:', err);
+      if (!isSupabaseActive || !myProfile || !uid || uid === 'undefined') return;
+      
+      const { data, error } = await supabase
+        .from('saved_profiles')
+        .select('id')
+        .eq('user_id', myProfile.id)
+        .eq('saved_profile_id', uid)
+        .maybeSingle();
+      
+      if (!error && data) {
+        setIsSaved(true);
       }
     };
 
     checkIsSaved();
   }, [uid, myProfile]);
 
-  // Auto-sync location if own profile
   useEffect(() => {
-    if (isOwnProfile && myProfile?.id) {
-      syncUserLiveLocation(myProfile.id, myProfile).then((res) => {
-        if (res.updated) {
-          setUser((prev: any) => ({
-            ...(prev || myProfile),
-            state: res.state,
-            city: res.city,
-            coarse_lat: res.lat,
-            coarse_lng: res.lng
-          }));
-        }
-      }).catch(() => {});
-    }
-  }, [isOwnProfile, myProfile?.id]);
-
-  const profileData = user || myProfile;
-  const profileStrength = calculateProfileStrength(profileData);
-
-  // Sync calculated strength to firestore if needed (top-level hook before early returns)
-  useEffect(() => {
-    if (isOwnProfile && myProfile?.id && profileStrength !== undefined && profileData) {
-      if (profileData.strength !== profileStrength) {
-        updateDoc(doc(db, 'profiles', myProfile.id), {
-          strength: profileStrength,
-          updated_at: new Date().toISOString()
-        }).catch(() => {});
+    const fetchReferralStats = async () => {
+      if (!isSupabaseActive || !user?.id) return;
+      
+      const { data: referrals, error } = await supabase
+        .from('referrals')
+        .select('status, reward_amount')
+        .eq('referrer_id', user.id);
+        
+      if (!error && referrals) {
+        const total = referrals.length;
+        const earned = referrals.filter(r => r.status === 'completed').reduce((acc, r) => acc + (Number(r.reward_amount) || 0), 0);
+        setReferralStats({ total, earned });
       }
-    }
-  }, [isOwnProfile, myProfile?.id, profileStrength, profileData?.strength]);
+    };
+    
+    fetchReferralStats();
+  }, [user?.id]);
 
-  const galleryImages: string[] = useMemo(() => {
-    const list: string[] = [];
-    if (Array.isArray(profileData?.photos)) {
-      profileData.photos.forEach((p: any) => {
-        const u = typeof p === 'string' ? p : p?.url;
-        if (u && typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:image')) && !list.includes(u)) {
-          list.push(u);
-        }
+  const onCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.addEventListener('load', () => {
+        setImageToCrop(reader.result as string);
       });
-    }
-    if (profileData?.photo_url) {
-      const mainU = typeof profileData.photo_url === 'string' ? profileData.photo_url : profileData.photo_url?.url;
-      if (mainU && typeof mainU === 'string' && (mainU.startsWith('http') || mainU.startsWith('data:image')) && !list.includes(mainU)) {
-        list.unshift(mainU);
-      }
-    }
-    return list;
-  }, [profileData?.photos, profileData?.photo_url]);
-
-  const handleEditClick = () => {
-    navigate('/settings');
-  };
-
-  const copyProfileUrl = () => {
-    const username = (user || myProfile)?.username || 'member';
-    const url = `${window.location.origin}/u/${username}`;
-    navigator.clipboard.writeText(url);
-    setCopiedLink(true);
-    toast('Profile link copied to clipboard!', 'success');
-    setTimeout(() => setCopiedLink(false), 2500);
-  };
-
-  const handleRefreshLocation = async () => {
-    if (!myProfile?.id || syncingLocation) return;
-    setSyncingLocation(true);
-    toast('Detecting your live location...', 'info');
-    try {
-      const res = await syncUserLiveLocation(myProfile.id, profileData);
-      setUser((prev: any) => ({
-        ...(prev || myProfile),
-        state: res.state,
-        city: res.city,
-        coarse_lat: res.lat,
-        coarse_lng: res.lng,
-        location: {
-          city: res.city,
-          state: res.state,
-          lat: res.lat,
-          lng: res.lng
-        }
-      }));
-      toast(`Location updated to ${res.city || res.state}, ${res.state}!`, 'success');
-    } catch (e: any) {
-      toast('Could not detect location. Please allow GPS permission in your browser.', 'error');
-    } finally {
-      setSyncingLocation(false);
+      reader.readAsDataURL(file);
     }
   };
 
-  const handleUploadGalleryPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !myProfile?.id) return;
+  const handleSaveCroppedImage = async () => {
+    if (!imageToCrop || !croppedAreaPixels) return;
+    setIsUploading(true);
 
     try {
-      setUploadingGallery(true);
-      toast('Processing and uploading photo(s)...', 'info');
+      // In a real app, we would crop the image using canvas and then upload to Supabase Storage
+      // For this demo, we'll simulate compression and upload
+      const canvas = document.createElement('canvas');
+      const img = new Image();
+      img.src = imageToCrop;
+      
+      await new Promise((resolve) => { img.onload = resolve; });
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-      // Extract existing valid photos
-      const currentPhotos: string[] = [];
-      if (Array.isArray(profileData?.photos)) {
-        profileData.photos.forEach((p: any) => {
-          const u = typeof p === 'string' ? p : p?.url;
-          if (u && typeof u === 'string' && u.startsWith('http') && !currentPhotos.includes(u)) {
-            currentPhotos.push(u);
-          }
-        });
-      }
-      if (profileData?.photo_url) {
-        const mainU = typeof profileData.photo_url === 'string' ? profileData.photo_url : profileData.photo_url?.url;
-        if (mainU && typeof mainU === 'string' && mainU.startsWith('http') && !currentPhotos.includes(mainU)) {
-          currentPhotos.unshift(mainU);
+      const { x, y, width, height } = croppedAreaPixels as any;
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, x, y, width, height, 0, 0, width, height);
+
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8));
+      
+      // Compress
+      const options = {
+        maxSizeMB: 0.5,
+        maxWidthOrHeight: 1024,
+        useWebWorker: true
+      };
+      const compressedFile = await imageCompression(blob as File, options);
+      
+      // Mock upload URL
+      const reader = new FileReader();
+      reader.readAsDataURL(compressedFile);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+        setEditForm({ ...editForm, photo_url: base64data });
+        
+        if (isSupabaseActive && myProfile?.id) {
+          await supabase
+            .from('profiles')
+            .update({ photo_url: base64data })
+            .eq('id', myProfile.id);
         }
-      }
-
-      for (let i = 0; i < files.length; i++) {
-        if (currentPhotos.length >= 12) {
-          toast('Maximum 12 photos allowed in gallery', 'info');
-          break;
-        }
-        const file = files[i];
-        if (!file.type.startsWith('image/')) continue;
-
-        const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true };
-        const compressed = await imageCompression(file, options);
-        const uploadResult = await uploadToCloudinary(compressed);
-        const url = typeof uploadResult === 'string' ? uploadResult : (uploadResult.url || '');
-
-        if (url && typeof url === 'string' && !currentPhotos.includes(url)) {
-          currentPhotos.push(url);
-        }
-      }
-
-      const mainPhoto = currentPhotos[0] || profileData?.photo_url || '';
-      const updatedProfile = {
-        ...(profileData || {}),
-        photos: currentPhotos,
-        photo_url: mainPhoto
+        
+        setImageToCrop(null);
+        setIsUploading(false);
+        toast('Profile photo updated!', 'success');
       };
 
-      const newStrength = calculateProfileStrength(updatedProfile);
-
-      await updateDoc(doc(db, 'profiles', myProfile.id), {
-        photos: currentPhotos,
-        photo_url: mainPhoto,
-        strength: newStrength,
-        updated_at: new Date().toISOString()
-      });
-
-      try {
-        await updateDoc(doc(db, 'users', myProfile.id), {
-          photos: currentPhotos,
-          photo_url: mainPhoto,
-          strength: newStrength
-        });
-      } catch {}
-
-      recalculateProfileStrengthOnServer(myProfile.id, updatedProfile);
-
-      setUser((prev: any) => ({ ...prev, ...updatedProfile, strength: newStrength }));
-      toast(`Gallery updated! You now have ${currentPhotos.length} photo(s).`, 'success');
-    } catch (err: any) {
-      console.error('Gallery upload error:', err);
-      toast(err.message || 'Failed to upload photo', 'error');
-    } finally {
-      setUploadingGallery(false);
-      if (galleryInputRef.current) galleryInputRef.current.value = '';
+    } catch (error) {
+      console.error('Error processing image:', error);
+      setIsUploading(false);
     }
   };
 
-  const handleDeleteGalleryPhoto = async (photoUrlToDelete: string) => {
-    if (!isOwnProfile || !myProfile?.id) return;
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!myProfile?.id) return;
 
-    try {
-      const currentPhotos = (Array.isArray(profileData?.photos) ? profileData.photos : []).filter(
-        (p: any) => {
-          const u = typeof p === 'string' ? p : p?.url;
-          return u !== photoUrlToDelete;
-        }
-      );
-
-      let newPhotoUrl = profileData?.photo_url;
-      if (newPhotoUrl === photoUrlToDelete) {
-        const nextPhoto = currentPhotos[0];
-        newPhotoUrl = (typeof nextPhoto === 'string' ? nextPhoto : nextPhoto?.url) || '';
-      }
-
-      const updatedProfile = {
-        ...(profileData || {}),
-        photos: currentPhotos,
-        photo_url: newPhotoUrl
-      };
-
-      const newStrength = calculateProfileStrength(updatedProfile);
-
-      await updateDoc(doc(db, 'profiles', myProfile.id), {
-        photos: currentPhotos,
-        photo_url: newPhotoUrl,
-        strength: newStrength,
-        updated_at: new Date().toISOString()
-      });
-
-      try {
-        await updateDoc(doc(db, 'users', myProfile.id), {
-          photos: currentPhotos,
-          photo_url: newPhotoUrl,
-          strength: newStrength
-        });
-      } catch {}
-
-      recalculateProfileStrengthOnServer(myProfile.id, updatedProfile);
-
-      setUser((prev: any) => ({ ...prev, ...updatedProfile, strength: newStrength }));
-      toast('Photo removed from gallery', 'info');
-    } catch (e) {
-      toast('Failed to remove photo', 'error');
-    }
-  };
-
-  const handleShare = async () => {
-    const username = (user || myProfile)?.username || 'member';
-    const url = `${window.location.origin}/u/${username}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `${user?.display_name || user?.username} on PrivyConnect`,
-          text: `Check out ${user?.display_name || user?.username}'s exclusive profile on PrivyConnect!`,
-          url: url,
-        });
-      } catch {
-        copyProfileUrl();
-      }
-    } else {
-      copyProfileUrl();
-    }
-  };
-
-  const handleVisibilityChange = async (mode: 'public' | 'private' | 'ghost') => {
-    setVisibilityMode(mode);
-    const targetId = (user || myProfile)?.id;
-    if (!targetId) {
-      toast(`Visibility set to ${mode.toUpperCase()}`, 'success');
+    if (!isSupabaseActive) {
+      setUser({ ...user, ...editForm });
+      setShowEditModal(false);
       return;
     }
 
-    try {
-      const updates = {
-        is_public: mode === 'public',
-        profile_mode: mode === 'ghost' ? 'incognito' : 'standard',
-      };
-      await updateDoc(doc(db, 'profiles', targetId), updates);
-      toast(`Visibility updated to ${mode.toUpperCase()}`, 'success');
-      if (mode === 'public') setIsPublicProfile(true);
-      if (mode === 'private') setIsPublicProfile(false);
-    } catch {
-      toast('Failed to update visibility', 'error');
+    const { error } = await supabase
+      .from('profiles')
+      .update(editForm)
+      .eq('id', myProfile.id);
+
+    if (!error) {
+      setUser({ ...user, ...editForm });
+      setShowEditModal(false);
     }
   };
 
-  const handleTogglePublicProfile = async () => {
-    const nextVal = !isPublicProfile;
-    setIsPublicProfile(nextVal);
-    const targetId = (user || myProfile)?.id;
-    if (!targetId) return;
-
-    try {
-      await updateDoc(doc(db, 'profiles', targetId), { is_public: nextVal });
-      toast(nextVal ? 'Profile is now public' : 'Profile is now hidden from search', 'success');
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleToggleHideOnline = async () => {
-    const nextVal = !hideOnlineStatus;
-    setHideOnlineStatus(nextVal);
-    const targetId = (user || myProfile)?.id;
-    if (!targetId) return;
-
-    try {
-      await updateDoc(doc(db, 'profiles', targetId), { hide_online_status: nextVal });
-      toast(nextVal ? 'Online status is hidden' : 'Online status is visible', 'success');
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleStartChat = () => {
-    if (!user?.id || !myProfile) return;
-    if (!isSubscribed) {
-      setShowLockModal(true);
-      return;
-    }
+  const handleStartChat = async () => {
+    if (!uid || !myProfile) return;
     setShowChatModal(true);
   };
 
   const confirmStartChat = async () => {
-    if (!user?.id || !myProfile || isSendingChat) return;
+    if (!uid || !myProfile || isSendingChat) return;
+    
     setIsSendingChat(true);
-    const chatId = [user.id, myProfile.id].sort().join('_');
+    const chatId = [uid, myProfile.id].sort().join('_');
     
     try {
-      const chatDocRef = doc(db, 'chats', chatId);
-      const chatSnap = await getDoc(chatDocRef);
-      if (!chatSnap.exists()) {
-        await setDoc(chatDocRef, {
-          id: chatId,
-          participants: [user.id, myProfile.id],
-          last_message: quickMessage || 'Started a conversation',
-          last_timestamp: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-        });
+      if (!isSupabaseActive) {
+        navigate(`/chat/${chatId}`);
+        return;
       }
 
+      // 1. Create or find chat
+      const { data: existingChat } = await supabase
+        .from('chats')
+        .select('*')
+        .eq('id', chatId)
+        .maybeSingle();
+      
+      if (!existingChat) {
+        const { error: insertError } = await supabase
+          .from('chats')
+          .insert({
+            id: chatId,
+            participants: [uid, myProfile.id],
+            last_message: quickMessage || 'Started a conversation',
+            last_timestamp: new Date().toISOString(),
+          });
+        if (insertError) throw insertError;
+      }
+
+      // 2. Send initial message if provided
       if (quickMessage.trim()) {
-        await addDoc(collection(db, 'messages'), {
-          chat_id: chatId,
-          sender_id: myProfile.id,
-          content: quickMessage.trim(),
-          timestamp: new Date().toISOString(),
-        });
-        checkAndUpdateConversationConnection(chatId);
-      }
+        const { error: msgError } = await supabase
+          .from('messages')
+          .insert({
+            chat_id: chatId,
+            sender_id: myProfile.id,
+            content: quickMessage.trim(),
+            message_type: 'text',
+            created_at: new Date().toISOString()
+          });
+        if (msgError) throw msgError;
 
+        // Update chat last message
+        await supabase
+          .from('chats')
+          .update({
+            last_message: quickMessage.trim(),
+            last_timestamp: new Date().toISOString()
+          })
+          .eq('id', chatId);
+      }
+      
       navigate(`/chat/${chatId}`);
-    } catch (err: any) {
-      toast(err.message || 'Failed to start chat', 'error');
+    } catch (error) {
+      console.error('Error starting chat:', error);
+      toast('Failed to start chat', 'error');
     } finally {
       setIsSendingChat(false);
       setShowChatModal(false);
     }
   };
 
-  const handleSaveProfile = async () => {
-    if (!myProfile || !user?.id) {
-      setIsSaved(!isSaved);
-      toast(isSaved ? 'Removed from favorites' : 'Saved to favorites', 'success');
+  const handleSendTip = async () => {
+    if (!uid || !myProfile) return;
+    
+    const amount = parseFloat(tipAmount);
+    const commission = amount * 0.25;
+    
+    if (!isSupabaseActive) {
+      setShowTipModal(false);
+      toast('Tip sent successfully (Mock Mode)!', 'success');
       return;
     }
+
+    const { error } = await supabase
+      .from('transactions')
+      .insert({
+        profile_id: myProfile.id,
+        sender_id: myProfile.id,
+        receiver_id: uid,
+        amount: amount,
+        commission: commission,
+        type: 'tip',
+        status: 'completed'
+      });
+    
+    if (!error) {
+      setShowTipModal(false);
+      toast('Tip sent successfully!', 'success');
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!isSupabaseActive || !myProfile || !uid) return;
     
     setIsSaving(true);
     try {
-      const savedCol = collection(db, 'saved_profiles');
       if (isSaved) {
-        const q = query(savedCol, where('user_id', '==', myProfile.id), where('saved_profile_id', '==', user.id));
-        const snap = await getDocs(q);
-        for (const d of snap.docs) {
-          await deleteDoc(d.ref);
+        // Unsave
+        const { error } = await supabase
+          .from('saved_profiles')
+          .delete()
+          .eq('user_id', myProfile.id)
+          .eq('saved_profile_id', uid);
+        
+        if (!error) {
+          setIsSaved(false);
+          toast('Profile removed from saved', 'success');
         }
-        setIsSaved(false);
-        toast('Removed from favorites', 'success');
       } else {
-        await addDoc(savedCol, {
-          user_id: myProfile.id,
-          saved_profile_id: user.id,
-          created_at: new Date().toISOString(),
-        });
-        setIsSaved(true);
-        toast('Profile saved to favorites!', 'success');
+        // Save
+        const { error } = await supabase
+          .from('saved_profiles')
+          .insert({
+            user_id: myProfile.id,
+            saved_profile_id: uid
+          });
+        
+        if (!error) {
+          setIsSaved(true);
+          toast('Profile saved successfully!', 'success');
+        }
       }
     } catch (err) {
       console.error('Error saving profile:', err);
@@ -582,689 +393,807 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
   };
 
   const handleBlockUser = async () => {
-    if (!user?.id || !myProfile) return;
-    if (!confirm('Are you sure you want to block this user?')) return;
+    if (!uid || !myProfile) return;
     
+    if (!isSupabaseActive) {
+      toast('User blocked successfully (Mock Mode)!', 'success');
+      return;
+    }
+
     try {
-      await addDoc(collection(db, 'blocked_users'), {
-        user_id: myProfile.id,
-        blocked_user_id: user.id,
-        created_at: new Date().toISOString()
-      });
+      const { error } = await supabase
+        .from('blocked_users')
+        .insert({
+          user_id: myProfile.id,
+          blocked_user_id: uid,
+          created_at: new Date().toISOString()
+        });
       
-      toast('User blocked. You will no longer see their content.', 'success');
+      if (error) throw error;
+      toast('User blocked successfully. You will no longer see their content.', 'success');
       navigate('/discovery');
-    } catch {
-      toast('Failed to block user', 'error');
+    } catch (err: any) {
+      console.error('Error blocking user:', err);
+      toast('Failed to block user. Please try again.', 'error');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-3">
-        <div className="w-8 h-8 border-2 border-[#00d1ff] border-t-transparent rounded-full animate-spin" />
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">
-          Loading Profile...
-        </span>
-      </div>
-    );
-  }
-
-  if (!profileData) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6 space-y-4">
-        <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
-          <X className="w-8 h-8 text-[#59636d]" />
-        </div>
-        <h2 className="text-2xl font-serif text-[#f3f6f8]">Profile Not Found</h2>
-        <p className="text-[#8d97a1] text-sm">This profile may have been removed or is temporarily unavailable.</p>
-        <button 
-          onClick={() => navigate('/discovery')}
-          className="px-6 py-3 bg-[#00d1ff] text-[#00131a] font-bold text-xs uppercase tracking-wider rounded-[14px] cursor-pointer"
-        >
-          Back to Discover
-        </button>
-      </div>
-    );
-  }
-
-  const profileLocation = profileData.state || profileData.location?.city || 'Lagos';
-  const profileVibe = profileData.vibe || profileData.preferences?.vibe || 'BESTIE';
-  const vibeStyle = getVibeStyle(profileVibe);
-  const displayBio = profileData.bio || "Verified member on PrivyConnect. Living passionately, seeking genuine high-frequency chemistry and meaningful connections.";
-
-  const displayInterests = Array.isArray(profileData.preferences?.interests) && profileData.preferences.interests.length > 0 
-    ? profileData.preferences.interests 
-    : (Array.isArray(profileData.preferences) ? profileData.preferences : DEFAULT_INTEREST_TAGS);
-
-
-
-  const myLat = myProfile?.coarse_lat;
-  const myLng = myProfile?.coarse_lng;
-  const targetLat = profileData.coarse_lat || profileData.location?.lat;
-  const targetLng = profileData.coarse_lng || profileData.location?.lng;
-  const distKm = calculateDistanceKm(myLat, myLng, targetLat, targetLng);
-  const distanceText = distKm != null ? formatDistance(distKm) : null;
+  if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
+  if (!user) return <div className="h-screen flex items-center justify-center">User not found</div>;
 
   return (
-    <div className="max-w-xl mx-auto space-y-6 pb-28 px-4 sm:px-0">
-      {/* Top Row: round back button on the left, outline "Edit profile" button and a round share button on the right */}
-      <div className="flex items-center justify-between pt-2">
-        <button 
-          onClick={() => navigate(-1)} 
-          className="w-11 h-11 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#f3f6f8] hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
-          aria-label="Back"
-        >
-          <ArrowLeft className="w-5 h-5" />
+    <div className="max-w-4xl mx-auto space-y-8 pb-32">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 md:px-0">
+        <button onClick={() => navigate(-1)} className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors">
+          <ArrowLeft className="w-6 h-6" />
         </button>
-
         <div className="flex items-center gap-3">
-          {isOwnProfile ? (
+          {isOwnProfile && (
             <button 
-              onClick={handleEditClick}
-              className="px-5 py-2.5 rounded-full border border-white/15 bg-transparent hover:bg-white/5 text-xs font-sans font-medium text-[#f3f6f8] transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+              onClick={() => setShowEditModal(true)}
+              className="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-[10px] uppercase tracking-widest font-bold hover:bg-white/10 transition-all flex items-center gap-2"
             >
-              <Edit3 className="w-3.5 h-3.5 text-[#00d1ff]" />
-              <span>Edit profile</span>
-            </button>
-          ) : (
-            <button 
-              onClick={handleSaveProfile}
-              disabled={isSaving}
-              className="w-11 h-11 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors active:scale-95 cursor-pointer"
-              aria-label="Save Favorite"
-            >
-              <Heart className={cn("w-5 h-5 transition-colors", isSaved ? "text-[#ff5a5f] fill-[#ff5a5f]" : "text-[#8d97a1]")} />
+              <Edit3 className="w-4 h-4" />
+              Edit Profile
             </button>
           )}
-
           <button 
-            onClick={handleShare}
-            className="w-11 h-11 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#f3f6f8] hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
-            aria-label="Share"
+            onClick={() => setShowShareModal(true)}
+            className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors group"
           >
-            <Share2 className="w-4 h-4" />
+            <Share2 className="w-6 h-6 text-white/50 group-hover:text-brand-blue transition-colors" />
           </button>
         </div>
       </div>
 
-      {/* Cover: large 30px-radius photo, dark gradient to the bottom, "Online now" tag top-left, giant serif name */}
-      <div className="rounded-[30px] overflow-hidden relative aspect-[4/5] sm:aspect-[3/4] bg-zinc-950 border border-white/[0.075] shadow-2xl">
-        {profileData.photo_url ? (
+      {/* Profile Card */}
+      <div className="relative rounded-[64px] overflow-hidden bg-[#050505] border border-white/10 shadow-2xl">
+        {/* Cover / Profile Image */}
+        <div className="aspect-[3/4] relative group">
           <img 
-            src={profileData.photo_url} 
-            alt={profileData.display_name || profileData.username}
-            className="w-full h-full object-cover"
+            src={user.photo_url || `https://picsum.photos/seed/${user.id}/1200/1600`} 
+            className={cn(
+              "w-full h-full object-cover transition-all duration-1000",
+              !isSubscribed && !isOwnProfile && "blur-3xl scale-110 grayscale-[0.5]"
+            )}
             referrerPolicy="no-referrer"
           />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#0c1015] via-[#090b0d] to-[#040506]">
-            <div className="w-28 h-28 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center shadow-inner">
-              <span className="font-serif text-5xl font-bold text-[#00d1ff]">
-                {(profileData.display_name || profileData.username || 'P').charAt(0).toUpperCase()}
-              </span>
-            </div>
-            <span className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-[#59636d]">Privy Member</span>
-          </div>
-        )}
-
-        {/* Dark gradient to the bottom */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#040506] via-[#040506]/55 to-transparent pointer-events-none" />
-
-        {/* Top-left: "Online now" tag with green dot */}
-        <div className="absolute top-5 left-5 z-20 flex items-center gap-2 px-3.5 py-1.5 bg-black/60 backdrop-blur-md border border-white/15 rounded-full shadow-lg">
-          <div className="w-2 h-2 rounded-full bg-[#35e0a1] animate-pulse" />
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f3f6f8] font-semibold">
-            Online now
-          </span>
-        </div>
-
-        {/* Bottom Details Overlay: giant serif name, cyan round tick (subscribers only), mono row */}
-        <div className="absolute bottom-6 left-6 right-6 z-20 space-y-2">
-          <div className="flex items-center gap-2.5">
-            <h1 className="font-serif text-3xl sm:text-5xl text-[#f3f6f8] tracking-tight leading-none font-normal">
-              {profileData.display_name || profileData.username}
-            </h1>
-            {/* Cyan round tick - Only for Subscribers */}
-            {(profileData.is_subscribed || profileData.subscription_status === 'active') && (
-              <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0" title="Subscribed VIP Member">
-                <Check className="w-3.5 h-3.5 stroke-[3]" />
-              </div>
-            )}
-          </div>
-
-          {/* @username tag under full name */}
-          {profileData.username && (
-            <p className="font-mono text-sm sm:text-base text-[#00d1ff] font-semibold tracking-wide">
-              @{profileData.username.replace(/^@/, '')}
-            </p>
-          )}
-
-          {/* Prominent Companionship Vibe & Gender Tags */}
-          <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            <span 
-              className="px-3.5 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase border flex items-center gap-2 shadow-lg backdrop-blur-md"
-              style={{
-                backgroundColor: vibeStyle.bg,
-                borderColor: vibeStyle.border,
-                color: vibeStyle.color
-              }}
-            >
-              <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: vibeStyle.color }} />
-              <span>{profileVibe}</span>
+          
+          {/* Status Indicator */}
+          <div className="absolute top-8 left-8 z-20 flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-md border border-white/10 rounded-full">
+            <div className={cn("w-2 h-2 rounded-full", (user.is_online && !user.hide_online_status) ? "bg-emerald-500 animate-pulse" : "bg-white/20")} />
+            <span className="text-[9px] uppercase tracking-widest font-bold text-white/80">
+              {(user.is_online && !user.hide_online_status) ? "Online Now" : "Last seen 2h ago"}
             </span>
-
-            {profileData.gender && (
-              <span className="px-3 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase border border-white/20 bg-black/40 text-white/90 backdrop-blur-md">
-                {profileData.gender}
-              </span>
-            )}
           </div>
 
-          {/* Mono row with location, distance and response rate */}
-          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#8d97a1]">
-            <span>{profileLocation.toUpperCase()} · NIGERIA</span>
-            <span>·</span>
-            {isSubscribed ? (
-              <span className="text-[#00d1ff] font-semibold">{distanceText || 'Nearby'}</span>
-            ) : (
-              <button 
-                type="button" 
-                onClick={() => setShowLockModal(true)}
-                className="inline-flex items-center gap-1 text-[#f2b04b] hover:text-[#f2b04b]/90 transition-colors cursor-pointer"
+          {/* Blur Overlay for non-subscribers */}
+          {!isSubscribed && !isOwnProfile && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-[2px] z-30">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="text-center space-y-6"
               >
-                <Lock className="w-3 h-3" />
-                <span>Subscribe to see distance</span>
-              </button>
-            )}
-            {profileData.is_verified && (
-              <>
-                <span>·</span>
-                <span className="text-[#35e0a1]">VERIFIED</span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Stats: one card split into 3 (Views, Connections, Strength), big serif numbers with mono labels */}
-      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] grid grid-cols-3 divide-x divide-white/[0.075] p-5 text-center shadow-lg">
-        <div className="space-y-1">
-          <div className="font-serif text-2xl sm:text-3xl text-[#f3f6f8] leading-tight">
-            {Number(profileData.views) || 0}
-          </div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">Views</div>
-        </div>
-        <div className="space-y-1">
-          <div className="font-serif text-2xl sm:text-3xl text-[#00d1ff] leading-tight">
-            {Number(profileData.connections) || 0}
-          </div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">Connections</div>
-        </div>
-        <div className="space-y-1">
-          <div className="font-serif text-2xl sm:text-3xl text-[#35e0a1] leading-tight">
-            {profileStrength}%
-          </div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d]">Strength</div>
-        </div>
-      </div>
-
-      {/* Actions (When viewing someone else) */}
-      {!isOwnProfile && (
-        <div className="grid grid-cols-2 gap-3 pt-1">
-          <button 
-            onClick={handleStartChat}
-            className="flex items-center justify-center gap-2 py-4 px-6 bg-[#00d1ff] text-[#00131a] rounded-[14px] font-sans font-bold text-sm shadow-[0_0_20px_rgba(0,209,255,0.25)] hover:bg-[#00d1ff]/90 active:scale-95 transition-all cursor-pointer"
-          >
-            <MessageSquare className="w-4 h-4 fill-current" />
-            <span>Message</span>
-          </button>
-          <button 
-            onClick={handleShare}
-            className="flex items-center justify-center gap-2 py-4 px-6 bg-transparent border border-white/15 text-[#f3f6f8] rounded-[14px] font-sans font-bold text-sm hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
-          >
-            <Share2 className="w-4 h-4 text-[#00d1ff]" />
-            <span>Share</span>
-          </button>
-        </div>
-      )}
-
-      {/* Section: About with mono label */}
-      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-2.5">
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-          ABOUT
-        </span>
-        <p className="text-[#8d97a1] text-sm leading-relaxed font-sans">
-          {displayBio}
-        </p>
-      </div>
-
-      {/* Section: Interests (outline pills) with mono label */}
-      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-3.5">
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-          INTERESTS
-        </span>
-        <div className="flex flex-wrap gap-2.5">
-          {displayInterests.map((interest: string) => (
-            <span
-              key={interest}
-              className="px-4 py-2 rounded-full border border-white/15 text-xs font-mono uppercase tracking-[0.12em] text-[#8d97a1] bg-transparent hover:border-[#00d1ff]/40 transition-colors"
-            >
-              {interest}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Section: Gallery (up to 12 photos) with mono label and Add photos button */}
-      <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] font-semibold">
-                GALLERY
-              </span>
-              <span className="font-mono text-[11px] text-[#00d1ff] font-semibold">
-                ({galleryImages.length}/12)
-              </span>
-            </div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#8d97a1] mt-0.5">
-              More photos bring more visitors.
-            </p>
-          </div>
-
-          {isOwnProfile && (
-            <div>
-              <button
-                type="button"
-                onClick={() => galleryInputRef.current?.click()}
-                disabled={uploadingGallery || galleryImages.length >= 12}
-                className="px-3.5 py-1.5 rounded-full bg-[#00d1ff]/10 hover:bg-[#00d1ff]/20 text-[#00d1ff] border border-[#00d1ff]/30 text-xs font-mono uppercase tracking-wider font-semibold transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>{uploadingGallery ? 'Uploading...' : 'Add photos'}</span>
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          {galleryImages.map((src, i) => (
-            <div 
-              key={i} 
-              className="aspect-square rounded-[18px] overflow-hidden bg-white/5 border border-white/[0.075] relative group"
-            >
-              <img 
-                src={src} 
-                alt={`Gallery ${i + 1}`} 
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 brightness-95 contrast-[1.02]"
-                referrerPolicy="no-referrer"
-              />
-
-              {/* Remove button on each photo for owner */}
-              {isOwnProfile && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteGalleryPhoto(src);
-                  }}
-                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 hover:bg-[#ff5a5f] text-white flex items-center justify-center transition-colors cursor-pointer border border-white/20 shadow-md opacity-80 hover:opacity-100"
-                  title="Remove photo"
-                  aria-label="Remove photo"
+                <div className="w-20 h-20 rounded-full bg-white/10 backdrop-blur-xl border border-white/20 flex items-center justify-center mx-auto shadow-2xl">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-display uppercase italic tracking-tighter">Profile Locked</h3>
+                  <p className="text-white/60 text-xs uppercase tracking-widest">Subscribe to unlock full access</p>
+                </div>
+                <button 
+                  onClick={() => setShowLockModal(true)}
+                  className="px-10 py-5 bg-brand-blue text-brand-dark font-black uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_40px_rgba(0,209,255,0.3)] hover:scale-105 transition-transform"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  Unlock Access &bull; ₦1500
                 </button>
-              )}
+              </motion.div>
             </div>
-          ))}
-
-          {/* Add photo tile placeholder if less than 12 */}
-          {isOwnProfile && galleryImages.length < 12 && (
-            <button
-              type="button"
-              onClick={() => galleryInputRef.current?.click()}
-              disabled={uploadingGallery}
-              className="aspect-square rounded-[18px] border-2 border-dashed border-white/15 hover:border-[#00d1ff]/50 bg-white/[0.02] hover:bg-[#00d1ff]/5 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group"
-            >
-              <div className="w-9 h-9 rounded-full bg-white/5 group-hover:bg-[#00d1ff]/20 text-[#8d97a1] group-hover:text-[#00d1ff] flex items-center justify-center transition-colors">
-                <Plus className="w-5 h-5" />
-              </div>
-              <span className="font-mono text-[10px] uppercase tracking-wider text-[#8d97a1] group-hover:text-white">
-                Add photo
-              </span>
-            </button>
           )}
+
+          {/* Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent opacity-90" />
         </div>
-      </div>
 
-      {/* Section: Contact Information (Visible to Subscribers Only) */}
-      {!isOwnProfile && (
-        <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-              CONTACT INFORMATION
-            </span>
-            {!isSubscribed && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full bg-[#f2b04b]/15 border border-[#f2b04b]/30 text-[#f2b04b] font-semibold">
-                <Lock className="w-3 h-3" />
-                Subscribers Only
-              </span>
-            )}
-          </div>
-
-          {isSubscribed ? (
-            <div className="space-y-3 pt-1">
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[#00d1ff]/10 text-[#00d1ff] flex items-center justify-center">
-                    <Phone className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-[#8d97a1]">Direct Line</p>
-                    <p className="text-sm font-semibold text-white">
-                      {profileData.phone || 'Not provided'}
-                    </p>
+        {/* Profile Info */}
+        <div className="px-10 pb-16 -mt-40 relative z-10 space-y-10">
+          {(!isSubscribed && !isOwnProfile) ? (
+            <div className="space-y-6">
+              <div className="flex items-end justify-between">
+                <div className="space-y-4">
+                  <h1 className="text-6xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">{user.display_name || user.username}</h1>
+                  <div className="flex flex-wrap items-center gap-6 text-white/40 uppercase tracking-[0.2em] text-[10px] font-bold">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-brand-blue" />
+                      <span>Lagos, Nigeria</span>
+                    </div>
                   </div>
                 </div>
-                {profileData.phone && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(profileData.phone);
-                      toast('Phone number copied!', 'success');
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-mono text-white/80 hover:text-white transition-colors"
-                  >
-                    Copy
-                  </button>
-                )}
               </div>
-
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                    <MessageCircle className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-[#8d97a1]">WhatsApp</p>
-                    <p className="text-sm font-semibold text-white">
-                      {profileData.whatsapp || profileData.phone || 'Not provided'}
-                    </p>
-                  </div>
+              
+              <div className="p-10 rounded-[40px] bg-white/5 border border-white/10 text-center space-y-6">
+                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto">
+                  <Lock className="w-6 h-6 text-white/20" />
                 </div>
-                {(profileData.whatsapp || profileData.phone) && (
-                  <a
-                    href={`https://wa.me/${(profileData.whatsapp || profileData.phone).replace(/[^0-9]/g, '')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-xs uppercase tracking-wider flex items-center gap-1 transition-colors"
-                  >
-                    Chat <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-sky-500/10 text-sky-400 flex items-center justify-center">
-                    <Send className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-[#8d97a1]">Telegram</p>
-                    <p className="text-sm font-semibold text-white">
-                      {profileData.telegram || `@${(profileData.username || 'member').toLowerCase()}_privy`}
-                    </p>
-                  </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-display uppercase italic tracking-tight">Full Profile Locked</h3>
+                  <p className="text-white/40 text-xs uppercase tracking-widest max-w-[240px] mx-auto">Subscribe to view bio, preferences, and start chatting</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const tg = profileData.telegram || `@${(profileData.username || 'member').toLowerCase()}_privy`;
-                    navigator.clipboard.writeText(tg);
-                    toast('Telegram handle copied!', 'success');
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-mono text-white/80 hover:text-white transition-colors"
+                <button 
+                  onClick={() => setShowLockModal(true)}
+                  className="px-8 py-4 bg-brand-blue text-brand-dark font-black uppercase tracking-[0.2em] text-[10px] rounded-xl"
                 >
-                  Copy
+                  Unlock Now &bull; ₦1500
                 </button>
               </div>
             </div>
           ) : (
-            <div className="space-y-3 pt-1">
-              <div className="relative rounded-2xl bg-black/50 border border-white/10 p-4 overflow-hidden">
-                <div className="space-y-2 opacity-50 blur-[1px] select-none pointer-events-none">
-                  <div className="flex items-center justify-between py-1 border-b border-white/5 text-xs font-mono">
-                    <span className="text-[#8d97a1]">Direct Line:</span>
-                    <span className="text-white tracking-widest">+234 81• ••• ••84</span>
+            <>
+              <div className="space-y-6">
+                <div className="flex items-end justify-between">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <h1 className="text-6xl md:text-7xl font-display uppercase tracking-tighter italic leading-none">{user.display_name || user.username}</h1>
+                      {user.is_verified && (
+                        <div className="bg-brand-blue rounded-full p-1.5 shadow-[0_0_20px_rgba(0,209,255,0.4)]">
+                          <Shield className="w-6 h-6 text-brand-dark" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-6 text-white/40 uppercase tracking-[0.2em] text-[10px] font-bold">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-brand-blue" />
+                        <span>Lagos, Nigeria &bull; 2km</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-400" />
+                        <span>98% Response Rate</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between py-1 border-b border-white/5 text-xs font-mono">
-                    <span className="text-[#8d97a1]">WhatsApp:</span>
-                    <span className="text-white tracking-widest">+234 80• ••• ••12</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 text-xs font-mono">
-                    <span className="text-[#8d97a1]">Telegram:</span>
-                    <span className="text-white tracking-widest">@••••••_privy</span>
-                  </div>
-                </div>
 
-                <div className="absolute inset-0 bg-[#090b0d]/85 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 text-center">
-                  <div className="w-8 h-8 rounded-full bg-[#f2b04b]/15 border border-[#f2b04b]/30 flex items-center justify-center mb-1.5 text-[#f2b04b]">
-                    <Lock className="w-4 h-4" />
+                  {isOwnProfile && (
+                    <div className="flex flex-col items-end gap-2">
+                      <span className="text-[9px] uppercase tracking-widest font-bold text-white/20">Profile Strength</span>
+                      <div className="w-32 h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/10">
+                        <div className="w-4/5 h-full bg-brand-blue shadow-[0_0_10px_rgba(0,209,255,0.5)]" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="grid md:grid-cols-3 gap-8">
+                  <div className="md:col-span-2 space-y-6">
+                    <div className="space-y-4">
+                      <h3 className="text-[10px] uppercase tracking-[0.3em] font-black text-white/20 flex items-center gap-2">
+                        <Info className="w-3 h-3" />
+                        About
+                      </h3>
+                      <p className="text-white/60 text-lg font-medium leading-relaxed">
+                        {user.bio || "No bio provided yet. Add a bio to let people know more about you."}
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h3 className="text-[10px] uppercase tracking-[0.3em] font-black text-white/20 flex items-center gap-2">
+                        <Sliders className="w-3 h-3" />
+                        Preferences
+                      </h3>
+                      <div className="flex flex-wrap gap-3">
+                        {(Array.isArray(user.preferences) ? user.preferences : (user.preferences?.interests || ['Travel', 'Dining', 'Luxury', 'Tech'])).map((tag: string) => (
+                          <span key={tag} className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] uppercase tracking-[0.2em] font-bold text-white/60 hover:bg-white/10 transition-colors cursor-default">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs font-semibold text-white">Contact Info Revealed to Subscribers Only</p>
-                  <p className="text-[11px] text-[#8d97a1] font-sans mt-0.5 max-w-xs">
-                    You can browse profile photos and bio freely. Subscribe to reveal phone, WhatsApp, and send direct messages.
-                  </p>
+
+                  <div className="space-y-6">
+                    <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-4">
+                      <h3 className="text-[10px] uppercase tracking-[0.3em] font-black text-white/20">Quick Stats</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <div className="text-xl font-display italic">1.2k</div>
+                          <div className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Profile Views</div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xl font-display italic">48</div>
+                          <div className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Connections</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowLockModal(true)}
-                className="w-full py-3.5 px-4 rounded-xl bg-[#00d1ff] hover:bg-[#33daff] text-[#00131a] font-bold text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(0,209,255,0.3)] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
-              >
-                <Crown className="w-4 h-4" />
-                <span>Subscribe to Reveal Contact Info</span>
-              </button>
-            </div>
+              {/* Media Gallery */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[10px] uppercase tracking-[0.3em] font-black text-white/20 flex items-center gap-2">
+                    <ImageIcon className="w-3 h-3" />
+                    Media Gallery
+                  </h3>
+                  <button className="text-[9px] uppercase tracking-widest font-bold text-brand-blue hover:underline">View All</button>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="aspect-square rounded-3xl overflow-hidden bg-white/5 border border-white/10 group cursor-pointer relative">
+                      <img 
+                        src={`https://picsum.photos/seed/media-${user.id}-${i}/600/600`} 
+                        className={cn(
+                          "w-full h-full object-cover transition-all duration-500 group-hover:scale-110",
+                          !isSubscribed && !isOwnProfile && "blur-2xl opacity-50"
+                        )}
+                        referrerPolicy="no-referrer"
+                      />
+                      {!isSubscribed && !isOwnProfile && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Lock className="w-5 h-5 text-white/20" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {!isOwnProfile && (
+                <div className="space-y-6 pt-6">
+                  <div className="flex items-center justify-center gap-4">
+                    <div className="h-px flex-1 bg-white/10" />
+                    <span className="text-[9px] uppercase tracking-[0.3em] font-bold text-white/20">Exclusive Actions</span>
+                    <div className="h-px flex-1 bg-white/10" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={handleStartChat}
+                      className="flex items-center justify-center gap-4 px-8 py-6 bg-brand-blue text-brand-dark rounded-[24px] hover:scale-[1.02] transition-all group shadow-xl shadow-brand-blue/10"
+                    >
+                      <MessageSquare className="w-6 h-6" />
+                      <span className="uppercase tracking-[0.2em] text-xs font-black">Start Chat</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowTipModal(true)}
+                      className="flex items-center justify-center gap-4 px-8 py-6 bg-white/5 border border-white/10 rounded-[24px] hover:bg-white/10 transition-all group"
+                    >
+                      <DollarSign className="w-6 h-6 text-emerald-500" />
+                      <span className="uppercase tracking-[0.2em] text-xs font-black text-white/80">Send Tip</span>
+                    </button>
+                  </div>
+                  <div className="space-y-4">
+                    <button 
+                      onClick={handleSaveProfile}
+                      disabled={isSaving}
+                      className="w-full flex items-center justify-center gap-4 px-8 py-6 bg-white/5 border border-white/10 rounded-[24px] hover:bg-white/10 transition-all group disabled:opacity-50"
+                    >
+                      <Heart className={cn("w-6 h-6 transition-colors", isSaved ? "text-red-500 fill-red-500" : "text-white/20 group-hover:text-red-500")} />
+                      <span className="uppercase tracking-[0.2em] text-xs font-black text-white/80">{isSaved ? 'Saved' : 'Save Profile'}</span>
+                    </button>
+                    <button 
+                      onClick={handleBlockUser}
+                      className="w-full flex items-center justify-center gap-4 px-8 py-6 bg-red-500/5 border border-red-500/10 rounded-[24px] hover:bg-red-500/10 transition-all group"
+                    >
+                      <ShieldOff className="w-6 h-6 text-red-500/20 group-hover:text-red-500 transition-colors" />
+                      <span className="uppercase tracking-[0.2em] text-xs font-black text-red-500/80">Block User</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+      </div>
 
-      {/* Visibility Card (3 tiles Public / Private / Ghost, selected cyan outlined and tinted, with one-line description below) */}
+      {/* Profile Settings (Own Profile) */}
       {isOwnProfile && (
-        <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-4">
-          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-            VISIBILITY
-          </span>
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { id: 'public' as const, label: 'Public', icon: Globe, desc: 'Visible to all verified members in Nigeria' },
-              { id: 'private' as const, label: 'Private', icon: Lock, desc: 'Only members you match or connect with can view your profile' },
-              { id: 'ghost' as const, label: 'Ghost', icon: EyeOff, desc: 'Browse completely invisible. You will not appear in Discover' },
-            ].map(tile => {
-              const isSelected = visibilityMode === tile.id;
-              const IconComp = tile.icon;
-              return (
+        <div className="grid md:grid-cols-2 gap-8">
+          <div className="p-10 rounded-[48px] bg-white/5 border border-white/10 space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
+                <Settings className="w-6 h-6 text-brand-blue" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-display uppercase tracking-[0.2em] font-bold text-white/60">Privacy Settings</h3>
+                <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Manage your visibility</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              {[
+                { id: 'is_public', label: 'Public Profile', desc: 'Visible in discovery' },
+                { id: 'hide_online_status', label: 'Hide Online Status', desc: 'Browse anonymously' }
+              ].map(setting => (
                 <button
-                  key={tile.id}
-                  type="button"
-                  onClick={() => handleVisibilityChange(tile.id)}
+                  key={setting.id}
+                  onClick={async () => {
+                    const newValue = !editForm[setting.id as keyof typeof editForm];
+                    setEditForm({ ...editForm, [setting.id]: newValue });
+                    
+                    if (isSupabaseActive) {
+                      await supabase
+                        .from('profiles')
+                        .update({ [setting.id]: newValue })
+                        .eq('id', myProfile.id);
+                    } else {
+                      setUser({ ...user, [setting.id]: newValue });
+                    }
+                  }}
+                  className="w-full p-6 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-between group hover:bg-white/10 transition-all"
+                >
+                  <div className="text-left space-y-1">
+                    <div className="text-[10px] uppercase tracking-widest font-bold text-white/60">{setting.label}</div>
+                    <div className="text-[8px] uppercase tracking-widest text-white/20">{setting.desc}</div>
+                  </div>
+                  <div className={cn(
+                    "w-12 h-6 rounded-full relative transition-all duration-500",
+                    editForm[setting.id as keyof typeof editForm] ? "bg-brand-blue" : "bg-white/10"
+                  )}>
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500",
+                      editForm[setting.id as keyof typeof editForm] ? "right-1" : "left-1"
+                    )} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-10 rounded-[48px] bg-white/5 border border-white/10 space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-brand-blue" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-display uppercase tracking-[0.2em] font-bold text-white/60">Account Mode</h3>
+                <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Current: {user.profile_mode}</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { id: 'public', icon: Eye, label: 'Public' },
+                { id: 'private', icon: Lock, label: 'Private' },
+                { id: 'incognito', icon: Shield, label: 'Ghost' }
+              ].map(mode => (
+                <button
+                  key={mode.id}
+                  onClick={async () => {
+                    if (!isSupabaseActive) {
+                      setUser({ ...user, profile_mode: mode.id });
+                      return;
+                    }
+                    const { error } = await supabase.from('profiles').update({ profile_mode: mode.id }).eq('id', myProfile.id);
+                    if (!error) setUser({ ...user, profile_mode: mode.id });
+                  }}
                   className={cn(
-                    "p-4 rounded-[20px] border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2",
-                    isSelected 
-                      ? "border-[#00d1ff] bg-[#00d1ff]/10 text-[#f3f6f8] shadow-[0_0_15px_rgba(0,209,255,0.15)]"
-                      : "border-white/10 bg-white/[0.02] text-[#8d97a1] hover:border-white/20"
+                    "py-6 rounded-2xl border transition-all flex flex-col items-center gap-3",
+                    user.profile_mode === mode.id ? "bg-brand-blue/10 border-brand-blue text-brand-blue" : "bg-white/5 border-white/10 text-white/30"
                   )}
                 >
-                  <IconComp className={cn("w-5 h-5", isSelected ? "text-[#00d1ff]" : "text-[#59636d]")} />
-                  <span className="text-xs font-semibold">{tile.label}</span>
+                  <mode.icon className="w-5 h-5" />
+                  <span className="text-[8px] uppercase tracking-widest font-bold">{mode.label}</span>
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] pt-1">
-            {visibilityMode === 'public' && "Visible to all verified members in Nigeria"}
-            {visibilityMode === 'private' && "Only members you match or connect with can view your profile"}
-            {visibilityMode === 'ghost' && "Browse completely invisible. You will not appear in Discover"}
-          </p>
-        </div>
-      )}
 
-      {/* Privacy Card: rows with an icon, title, subtitle and a toggle (Public profile, Hide online status) */}
-      {isOwnProfile && (
-        <div className="bg-[#090b0d] border border-white/[0.075] rounded-[24px] p-6 space-y-5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-            PRIVACY
-          </span>
-
-          {/* Row 1: Public profile */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#8d97a1] shrink-0">
-                <Eye className="w-4 h-4" />
+          {/* Invite & Earn Section */}
+          <div className="p-10 rounded-[48px] bg-white/5 border border-white/10 space-y-8 md:col-span-2">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
+                <Gift className="w-6 h-6 text-brand-blue" />
               </div>
-              <div>
-                <p className="text-sm font-semibold text-[#f3f6f8]">Public profile</p>
-                <p className="font-mono text-[11px] text-[#59636d] uppercase tracking-[0.14em]">
-                  Show card in Discover and member search
-                </p>
+              <div className="space-y-1">
+                <h3 className="text-sm font-display uppercase tracking-[0.2em] font-bold text-white/60">Invite & Earn</h3>
+                <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Earn rewards for referrals</p>
               </div>
             </div>
-
-            {/* Toggle 52x30, cyan when on */}
-            <button
-              type="button"
-              onClick={handleTogglePublicProfile}
-              className={cn(
-                "w-[52px] h-[30px] rounded-full transition-colors relative cursor-pointer p-[3px] shrink-0",
-                isPublicProfile ? "bg-[#00d1ff]" : "bg-white/10"
-              )}
-            >
-              <div className={cn(
-                "w-[24px] h-[24px] rounded-full bg-white transition-transform shadow-md",
-                isPublicProfile ? "translate-x-[22px]" : "translate-x-0"
-              )} />
-            </button>
-          </div>
-
-          <div className="border-t border-white/[0.05]" />
-
-          {/* Row 2: Hide online status */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#8d97a1] shrink-0">
-                <Shield className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[#f3f6f8]">Hide online status</p>
-                <p className="font-mono text-[11px] text-[#59636d] uppercase tracking-[0.14em]">
-                  Do not display active green indicator
+            
+            <div className="grid md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <p className="text-xs text-white/60 leading-relaxed">
+                  Share your unique referral link with friends. When they sign up and subscribe, you both earn rewards!
                 </p>
+                <div className="flex items-center gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest font-bold mb-1">Your Referral Link</p>
+                    <p className="text-xs font-mono text-white/80 truncate">
+                      {window.location.origin}/signup?ref={user.referral_code || user.username}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/signup?ref=${user.referral_code || user.username}`);
+                      toast('Referral link copied!', 'success');
+                    }}
+                    className="p-3 bg-brand-blue text-brand-dark rounded-xl hover:scale-105 transition-transform"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="text-2xl font-display italic text-brand-blue">{referralStats.total}</div>
+                  <div className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Total Referrals</div>
+                </div>
+                <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="text-2xl font-display italic text-emerald-500">₦{referralStats.earned.toLocaleString()}</div>
+                  <div className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Earned Rewards</div>
+                </div>
               </div>
             </div>
-
-            {/* Toggle 52x30, cyan when on */}
-            <button
-              type="button"
-              onClick={handleToggleHideOnline}
-              className={cn(
-                "w-[52px] h-[30px] rounded-full transition-colors relative cursor-pointer p-[3px] shrink-0",
-                hideOnlineStatus ? "bg-[#00d1ff]" : "bg-white/10"
-              )}
-            >
-              <div className={cn(
-                "w-[24px] h-[24px] rounded-full bg-white transition-transform shadow-md",
-                hideOnlineStatus ? "translate-x-[22px]" : "translate-x-0"
-              )} />
-            </button>
           </div>
         </div>
       )}
 
-      {/* 7. PRIVATE STATS CHART (only the profile owner can see this) */}
-      {isOwnProfile && myProfile?.id && (
-        <UserStatsChart 
-          userId={myProfile.id}
-          allTimeViews={Number(profileData.views) || 0}
-          allTimeConnections={Number(profileData.connections) || 0}
-          currentStrength={profileStrength}
-        />
-      )}
+      {/* Share Modal */}
+      <AnimatePresence>
+        {showShareModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowShareModal(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-8">
+                <button onClick={() => setShowShareModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-white/30" />
+                </button>
+              </div>
 
+              <div className="text-center space-y-3">
+                <div className="w-16 h-16 rounded-2xl bg-brand-blue/10 flex items-center justify-center mx-auto mb-4">
+                  <Share2 className="w-8 h-8 text-brand-blue" />
+                </div>
+                <h2 className="text-3xl font-display uppercase tracking-tighter italic">Profile Sharing</h2>
+                <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Share your public link</p>
+              </div>
 
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest font-bold mb-1">Public Link</p>
+                    <p className="text-xs text-white/60 truncate">{`${window.location.origin}/u/${user.username}`}</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/u/${user.username}`);
+                      toast('Link copied to clipboard!', 'success');
+                    }}
+                    className="p-3 bg-brand-blue text-brand-dark rounded-xl hover:scale-105 transition-all"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
 
-      {/* Block member button (when viewing someone else) */}
-      {!isOwnProfile && (
-        <div className="pt-2">
-          <button 
-            onClick={handleBlockUser}
-            className="w-full py-3 bg-transparent text-[#ff5a5f] hover:bg-[#ff5a5f]/10 border border-[#ff5a5f]/20 rounded-[14px] font-mono text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-2"
-          >
-            <ShieldOff className="w-4 h-4" />
-            <span>Block Member</span>
-          </button>
-        </div>
-      )}
+                <div className="p-8 bg-white/5 border border-white/10 rounded-[32px] flex flex-col items-center gap-6">
+                  <div className="p-4 bg-white rounded-3xl shadow-[0_0_30px_rgba(255,255,255,0.1)]">
+                    <QRCodeCanvas 
+                      value={`${window.location.origin}/u/${user.username}`}
+                      size={180}
+                      level="H"
+                      includeMargin={false}
+                    />
+                  </div>
+                  <p className="text-[9px] uppercase tracking-[0.3em] font-bold text-white/20">Scan to view profile</p>
+                </div>
 
-      {/* Start Chat Modal */}
+                <button 
+                  onClick={async () => {
+                    if (navigator.share) {
+                      try {
+                        await navigator.share({
+                          title: `${user.display_name || user.username} on PrivyConnect`,
+                          text: `Check out ${user.display_name || user.username}'s profile on PrivyConnect!`,
+                          url: `${window.location.origin}/u/${user.username}`,
+                        });
+                      } catch (err) {
+                        console.error('Error sharing:', err);
+                      }
+                    } else {
+                      toast('Sharing not supported on this browser', 'info');
+                    }
+                  }}
+                  className="w-full py-5 bg-white/5 border border-white/10 rounded-2xl text-[10px] uppercase tracking-widest font-bold text-white/60 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
+                >
+                  <Share className="w-4 h-4" />
+                  More Share Options
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      
+      {/* Edit Modal */}
+      <AnimatePresence>
+        {showEditModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !imageToCrop && setShowEditModal(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-2xl bg-[#0a0a0a] border border-white/10 rounded-[64px] p-12 space-y-10 overflow-hidden max-h-[90vh] overflow-y-auto"
+            >
+              <div className="absolute top-0 right-0 p-10">
+                <button onClick={() => setShowEditModal(false)} className="p-3 hover:bg-white/5 rounded-full transition-colors">
+                  <X className="w-6 h-6 text-white/30" />
+                </button>
+              </div>
+
+              <div className="text-center space-y-3">
+                <h2 className="text-4xl font-display uppercase tracking-tighter italic">Edit Profile</h2>
+                <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Refine your premium identity</p>
+              </div>
+
+              {imageToCrop ? (
+                <div className="space-y-8">
+                  <div className="relative h-[400px] rounded-3xl overflow-hidden bg-black">
+                    <Cropper
+                      image={imageToCrop}
+                      crop={crop}
+                      zoom={zoom}
+                      aspect={3 / 4}
+                      onCropChange={setCrop}
+                      onCropComplete={onCropComplete}
+                      onZoomChange={setZoom}
+                    />
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <span className="text-[10px] uppercase tracking-widest font-bold text-white/40">Zoom</span>
+                      <input
+                        type="range"
+                        value={zoom}
+                        min={1}
+                        max={3}
+                        step={0.1}
+                        onChange={(e) => setZoom(Number(e.target.value))}
+                        className="flex-1 accent-brand-blue"
+                      />
+                    </div>
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={() => setImageToCrop(null)}
+                        className="flex-1 py-5 bg-white/5 border border-white/10 rounded-2xl text-[10px] uppercase tracking-widest font-bold text-white/40"
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        onClick={handleSaveCroppedImage}
+                        disabled={isUploading}
+                        className="flex-1 py-5 bg-brand-blue text-brand-dark rounded-2xl text-[10px] uppercase tracking-widest font-bold flex items-center justify-center gap-2"
+                      >
+                        {isUploading ? "Processing..." : "Save Photo"}
+                        {!isUploading && <Check className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleUpdateProfile} className="space-y-10">
+                  <div className="flex flex-col items-center gap-6">
+                    <div className="relative group">
+                      <div className="w-40 h-40 rounded-[48px] overflow-hidden border-2 border-white/10 group-hover:border-brand-blue transition-all relative">
+                        <img 
+                          src={editForm.photo_url || `https://picsum.photos/seed/${user.id}/400/400`} 
+                          className="w-full h-full object-cover"
+                        />
+                        <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center cursor-pointer gap-2">
+                          <Camera className="w-8 h-8 text-white" />
+                          <span className="text-[8px] uppercase tracking-widest font-bold text-white">Change Photo</span>
+                          <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                        </label>
+                      </div>
+                      <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-brand-blue rounded-2xl flex items-center justify-center shadow-lg">
+                        <Upload className="w-5 h-5 text-brand-dark" />
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Drag & drop or click to upload. Max 5MB.</p>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Display Name</label>
+                        <input 
+                          type="text" 
+                          value={editForm.display_name}
+                          onChange={(e) => setEditForm({ ...editForm, display_name: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl py-5 px-8 focus:outline-none focus:border-brand-blue/50 transition-all text-sm font-bold"
+                          placeholder="Your public name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Username</label>
+                        <div className="relative">
+                          <span className="absolute left-8 top-1/2 -translate-y-1/2 text-white/20 font-bold">@</span>
+                          <input 
+                            type="text" 
+                            value={editForm.username}
+                            onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl py-5 pl-12 pr-8 focus:outline-none focus:border-brand-blue/50 transition-all text-sm font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Bio</label>
+                      <textarea 
+                        value={editForm.bio}
+                        onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                        rows={5}
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-5 px-8 focus:outline-none focus:border-brand-blue/50 transition-all text-sm font-medium resize-none"
+                        placeholder="Tell your story..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-white/40 ml-4">Preferences</label>
+                    <div className="flex flex-wrap gap-3">
+                      {['Travel', 'Dining', 'Luxury', 'Tech', 'Art', 'Music', 'Fitness', 'Business'].map(pref => (
+                        <button
+                          key={pref}
+                          type="button"
+                          onClick={() => {
+                            const newPrefs = editForm.preferences.includes(pref)
+                              ? editForm.preferences.filter(p => p !== pref)
+                              : [...editForm.preferences, pref];
+                            setEditForm({ ...editForm, preferences: newPrefs });
+                          }}
+                          className={cn(
+                            "px-5 py-3 rounded-xl border text-[9px] uppercase tracking-widest font-bold transition-all",
+                            editForm.preferences.includes(pref)
+                              ? "bg-brand-blue/10 border-brand-blue text-brand-blue shadow-[0_0_15px_rgba(0,209,255,0.1)]"
+                              : "bg-white/5 border-white/10 text-white/30 hover:bg-white/10"
+                          )}
+                        >
+                          {pref}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit"
+                    className="w-full py-6 bg-brand-blue text-brand-dark font-black uppercase tracking-[0.3em] text-xs rounded-[24px] shadow-[0_0_50px_rgba(0,209,255,0.3)] hover:scale-[1.01] active:scale-[0.99] transition-all"
+                  >
+                    Update Profile
+                  </button>
+                </form>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Lock Modal */}
+      <AnimatePresence>
+        {showLockModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLockModal(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-2xl"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[56px] p-12 text-center space-y-10"
+            >
+              <div className="w-24 h-24 rounded-[32px] bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mx-auto shadow-[0_0_40px_rgba(0,209,255,0.1)]">
+                <Lock className="w-10 h-10 text-brand-blue" />
+              </div>
+              
+              <div className="space-y-4">
+                <h2 className="text-4xl font-display uppercase tracking-tighter italic">Profile Locked</h2>
+                <p className="text-white/50 text-sm font-medium leading-relaxed">
+                  Subscribe to <span className="text-white font-bold">PrivyConnect Premium</span> to view full profiles, high-res media, and start unlimited chats.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <button 
+                  className="w-full py-6 bg-brand-blue text-brand-dark font-black uppercase tracking-[0.2em] text-xs rounded-[24px] shadow-[0_0_50px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  Unlock Access &bull; ₦1500/wk
+                </button>
+                <button 
+                  onClick={() => setShowLockModal(false)}
+                  className="w-full py-6 bg-white/5 text-white/40 font-bold uppercase tracking-widest text-[10px] rounded-[24px] hover:bg-white/10 transition-all"
+                >
+                  Maybe Later
+                </button>
+              </div>
+
+              <div className="flex items-center justify-center gap-6 pt-4">
+                <div className="flex flex-col items-center gap-1">
+                  <Shield className="w-4 h-4 text-white/20" />
+                  <span className="text-[8px] uppercase tracking-widest text-white/20 font-bold">Secure</span>
+                </div>
+                <div className="w-px h-8 bg-white/10" />
+                <div className="flex flex-col items-center gap-1">
+                  <Zap className="w-4 h-4 text-white/20" />
+                  <span className="text-[8px] uppercase tracking-widest text-white/20 font-bold">Instant</span>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Quick Message Modal */}
       <AnimatePresence>
         {showChatModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowChatModal(false)}
               className="absolute inset-0 bg-black/80 backdrop-blur-md"
             />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="relative w-full max-w-md bg-[#090b0d] border border-white/15 rounded-[28px] p-7 space-y-5 shadow-2xl z-10"
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[40px] p-10 space-y-8"
             >
-              <div className="flex items-center justify-between border-b border-white/[0.075] pb-4">
-                <div className="space-y-1">
-                  <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block font-semibold">
-                    NEW CONVERSATION
-                  </span>
-                  <h3 className="font-serif text-2xl text-[#f3f6f8]">
-                    Message {user?.display_name || user?.username}
-                  </h3>
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 rounded-2xl bg-brand-blue/10 flex items-center justify-center mx-auto mb-4">
+                  <MessageSquare className="w-8 h-8 text-brand-blue" />
                 </div>
-                <button onClick={() => setShowChatModal(false)} className="p-2 text-[#59636d] hover:text-[#f3f6f8]">
-                  <X className="w-5 h-5" />
-                </button>
+                <h2 className="text-3xl font-display uppercase tracking-tighter italic">Send a Message</h2>
+                <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Start a conversation with {user.username}</p>
               </div>
 
-              <div className="space-y-2">
-                <label className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#59636d] block">
-                  Opening Message
-                </label>
+              <div className="space-y-4">
                 <textarea 
                   value={quickMessage}
                   onChange={(e) => setQuickMessage(e.target.value)}
-                  placeholder="Hey, I noticed your profile and would love to connect..."
-                  rows={3}
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-[16px] p-4 text-sm text-[#f3f6f8] placeholder-[#59636d] focus:outline-none focus:border-[#00d1ff] transition-all font-sans"
+                  placeholder="Type your first message..."
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 min-h-[120px] text-sm font-medium focus:outline-none focus:border-brand-blue/50 transition-all resize-none"
                 />
               </div>
 
-              <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={() => setShowChatModal(false)}
-                  className="flex-1 py-3.5 bg-transparent border border-white/15 text-[#f3f6f8] font-mono text-xs uppercase tracking-wider rounded-[14px] cursor-pointer"
-                >
-                  Cancel
-                </button>
+              <div className="space-y-4">
                 <button 
                   onClick={confirmStartChat}
                   disabled={isSendingChat}
-                  className="flex-1 py-3.5 bg-[#00d1ff] hover:bg-[#00d1ff]/90 text-[#00131a] font-sans font-bold text-xs uppercase tracking-wider rounded-[14px] shadow-[0_0_20px_rgba(0,209,255,0.25)] disabled:opacity-50 cursor-pointer"
+                  className="w-full py-5 bg-brand-blue text-brand-dark font-black uppercase tracking-[0.2em] text-xs rounded-2xl shadow-lg shadow-brand-blue/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
                 >
-                  {isSendingChat ? 'Sending...' : 'Send Message'}
+                  {isSendingChat ? 'Sending...' : 'Send & Open Chat'}
+                </button>
+                <button 
+                  onClick={() => setShowChatModal(false)}
+                  className="w-full py-5 bg-white/5 text-white/40 font-bold uppercase tracking-widest text-[10px] rounded-2xl hover:bg-white/10 transition-all"
+                >
+                  Cancel
                 </button>
               </div>
             </motion.div>
@@ -1272,14 +1201,79 @@ export default function ProfilePage({ profile: myProfile }: { profile: any }) {
         )}
       </AnimatePresence>
 
-      {/* Subscription / Lock Modal */}
-      <SubscriptionModal
-        isOpen={showLockModal}
-        onClose={() => setShowLockModal(false)}
-        profile={myProfile}
-        title="Unlock Nationwide Access"
-        subtitle="Only Lagos is open on the free plan. ₦2,000 unlocks all 36 states + Abuja."
-      />
+      {/* Tip Modal */}
+      <AnimatePresence>
+        {showTipModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTipModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-[40px] p-10 space-y-8"
+            >
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
+                  <DollarSign className="w-8 h-8 text-emerald-500" />
+                </div>
+                <h2 className="text-3xl font-display uppercase tracking-tighter">Send a Tip</h2>
+                <p className="text-white/40 text-xs uppercase tracking-widest">Support {user.username}</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="relative">
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-bold text-white/30">₦</span>
+                  <input 
+                    type="number" 
+                    value={tipAmount}
+                    onChange={(e) => setTipAmount(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-6 pl-12 pr-6 text-3xl font-bold focus:outline-none focus:border-emerald-500/50 transition-all"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {['500', '1500', '5000'].map(amount => (
+                    <button
+                      key={amount}
+                      onClick={() => setTipAmount(amount)}
+                      className={cn(
+                        "py-3 rounded-xl border text-xs font-bold uppercase tracking-widest transition-all",
+                        tipAmount === amount ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                      )}
+                    >
+                      ₦{amount}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <button 
+                  onClick={handleSendTip}
+                  className="w-full py-5 bg-emerald-500 text-white font-bold uppercase tracking-widest rounded-2xl shadow-lg shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  Confirm Tip
+                </button>
+                <button 
+                  onClick={() => setShowTipModal(false)}
+                  className="w-full py-5 bg-white/5 text-white/40 font-bold uppercase tracking-widest rounded-2xl hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <p className="text-[10px] text-center text-white/20 uppercase tracking-widest">
+                Platform takes 25% commission &bull; Secure via Kora Pay
+              </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,11 +1,5 @@
 {
   "rewrites": [
-    { "source": "/api/verify-payment", "destination": "/api/verify-payment" },
-    { "source": "/api/payment-success", "destination": "/api/payment-success" },
-    { "source": "/api/webhook/paystack", "destination": "/api/webhook-paystack" },
-    { "source": "/api/webhook/korapay", "destination": "/api/webhook-korapay" },
-    { "source": "/api/detect-location", "destination": "/api/detect-location" },
-    { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

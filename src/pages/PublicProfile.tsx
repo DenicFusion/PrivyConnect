@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { db, auth, doc, getDoc, collection, query, where, getDocs, onSnapshot } from '../lib/firebase';
-import { calculateProfileStrength, recordProfileView } from '../lib/stats';
+import { supabase, isSupabaseActive } from '../lib/supabase';
 import { motion } from 'motion/react';
 import { 
   MapPin, 
@@ -11,18 +10,10 @@ import {
   Share2, 
   ArrowLeft,
   CheckCircle,
-  Lock,
-  Flame,
-  Crown,
-  Gem,
-  HeartHandshake,
-  Users,
-  Check
+  Lock
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { getVibeStyle } from '../components/DiscoveryFeed';
-import { useToast } from '../components/Toaster';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -31,321 +22,148 @@ function cn(...inputs: ClassValue[]) {
 export default function PublicProfilePage() {
   const { username } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [copiedLink, setCopiedLink] = useState(false);
 
   useEffect(() => {
-    fetchProfile();
+    if (username && isSupabaseActive) {
+      fetchProfile();
+    }
   }, [username]);
 
   const fetchProfile = async () => {
-    const targetKey = (username || '').replace(/^@/, '').trim();
-    if (!targetKey) {
-      setLoading(false);
-      return;
-    }
-
     try {
-      // 1. Check direct doc ID in Firestore
-      const docSnap = await getDoc(doc(db, 'profiles', targetKey));
-      if (docSnap.exists()) {
-        setProfile({ id: docSnap.id, ...docSnap.data() });
-        setLoading(false);
-        return;
-      }
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', username)
+        .single();
 
-      // 2. Query by lowercase username
-      const qLower = query(collection(db, 'profiles'), where('username', '==', targetKey.toLowerCase()));
-      const snapLower = await getDocs(qLower);
-      if (!snapLower.empty) {
-        setProfile({ id: snapLower.docs[0].id, ...snapLower.docs[0].data() });
-        setLoading(false);
-        return;
-      }
-
-      // 3. Query by exact username
-      const qExact = query(collection(db, 'profiles'), where('username', '==', targetKey));
-      const snapExact = await getDocs(qExact);
-      if (!snapExact.empty) {
-        setProfile({ id: snapExact.docs[0].id, ...snapExact.docs[0].data() });
-        setLoading(false);
-        return;
-      }
-
-      // 4. Query by display_name
-      const qName = query(collection(db, 'profiles'), where('display_name', '==', targetKey));
-      const snapName = await getDocs(qName);
-      if (!snapName.empty) {
-        setProfile({ id: snapName.docs[0].id, ...snapName.docs[0].data() });
-        setLoading(false);
-        return;
-      }
-
-
-
-      setProfile(null);
+      if (error) throw error;
+      setProfile(data);
     } catch (error: any) {
-      console.error('Error fetching public profile:', error);
-      setProfile(null);
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Real-time listener for live updates on views, connections, and profile data
-  useEffect(() => {
-    if (!profile?.id) return;
-    const unsub = onSnapshot(doc(db, 'profiles', profile.id), (snap) => {
-      if (snap.exists()) {
-        setProfile((prev: any) => ({ ...(prev || {}), id: snap.id, ...snap.data() }));
-      }
-    }, (err) => {
-      console.warn('Realtime public profile error:', err);
-    });
-    return () => unsub();
-  }, [profile?.id]);
-
-  // Record profile view when an authenticated visitor views this public profile
-  useEffect(() => {
-    const currentUid = auth.currentUser?.uid;
-    if (currentUid && profile?.id && currentUid !== profile.id) {
-      recordProfileView(currentUid, profile.id);
-    }
-  }, [profile?.id]);
-
-  const handleShare = async () => {
-    const url = window.location.href;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `${profile?.display_name || profile?.username} on PrivyConnect`,
-          text: `Connect with ${profile?.display_name || profile?.username} on PrivyConnect!`,
-          url: url,
-        });
-      } catch {
-        navigator.clipboard.writeText(url);
-        setCopiedLink(true);
-        toast('Profile link copied!', 'success');
-        setTimeout(() => setCopiedLink(false), 2500);
-      }
-    } else {
-      navigator.clipboard.writeText(url);
-      setCopiedLink(true);
-      toast('Profile link copied!', 'success');
-      setTimeout(() => setCopiedLink(false), 2500);
-    }
-  };
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#040506] flex items-center justify-center">
-        <div className="w-10 h-10 border-2 border-[#00d1ff]/20 border-t-[#00d1ff] rounded-full animate-spin" />
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-brand-blue/20 border-t-brand-blue rounded-full animate-spin" />
       </div>
     );
   }
 
-  if (!profile) {
+  if (!profile || !profile.is_public) {
     return (
-      <div className="min-h-screen bg-[#040506] flex flex-col items-center justify-center p-6 text-center text-white">
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 text-center">
         <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center mb-6">
           <Lock className="w-10 h-10 text-white/20" />
         </div>
-        <h1 className="text-3xl font-serif tracking-tight mb-4">Profile Unavailable</h1>
-        <p className="text-white/40 max-w-sm mb-8 font-mono text-xs">
-          Unable to locate this profile. Explore all verified members on PrivyConnect.
+        <h1 className="text-3xl font-display uppercase tracking-tighter italic mb-4">Profile Not Found</h1>
+        <p className="text-white/40 max-w-sm mb-8 font-light">
+          This profile might be private or doesn't exist.
         </p>
-        <Link to="/discovery" className="px-8 py-4 bg-[#00d1ff] text-[#00131a] font-bold uppercase tracking-widest text-xs rounded-2xl hover:scale-105 transition-all">
-          Explore Discovery
+        <Link to="/" className="px-8 py-4 bg-brand-blue text-brand-dark font-bold uppercase tracking-widest rounded-2xl hover:scale-105 transition-all">
+          Back to Home
         </Link>
       </div>
     );
   }
 
-  const profileVibe = profile.vibe || profile.preferences?.vibe || 'HOOKUP';
-  const vibeStyle = getVibeStyle(profileVibe);
-  const cityLocation = profile.location?.city || profile.state || 'Lagos, Nigeria';
-
   return (
-    <div className="min-h-screen bg-[#040506] text-[#f3f6f8] selection:bg-[#00d1ff]/20 selection:text-[#00d1ff]">
-      {/* Top Header bar with Logo & Navigation */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-[#040506]/80 backdrop-blur-xl border-b border-white/[0.08] z-50 px-4 sm:px-8 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-[#050505] text-white">
+      {/* Hero Section */}
+      <div className="relative h-[40vh] md:h-[50vh] overflow-hidden">
+        <div className="absolute inset-0">
+          <img 
+            src={profile.photo_url || `https://picsum.photos/seed/${profile.id}/1200/800`}
+            className="w-full h-full object-cover opacity-40 blur-sm scale-110"
+            alt="Cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
+        </div>
+        
+        <div className="absolute top-6 left-6 z-10">
           <button 
             onClick={() => navigate(-1)}
-            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white/70 hover:text-white transition-all cursor-pointer"
-            aria-label="Back"
+            className="p-4 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-black/60 transition-all"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-6 h-6" />
           </button>
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-[#00d1ff] font-serif font-bold text-lg">
-              P
-            </div>
-            <span className="font-serif tracking-wide text-white text-base">Privy<span className="text-[#00d1ff]">Connect</span></span>
-          </Link>
         </div>
+      </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={handleShare}
-            className="px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-mono uppercase tracking-wider text-white/80 flex items-center gap-1.5 transition-all cursor-pointer"
-          >
-            {copiedLink ? <Check className="w-3.5 h-3.5 text-[#35e0a1]" /> : <Share2 className="w-3.5 h-3.5 text-white/60" />}
-            <span>{copiedLink ? 'Copied' : 'Share'}</span>
-          </button>
-          <Link
-            to="/login"
-            className="px-4 py-2 rounded-xl bg-[#00d1ff] text-[#00131a] text-xs font-bold uppercase tracking-wider hover:bg-[#00d1ff]/90 transition-all font-sans"
-          >
-            Sign In
-          </Link>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-24 pb-20">
-        {/* Profile Card */}
-        <div className="relative rounded-[32px] overflow-hidden bg-[#090b0d] border border-white/[0.08] shadow-2xl">
-          {/* Cover Photo */}
-          <div className="relative aspect-[4/3] sm:aspect-[16/9] w-full overflow-hidden bg-[#0e1115]">
-            {profile.photo_url ? (
+      {/* Profile Content */}
+      <div className="max-w-4xl mx-auto px-6 -mt-32 relative z-10 pb-20">
+        <div className="flex flex-col md:flex-row items-end gap-8 mb-10">
+          <div className="relative group">
+            <div className="w-48 h-48 rounded-[48px] overflow-hidden border-4 border-[#050505] shadow-2xl">
               <img 
-                src={profile.photo_url} 
-                alt={profile.display_name || profile.username}
+                src={profile.photo_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`}
                 className="w-full h-full object-cover"
+                alt={profile.username}
               />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#0c1015] via-[#090b0d] to-[#040506]">
-                <div className="w-24 h-24 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center shadow-inner">
-                  <span className="font-serif text-4xl font-bold text-[#00d1ff]">
-                    {(profile.display_name || profile.username || 'P').charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <span className="mt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[#59636d]">Privy Member</span>
-              </div>
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#090b0d] via-[#090b0d]/50 to-transparent pointer-events-none" />
-
-            {/* Online badge */}
-            <div className="absolute top-5 left-5 flex items-center gap-2 px-3 py-1.5 bg-black/60 backdrop-blur-md border border-white/15 rounded-full shadow-lg">
-              <div className="w-2 h-2 rounded-full bg-[#35e0a1] animate-pulse" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f3f6f8] font-semibold">
-                Online now
-              </span>
             </div>
+            {profile.is_online && !profile.hide_online_status && (
+              <div className="absolute bottom-4 right-4 w-6 h-6 bg-emerald-500 rounded-full border-4 border-[#050505] shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
+            )}
+          </div>
 
-            {/* Bottom info on photo */}
-            <div className="absolute bottom-6 left-6 right-6 space-y-2">
-              <div className="flex items-center gap-3">
-                <h1 className="font-serif text-3xl sm:text-5xl text-[#f3f6f8] tracking-tight">
-                  {profile.display_name || profile.username}
-                </h1>
-                {(profile.is_subscribed || profile.subscription_status === 'active') && (
-                  <div className="w-6 h-6 rounded-full bg-[#00d1ff] text-[#00131a] flex items-center justify-center p-0.5 shadow-[0_0_12px_rgba(0,209,255,0.4)] shrink-0" title="Subscribed VIP Member">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+          <div className="flex-1 space-y-4 text-center md:text-left">
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
+              <h1 className="text-5xl font-display uppercase tracking-tighter italic">{profile.display_name || profile.username}</h1>
+              {profile.is_verified && (
+                <div className="p-1 bg-brand-blue rounded-full shadow-[0_0_15px_rgba(0,209,255,0.5)]">
+                  <CheckCircle className="w-5 h-5 text-brand-dark" />
+                </div>
+              )}
+            </div>
+            <p className="text-white/40 font-light text-lg tracking-widest uppercase">@{profile.username}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            <div className="p-8 bg-white/5 border border-white/10 rounded-[40px] space-y-6">
+              <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/30">About</h3>
+              <p className="text-lg font-light leading-relaxed text-white/80">
+                {profile.bio || "No bio provided."}
+              </p>
+              
+              <div className="flex flex-wrap gap-4 pt-4">
+                <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+                  <MapPin className="w-4 h-4 text-brand-blue" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">{profile.location?.city || 'Worldwide'}</span>
+                </div>
+                {profile.is_subscribed && (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-brand-blue/10 rounded-full border border-brand-blue/20">
+                    <Zap className="w-4 h-4 text-brand-blue" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-brand-blue">Premium Member</span>
                   </div>
                 )}
               </div>
-
-              {/* @username tag under full name */}
-              {profile.username && (
-                <p className="font-mono text-sm sm:text-base text-[#00d1ff] font-semibold tracking-wide">
-                  @{profile.username.replace(/^@/, '')}
-                </p>
-              )}
-
-              {/* Tags row */}
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span 
-                  className="px-3.5 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase border flex items-center gap-2 shadow-lg backdrop-blur-md"
-                  style={{
-                    backgroundColor: vibeStyle.bg,
-                    borderColor: vibeStyle.border,
-                    color: vibeStyle.color
-                  }}
-                >
-                  <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: vibeStyle.color }} />
-                  <span>{profileVibe}</span>
-                </span>
-
-                {profile.gender && (
-                  <span className="px-3 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-widest uppercase border border-white/20 bg-black/40 text-white/90 backdrop-blur-md">
-                    {profile.gender}
-                  </span>
-                )}
-              </div>
             </div>
           </div>
 
-          {/* Details Section */}
-          <div className="p-6 sm:p-8 space-y-6">
-            {/* Location & Quick Meta */}
-            <div className="flex flex-wrap items-center justify-between gap-4 py-3 border-y border-white/[0.06] text-xs font-mono uppercase tracking-wider text-[#8d97a1]">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-[#00d1ff]" />
-                <span>{cityLocation}</span>
-              </div>
-              <div className="flex items-center gap-2 text-[#35e0a1]">
-                <Shield className="w-4 h-4" />
-                <span>100% DISCREET & VERIFIED</span>
-              </div>
-            </div>
-
-            {/* Real Stats Card (All-time Views, Connections, Strength) */}
-            <div className="bg-[#040506] border border-white/[0.075] rounded-[20px] grid grid-cols-3 divide-x divide-white/[0.075] p-4 text-center shadow-lg">
-              <div className="space-y-1">
-                <div className="font-serif text-2xl text-[#f3f6f8] leading-tight">
-                  {Number(profile.views) || 0}
-                </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Views</div>
-              </div>
-              <div className="space-y-1">
-                <div className="font-serif text-2xl text-[#00d1ff] leading-tight">
-                  {Number(profile.connections) || 0}
-                </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Connections</div>
-              </div>
-              <div className="space-y-1">
-                <div className="font-serif text-2xl text-[#35e0a1] leading-tight">
-                  {calculateProfileStrength(profile)}%
-                </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#59636d]">Strength</div>
-              </div>
-            </div>
-
-            {/* About / Bio */}
-            <div className="space-y-3">
-              <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#59636d] font-semibold">
-                About & Arrangement Preferences
-              </h3>
-              <p className="text-base text-white/80 font-light leading-relaxed">
-                {profile.bio || "Member of PrivyConnect verified network. Seeking mutual arrangement with high discretion."}
-              </p>
-            </div>
-
-            {/* CTAs */}
-            <div className="pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <Link 
-                to={`/login?redirect=/chat/${profile.id}`}
-                className="py-4 px-6 bg-[#00d1ff] text-[#00131a] font-bold uppercase tracking-wider text-xs rounded-2xl shadow-[0_0_24px_rgba(0,209,255,0.25)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 font-sans"
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span>Chat with {profile.display_name || profile.username}</span>
-              </Link>
-              
-              <button 
-                onClick={handleShare}
-                className="py-4 px-6 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-mono uppercase tracking-wider text-xs rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Share2 className="w-4 h-4 text-white/60" />
-                <span>{copiedLink ? 'Link Copied to Clipboard' : 'Share Profile Link'}</span>
-              </button>
-            </div>
+          <div className="space-y-4">
+            <Link 
+              to={`/chat/${profile.id}`}
+              className="w-full py-6 bg-brand-blue text-brand-dark font-bold uppercase tracking-[0.2em] text-xs rounded-2xl shadow-[0_0_30px_rgba(0,209,255,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
+              <MessageSquare className="w-5 h-5" />
+              Send Message
+            </Link>
+            
+            <button className="w-full py-6 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-white/10 transition-all flex items-center justify-center gap-3">
+              <Share2 className="w-5 h-5" />
+              Share Profile
+            </button>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

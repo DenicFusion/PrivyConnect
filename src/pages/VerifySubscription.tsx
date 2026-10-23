@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { APP_CONFIG } from '../config';
-import { auth, db, doc, updateDoc } from '../lib/firebase';
 
 export default function VerifySubscription() {
   const [searchParams] = useSearchParams();
@@ -26,57 +25,28 @@ export default function VerifySubscription() {
     const verifyPayment = async () => {
       try {
         const backendUrl = APP_CONFIG.BACKEND_URL || '';
-        const currentUid = auth.currentUser?.uid || '';
-        const uidParam = currentUid ? `&user_id=${encodeURIComponent(currentUid)}` : '';
-        
-        let res = await fetch(`${backendUrl}/api/verify-payment?reference=${encodeURIComponent(refToVerify)}${uidParam}`);
-        if (!res.ok) {
-          res = await fetch(`${backendUrl}/api/payment-success?reference=${encodeURIComponent(refToVerify)}${uidParam}`);
-        }
-        if (!res.ok) {
-          res = await fetch(`${backendUrl}/api/verify-subscription?reference=${encodeURIComponent(refToVerify)}${uidParam}`);
-        }
+        const res = await fetch(`${backendUrl}/api/verify-subscription?reference=${refToVerify}`);
         
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
             setStatus('success');
-            setMessage("You're now a subscriber! VIP features unlocked.");
-
-            const effectiveUid = currentUid || data.user_id;
-            if (effectiveUid) {
-              const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-              const subUpdates = {
-                is_subscribed: true,
-                subscription_status: 'active',
-                subscription_start: new Date().toISOString(),
-                subscription_expiry: expiryDate,
-                is_verified: true,
-                updated_at: new Date().toISOString()
-              };
-              try {
-                await updateDoc(doc(db, 'profiles', effectiveUid), subUpdates);
-                await updateDoc(doc(db, 'users', effectiveUid), subUpdates);
-              } catch (e) {
-                console.warn('Client sync note:', e);
-              }
-            }
-
+            setMessage('Subscription activated successfully!');
             setTimeout(() => {
               navigate('/discovery');
-            }, 2000);
+            }, 3000);
           } else {
             setStatus('error');
-            setMessage(data.error || data.message || 'Payment could not be verified.');
+            setMessage(data.message || 'Verification failed.');
           }
         } else {
           setStatus('error');
-          setMessage('Unable to verify with payment gateway. If you were debited, your VIP access will activate automatically.');
+          setMessage('Failed to verify subscription with the server.');
         }
       } catch (err) {
         console.error('Verification error:', err);
         setStatus('error');
-        setMessage('Network error during verification. Your subscription will activate shortly.');
+        setMessage('An error occurred during verification.');
       }
     };
 
@@ -117,10 +87,10 @@ export default function VerifySubscription() {
             <h2 className="text-xl font-display font-bold text-white">Verification Failed</h2>
             <p className="text-white/50 text-sm">{message}</p>
             <button 
-              onClick={() => navigate('/settings')}
+              onClick={() => navigate('/wallet')}
               className="mt-6 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold transition-colors"
             >
-              Return to Settings
+              Return to Wallet
             </button>
           </div>
         )}

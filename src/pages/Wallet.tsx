@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { db, doc, getDoc, collection, query, where, getDocs, addDoc, updateDoc, onSnapshot } from '../lib/firebase';
+import { useState, useEffect } from 'react';
+import { supabase, isSupabaseActive } from '../lib/supabase';
+import { MOCK_TRANSACTIONS } from '../lib/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { APP_CONFIG } from '../config';
 import { 
@@ -59,18 +60,24 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
 
   useEffect(() => {
     const fetchSettings = async () => {
-      try {
-        const settingsSnap = await getDoc(doc(db, 'system_settings', 'paystack_plan'));
-        if (settingsSnap.exists() && settingsSnap.data()?.value?.amount) {
-          setSubscriptionPrice(settingsSnap.data().value.amount);
-        } else {
-          const subSnap = await getDoc(doc(db, 'system_settings', 'subscription_price'));
-          if (subSnap.exists() && subSnap.data()?.value?.amount) {
-            setSubscriptionPrice(subSnap.data().value.amount);
-          }
+      if (!isSupabaseActive) return;
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'paystack_plan')
+        .single();
+      
+      if (data?.value?.amount) {
+        setSubscriptionPrice(data.value.amount);
+      } else {
+        const { data: subData } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'subscription_price')
+          .single();
+        if (subData?.value?.amount) {
+          setSubscriptionPrice(subData.value.amount);
         }
-      } catch (err) {
-        console.warn('Error fetching settings:', err);
       }
     };
     fetchSettings();
@@ -138,34 +145,78 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
   useEffect(() => {
     if (!profile?.id) return;
 
-    const q = query(
-      collection(db, 'transactions'),
-      where('profile_id', '==', profile.id)
-    );
+    const fetchTransactions = async () => {
+      if (!isSupabaseActive) {
+        setTransactions(MOCK_TRANSACTIONS);
+        setLoading(false);
+        return;
+      }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      txs.sort((a: any, b: any) => new Date(b.created_at || b.timestamp || 0).getTime() - new Date(a.created_at || a.timestamp || 0).getTime());
-      setTransactions(txs);
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('profile_id', profile.id)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setTransactions(data);
+      }
       setLoading(false);
+    };
 
-      if (pendingReference) {
-        const found = txs.find((t: any) => t.reference === pendingReference);
-        if (found) {
+    fetchTransactions();
+
+    if (!isSupabaseActive) return;
+
+    // Real-time updates
+    const channel = supabase
+      .channel(`wallet-tx-${profile.id}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'transactions',
+        filter: `profile_id=eq.${profile.id}`
+      }, async (payload) => {
+        console.log('New transaction detected:', payload.new);
+        fetchTransactions();
+        if (onUpdate) onUpdate();
+        
+        // Create in-app notification for the transaction
+        try {
+          await supabase.from('notifications').insert({
+            user_id: profile.id,
+            type: payload.new.type === 'deposit' ? 'tip' : 'subscription',
+            title: payload.new.type === 'deposit' ? 'Deposit Successful' : 'Subscription Active',
+            message: payload.new.type === 'deposit' 
+              ? `Your deposit of ₦${payload.new.amount.toLocaleString()} was successful.`
+              : `Your subscription has been activated successfully.`,
+            link: '/wallet',
+            is_read: false
+          });
+        } catch (err) {
+          console.error('Failed to create notification:', err);
+        }
+        
+        // If this is our pending transaction, show success
+        if (pendingReference && payload.new.reference === pendingReference) {
           toast('Payment verified! Your account has been updated.', 'success');
           setPendingReference(null);
           setIsProcessing(false);
           setShowDepositModal(false);
-          if (onUpdate) onUpdate();
         }
-      }
-    }, (err) => {
-      console.error('Transactions query error:', err);
-      setLoading(false);
-    });
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'wallet',
+        filter: `profile_id=eq.${profile.id}`
+      }, () => {
+        if (onUpdate) onUpdate();
+      })
+      .subscribe();
 
     return () => {
-      unsubscribe();
+      supabase.removeChannel(channel);
     };
   }, [profile?.id, onUpdate, pendingReference]);
 
@@ -190,8 +241,11 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         const backendUrl = APP_CONFIG.BACKEND_URL || '';
         
         // Fetch plan code from settings
-        const settingsSnap = await getDoc(doc(db, 'system_settings', 'paystack_plan'));
-        const settingsData = settingsSnap.exists() ? settingsSnap.data() : null;
+        const { data: settingsData } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'paystack_plan')
+          .single();
           
         const planCode = settingsData?.value?.code;
         
@@ -390,7 +444,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
     console.log(`Targeting backend URL: ${fullUrl}`);
     
     try {
-      let verifyRes = await fetch(fullUrl, {
+      const verifyRes = await fetch(fullUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -401,38 +455,36 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
         })
       });
 
-      if (!verifyRes.ok) {
-        verifyRes = await fetch(
-          `${backendUrl}/api/verify-payment?reference=${encodeURIComponent(reference)}&user_id=${encodeURIComponent(profile.id)}&gateway=${encodeURIComponent(gateway)}`
-        );
-      }
-
       if (verifyRes.ok) {
         const data = await verifyRes.json();
         console.log("Verification success:", data);
-        toast("You're now a subscriber! Account updated successfully.", 'success');
+        toast('Payment successful! Your account has been updated.', 'success');
         setShowDepositModal(false);
         
         // Trigger profile refresh
         if (onUpdate) onUpdate();
         
         // Redirect after success
-        setTimeout(() => window.location.href = '/discovery', 1200);
+        setTimeout(() => window.location.href = '/discovery', 1500);
       } else {
-        let errorMsg = 'Payment could not be verified by the server. If debited, your subscription will be credited automatically.';
+        let errorMsg = `Status ${verifyRes.status}`;
         try {
-          const err = await verifyRes.json();
-          if (err?.error || err?.message) {
-            errorMsg = err.error || err.message;
+          const text = await verifyRes.text();
+          console.error("Verification failed response text:", text);
+          try {
+            const err = JSON.parse(text);
+            errorMsg = err.error || err.message || errorMsg;
+          } catch (e) {
+            errorMsg = text.substring(0, 100);
           }
-        } catch {
-          // ignore parsing error
+        } catch (e) {
+          console.error("Failed to read response body:", e);
         }
-        toast(errorMsg, 'error');
+        toast(`Payment verification failed: ${errorMsg}`, 'error');
       }
     } catch (err: any) {
       console.error("Verification fetch error:", err);
-      toast('Payment received! Your VIP status will activate shortly via webhook confirmation.', 'info');
+      toast(`Failed to reach backend for verification: ${err.message || 'Unknown error'} (URL: ${fullUrl})`, 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -483,20 +535,34 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
       return;
     }
 
-    try {
-      await addDoc(collection(db, 'transactions'), {
+    if (!isSupabaseActive) {
+      const newTx = {
+        id: `tx-out-${Date.now()}`,
+        from_uid: profile.id,
+        amount: amount,
+        type: 'withdrawal',
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      };
+      setTransactions(prev => [newTx, ...prev]);
+      setShowWithdrawModal(false);
+      toast('Withdrawal request submitted (Mock Mode)!', 'success');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('transactions')
+      .insert({
         profile_id: profile.id,
         amount: amount,
         type: 'withdrawal',
         status: 'pending',
-        metadata: bankDetails,
-        created_at: new Date().toISOString()
+        metadata: bankDetails
       });
+
+    if (!error) {
       setShowWithdrawModal(false);
       toast('Withdrawal request submitted successfully!', 'success');
-    } catch (err: any) {
-      console.error('Withdrawal error:', err);
-      toast(err.message || 'Failed to submit withdrawal request', 'error');
     }
   };
 
@@ -564,7 +630,7 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                   </div>
                 </div>
                 <div className="p-3 bg-black/40 rounded-xl border border-white/5">
-                  <div className="text-[8px] text-white/30 uppercase mb-1">Firebase Admin</div>
+                  <div className="text-[8px] text-white/30 uppercase mb-1">Supabase Key</div>
                   <div className={cn("text-[10px] font-mono", debugStatus?.hasServiceKey ? "text-green-500" : "text-red-500")}>
                     {debugStatus?.hasServiceKey ? "PRESENT" : "MISSING"}
                   </div>
@@ -695,12 +761,16 @@ export default function WalletPage({ profile, onUpdate }: { profile: any, onUpda
                             onClick={async () => {
                               if (!profile?.id) return;
                               const newValue = !profile.auto_renew;
-                              try {
-                                await updateDoc(doc(db, 'profiles', profile.id), { auto_renew: newValue });
+                              const { error } = await supabase
+                                .from('profiles')
+                                .update({ auto_renew: newValue })
+                                .eq('id', profile.id);
+                              
+                              if (error) {
+                                toast(error.message, 'error');
+                              } else {
                                 toast(`Auto-subscribe ${newValue ? 'enabled' : 'disabled'}`, 'success');
                                 if (onUpdate) onUpdate();
-                              } catch (err: any) {
-                                toast(err.message || 'Failed to update auto-subscribe', 'error');
                               }
                             }}
                             className={cn(
